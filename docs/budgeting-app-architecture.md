@@ -155,7 +155,7 @@ Fields:
 
   * negative = outflow
   * positive = inflow
-* txn_date
+* txn_date (DATE — register / budget month; not a workflow timestamp)
 * payee
 * memo
 * transfer_account_id (nullable)
@@ -167,7 +167,9 @@ Fields:
 
 Rules:
 
-* every transaction must have one or more splits
+* `txn_date` is the calendar date of the ledger line (from Plaid or user entry). It drives register ordering and which budget month activity falls in. Keep it separate from `cleared_at` — clearing is bank workflow, not the transaction’s economic date.
+* approved transactions must have one or more splits that sum to `amount_cents`
+* unapproved transactions (e.g. Plaid import) may have zero splits until the user approves
 * imported transactions may start as pending approval
 * imported_id supports deduplication/upsert logic
 
@@ -184,8 +186,8 @@ Fields:
 
 Rules:
 
-* split sum must equal transaction amount
-* all categorized spending flows through splits
+* split sum must equal transaction amount when the parent transaction is approved
+* all categorized spending flows through splits (on approved transactions)
 
 ---
 
@@ -214,6 +216,7 @@ Fields:
 * id
 * name
 * group_id
+* is_pinned
 * is_hidden
 
 ---
