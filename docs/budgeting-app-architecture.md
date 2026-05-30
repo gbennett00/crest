@@ -127,7 +127,7 @@ Fields:
   * 'checking'
   * 'savings'
   * 'credit'
-* balance_cents
+* balance_cents — last **bank-reported cleared/posted** balance (Plaid `accounts.balance.current` on sync); used for reconciliation only; not updated by transactions
 * payment_category_id (nullable, required for credit accounts)
 * is_linked
 * plaid_item_id (nullable)
@@ -138,8 +138,11 @@ Fields:
 Rules:
 
 * credit accounts require a payment category
-* linked accounts may sync transactions automatically
-* manual accounts are fully supported
+* linked accounts sync transactions via Plaid; balance sync writes Plaid `current` → `balance_cents`
+* **opening balance** at link/create: one cleared, approved transaction (`imported_id = crest:opening_balance`, payee “Starting Balance”) with a split to Ready to Assign
+* **approximate available balance** (UI only, computed): `balance_cents` + sum(amount_cents) of uncleared register lines (`cleared_at IS NULL`)
+* **register cleared balance** (computed, for reconcile check): sum(cleared transaction amounts), including the opening-balance line
+* manual accounts are supported for testing (`createAccount` with `openingBalanceCents` seeds `balance_cents` and the opening transaction)
 
 ---
 
@@ -216,8 +219,17 @@ Fields:
 * id
 * name
 * group_id
+* role (nullable)
+
+  * `ready_to_assign` — system pool for unallocated cash; exactly one row in the database
 * is_pinned
 * is_hidden
+
+Rules:
+
+* the Ready to Assign category is created at schema seed; users categorize **inflows** here (positive splits)
+* assigning money to spending categories draws from Ready to Assign (see READY TO ASSIGN)
+* do not use account `balance_cents` for Ready to Assign math
 
 ---
 
@@ -260,7 +272,7 @@ BUDGET SETTINGS
 Fields:
 
 * id
-* monthly_income_cents
+* monthly_income_cents (optional planning hint; income still flows through ledger splits into Ready to Assign)
 
 ---
 
@@ -297,15 +309,21 @@ Important:
 
 READY TO ASSIGN
 
-Definition:
+Ready to Assign is a **system category** (`role = ready_to_assign`), not a value derived from bank balances.
 
-ready_to_assign = sum(all account balances) - sum(all assigned budget amounts through current month)
+**Inflows:** categorize positive transactions (paycheck, refunds, etc.) with splits to Ready to Assign. That increases Ready to Assign **activity** for the month.
+
+**Assignments:** when the user assigns money to another category, increase that category’s `assigned_cents` and decrease Ready to Assign by the same amount (negative `assigned_cents` on the Ready to Assign category for that month, or an equivalent transfer in application code).
+
+**Available** (computed, same as any category):
+
+ready_to_assign_available = last_month_available + assigned + activity
 
 Important:
 
-* this represents unallocated cash
-* budget assignments reduce ready-to-assign
-* transactions themselves do NOT directly affect ready-to-assign
+* represents unallocated cash in the **budget**, separate from the **ledger**
+* account `balance_cents` is only for reconciliation against the bank; never use it in Ready to Assign or category available math
+* spending categories consume cash via splits; assigning moves dollars from Ready to Assign into category envelopes
 
 ---
 
@@ -352,9 +370,11 @@ Credit card handling should mirror YNAB-style reserved cash behavior.
 
 ## RECONCILIATION
 
-When a user initiates an account reconciliation: 
-* If the cleared account balances equals the sum of all the cleared transactions for that account, set reconciled_at = now() for all cleared transactions
-* Otherwise, tell the user what the difference is and explain to them how they can fix it 
+When a user initiates account reconciliation:
+* Compare `balance_cents` (last bank **cleared** balance on file) to sum(amount_cents) of all **cleared** transactions (`cleared_at` set) on that account, including the opening-balance transaction
+* If they match, set `reconciled_at = now()` for all cleared, unreconciled transactions — the user does not need to open the bank app
+* Otherwise, report the difference in cents and explain how to fix the register; only then ask the user to confirm against the bank app
+* Pending register lines are excluded from reconciliation but included in the computed approximate available balance
 
 ---
 

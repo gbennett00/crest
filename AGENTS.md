@@ -17,7 +17,7 @@ Do not contradict the architecture doc unless the user explicitly overrides it.
 
 That includes (non-exhaustive):
 
-- Budget math (assigned, activity, available, rollover, ready-to-assign)
+- Budget math (assigned, activity, available, rollover, Ready to Assign category)
 - Group-level budgeting aggregation
 - Credit-card payment / debt movement logic
 - Transaction split validation and allocation rules

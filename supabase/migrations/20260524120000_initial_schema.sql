@@ -12,6 +12,8 @@ CREATE TYPE budget_mode AS ENUM ('category', 'group');
 
 CREATE TYPE target_type AS ENUM ('fill_up_to', 'set_aside', 'by_date');
 
+CREATE TYPE category_role AS ENUM ('ready_to_assign');
+
 -- ---------------------------------------------------------------------------
 -- Category groups & categories (before accounts — payment categories)
 -- ---------------------------------------------------------------------------
@@ -28,10 +30,15 @@ CREATE TABLE categories (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
   group_id uuid NOT NULL REFERENCES category_groups (id) ON DELETE RESTRICT,
+  role category_role,
   is_pinned boolean NOT NULL DEFAULT false,
   is_hidden boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE UNIQUE INDEX categories_role_ready_to_assign_unique
+  ON categories (role)
+  WHERE role = 'ready_to_assign';
 
 CREATE INDEX categories_group_id_idx ON categories (group_id);
 
@@ -57,6 +64,9 @@ CREATE TABLE accounts (
     type = 'credit' OR payment_category_id IS NULL
   )
 );
+
+COMMENT ON COLUMN accounts.balance_cents IS
+  'Last bank-reported cleared/posted balance (Plaid accounts.balance.current on sync). Reconcile against sum(cleared transactions); opening balance is a cleared txn (imported_id crest:opening_balance).';
 
 CREATE INDEX accounts_payment_category_id_idx ON accounts (payment_category_id);
 
@@ -151,7 +161,19 @@ CREATE TABLE budget_settings (
 );
 
 -- ---------------------------------------------------------------------------
--- Integrity triggers (ledger)
+-- Seed: Ready to Assign (system budget pool — see docs READY TO ASSIGN)
+-- ---------------------------------------------------------------------------
+
+INSERT INTO category_groups (name, budget_mode, is_pinned)
+VALUES ('Budget', 'category', true);
+
+INSERT INTO categories (name, group_id, is_pinned, role)
+SELECT 'Ready to Assign', id, true, 'ready_to_assign'::category_role
+FROM category_groups
+WHERE name = 'Budget';
+
+-- ---------------------------------------------------------------------------
+-- Integrity triggers (split enforcement — see implementation priority #3)
 -- ---------------------------------------------------------------------------
 
 CREATE OR REPLACE FUNCTION enforce_transaction_splits_sum()
@@ -225,7 +247,6 @@ CREATE CONSTRAINT TRIGGER transactions_approved_require_allocations
   WHEN (NEW.approved_at IS NOT NULL)
   EXECUTE FUNCTION enforce_approved_transaction_has_allocations();
 
--- Re-validate splits when the parent transaction amount changes
 CREATE OR REPLACE FUNCTION enforce_transaction_splits_sum_on_txn_update()
 RETURNS TRIGGER
 LANGUAGE plpgsql
@@ -260,3 +281,83 @@ CREATE TRIGGER transactions_amount_or_approval_recheck_splits
   AFTER UPDATE OF amount_cents, approved_at ON transactions
   FOR EACH ROW
   EXECUTE FUNCTION enforce_transaction_splits_sum_on_txn_update();
+
+-- ---------------------------------------------------------------------------
+-- Ledger: atomic transfer (see lib/ledger/operations.ts createTransfer)
+-- ---------------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION ledger_create_transfer(
+  p_from_account_id uuid,
+  p_to_account_id uuid,
+  p_amount_cents bigint,
+  p_txn_date date,
+  p_payee text DEFAULT 'Transfer',
+  p_memo text DEFAULT NULL,
+  p_cleared_at timestamptz DEFAULT NULL
+)
+RETURNS TABLE (outflow_transaction_id uuid, inflow_transaction_id uuid)
+LANGUAGE plpgsql
+AS $$
+DECLARE
+  v_outflow_id uuid;
+  v_inflow_id uuid;
+BEGIN
+  IF p_from_account_id = p_to_account_id THEN
+    RAISE EXCEPTION 'transfer accounts must differ';
+  END IF;
+
+  IF p_amount_cents <= 0 THEN
+    RAISE EXCEPTION 'transfer amount must be positive (got %)', p_amount_cents;
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM accounts WHERE id = p_from_account_id AND is_active) THEN
+    RAISE EXCEPTION 'from account not found or inactive';
+  END IF;
+
+  IF NOT EXISTS (SELECT 1 FROM accounts WHERE id = p_to_account_id AND is_active) THEN
+    RAISE EXCEPTION 'to account not found or inactive';
+  END IF;
+
+  INSERT INTO transactions (
+    account_id,
+    amount_cents,
+    txn_date,
+    payee,
+    memo,
+    transfer_account_id,
+    cleared_at
+  )
+  VALUES (
+    p_from_account_id,
+    -p_amount_cents,
+    p_txn_date,
+    p_payee,
+    p_memo,
+    p_to_account_id,
+    p_cleared_at
+  )
+  RETURNING id INTO v_outflow_id;
+
+  INSERT INTO transactions (
+    account_id,
+    amount_cents,
+    txn_date,
+    payee,
+    memo,
+    transfer_account_id,
+    cleared_at
+  )
+  VALUES (
+    p_to_account_id,
+    p_amount_cents,
+    p_txn_date,
+    p_payee,
+    p_memo,
+    p_from_account_id,
+    p_cleared_at
+  )
+  RETURNING id INTO v_inflow_id;
+
+  RETURN QUERY SELECT v_outflow_id, v_inflow_id;
+END;
+$$;

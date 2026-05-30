@@ -1,6 +1,7 @@
 -- Read-only SQL helpers for budget math (computed at query time — not stored).
 -- Canonical business logic + unit tests should live in application code (e.g. lib/budget/).
 -- Use security_invoker so RLS on base tables applies when you add it later.
+-- Ready to Assign is a system category (role = ready_to_assign), not sum(account balances).
 
 CREATE OR REPLACE FUNCTION budget_month(d date)
 RETURNS date
@@ -8,6 +9,14 @@ LANGUAGE sql
 IMMUTABLE
 AS $$
   SELECT date_trunc('month', d)::date;
+$$;
+
+CREATE OR REPLACE FUNCTION ready_to_assign_category_id()
+RETURNS uuid
+LANGUAGE sql
+STABLE
+AS $$
+  SELECT id FROM categories WHERE role = 'ready_to_assign' LIMIT 1;
 $$;
 
 -- Sum of split amounts per category per calendar month (approved ledger only).
@@ -33,18 +42,3 @@ SELECT
   assigned_cents
 FROM monthly_budgets
 WHERE category_id IS NOT NULL;
-
--- ready_to_assign = sum(account balances) - sum(all assignments through as_of_month)
-CREATE OR REPLACE FUNCTION ready_to_assign_cents(as_of_month date)
-RETURNS bigint
-LANGUAGE sql
-STABLE
-AS $$
-  SELECT
-    (SELECT COALESCE(SUM(balance_cents), 0) FROM accounts WHERE is_active)
-    - (
-      SELECT COALESCE(SUM(assigned_cents), 0)
-      FROM monthly_budgets
-      WHERE month <= as_of_month
-    );
-$$;
