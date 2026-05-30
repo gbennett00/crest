@@ -119,3 +119,17 @@ export type AllocationRow = {
   category_id: string;
   amount_cents: number;
 };
+
+export type UpsertCategoryBudgetInput = {
+  categoryId: string;
+  /** First day of the month: YYYY-MM-01 */
+  month: string;
+  assignedCents: Cents;
+};
+
+export type UpsertGroupBudgetInput = {
+  groupId: string;
+  /** First day of the month: YYYY-MM-01 */
+  month: string;
+  assignedCents: Cents;
+};

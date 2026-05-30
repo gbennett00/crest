@@ -7,6 +7,10 @@ import {
   sumPendingTransactionAmounts,
 } from "./balance";
 import {
+  assertBudgetMonth,
+  computeAvailableThrough,
+} from "./budget";
+import {
   OPENING_BALANCE_IMPORTED_ID,
   OPENING_BALANCE_PAYEE,
 } from "./constants";
@@ -18,6 +22,7 @@ import type {
   AccountBalanceSummary,
   AccountType,
   AllocationRow,
+  Cents,
   CreateAccountInput,
   CreateOpeningBalanceInput,
   CreateTransactionInput,
@@ -28,9 +33,12 @@ import type {
   TransactionAmountLine,
   TransactionRow,
   UpdateTransactionInput,
+  UpsertCategoryBudgetInput,
+  UpsertGroupBudgetInput,
   UpsertTransactionInput,
 } from "./types";
 import {
+  assertIntegerCents,
   assertNonZeroAmount,
   assertPositiveAmount,
   assertTxnDate,
@@ -256,23 +264,32 @@ export async function updateTransaction(
     assertTxnDate(input.txnDate);
   }
 
-  // Require allocations only when the caller is doing something that makes the
-  // current DB allocations invalid: approving for the first time, or changing
-  // the amount on an already-approved transaction.  A simple payee/memo edit on
-  // an approved transaction must not be forced to re-specify all allocations.
+  // Determine which state transitions are happening so we can require allocations
+  // only when the current DB allocations would become invalid.
   const isApproving =
     input.approvedAt !== undefined &&
     input.approvedAt !== null &&
     current.approved_at === null;
+  const isUnApproving =
+    input.approvedAt !== undefined && input.approvedAt === null;
   const isChangingAmountOnApproved =
     input.amountCents !== undefined &&
     input.amountCents !== current.amount_cents &&
+    current.approved_at !== null;
+  // Caller is explicitly touching allocations on a still-approved transaction
+  // (not un-approving): even an empty array must be rejected here — the DB
+  // trigger would catch it, but we surface the error earlier.
+  const isModifyingAllocsOnApproved =
+    input.allocations !== undefined &&
+    !isUnApproving &&
     current.approved_at !== null;
 
   validateAllocations(
     amountCents,
     input.allocations,
-    isApproving || isChangingAmountOnApproved ? approvedAt : null,
+    isApproving || isChangingAmountOnApproved || isModifyingAllocsOnApproved
+      ? approvedAt
+      : null,
   );
 
   const amountIsChanging =
@@ -678,4 +695,179 @@ export async function getTransactionAllocations(
     categoryId: row.category_id,
     amountCents: row.amount_cents,
   }));
+}
+
+// ---------------------------------------------------------------------------
+// Budget calculations
+// ---------------------------------------------------------------------------
+
+/** Sum of approved split amounts for a category in one budget month. */
+export async function getCategoryActivity(
+  client: SupabaseClient,
+  categoryId: string,
+  month: string,
+): Promise<Cents> {
+  assertBudgetMonth(month);
+  const { data, error } = await client
+    .from("category_monthly_activity")
+    .select("activity_cents")
+    .eq("category_id", categoryId)
+    .eq("month", month)
+    .maybeSingle();
+  if (error) throw new LedgerError("db_error", error.message);
+  return ((data as { activity_cents: number } | null)?.activity_cents ?? 0) as Cents;
+}
+
+/** Sum of approved split amounts for all categories in a group in one budget month. */
+export async function getGroupActivity(
+  client: SupabaseClient,
+  groupId: string,
+  month: string,
+): Promise<Cents> {
+  assertBudgetMonth(month);
+  const { data, error } = await client
+    .from("group_monthly_activity")
+    .select("activity_cents")
+    .eq("group_id", groupId)
+    .eq("month", month)
+    .maybeSingle();
+  if (error) throw new LedgerError("db_error", error.message);
+  return ((data as { activity_cents: number } | null)?.activity_cents ?? 0) as Cents;
+}
+
+/**
+ * Available balance for a category at the end of `month`, computed by iterating
+ * forward from the earliest month with any assignment or activity.
+ *
+ * available(m) = available(m-1) + assigned(m) + activity(m)
+ */
+export async function getCategoryAvailable(
+  client: SupabaseClient,
+  categoryId: string,
+  month: string,
+): Promise<Cents> {
+  assertBudgetMonth(month);
+
+  const [activityRes, assignedRes] = await Promise.all([
+    client
+      .from("category_monthly_activity")
+      .select("month, activity_cents")
+      .eq("category_id", categoryId)
+      .lte("month", month),
+    client
+      .from("category_monthly_assigned")
+      .select("month, assigned_cents")
+      .eq("category_id", categoryId)
+      .lte("month", month),
+  ]);
+
+  if (activityRes.error) throw new LedgerError("db_error", activityRes.error.message);
+  if (assignedRes.error) throw new LedgerError("db_error", assignedRes.error.message);
+
+  const activityByMonth: Record<string, Cents> = {};
+  for (const row of activityRes.data ?? []) {
+    activityByMonth[row.month as string] = row.activity_cents as Cents;
+  }
+
+  const assignedByMonth: Record<string, Cents> = {};
+  for (const row of assignedRes.data ?? []) {
+    assignedByMonth[row.month as string] = row.assigned_cents as Cents;
+  }
+
+  return computeAvailableThrough(month, activityByMonth, assignedByMonth);
+}
+
+/**
+ * Available balance for a group at the end of `month` (group-budgeted mode).
+ * Uses group-level assignments and the sum of all member-category activity.
+ */
+export async function getGroupAvailable(
+  client: SupabaseClient,
+  groupId: string,
+  month: string,
+): Promise<Cents> {
+  assertBudgetMonth(month);
+
+  const [activityRes, assignedRes] = await Promise.all([
+    client
+      .from("group_monthly_activity")
+      .select("month, activity_cents")
+      .eq("group_id", groupId)
+      .lte("month", month),
+    client
+      .from("group_monthly_assigned")
+      .select("month, assigned_cents")
+      .eq("group_id", groupId)
+      .lte("month", month),
+  ]);
+
+  if (activityRes.error) throw new LedgerError("db_error", activityRes.error.message);
+  if (assignedRes.error) throw new LedgerError("db_error", assignedRes.error.message);
+
+  const activityByMonth: Record<string, Cents> = {};
+  for (const row of activityRes.data ?? []) {
+    activityByMonth[row.month as string] = row.activity_cents as Cents;
+  }
+
+  const assignedByMonth: Record<string, Cents> = {};
+  for (const row of assignedRes.data ?? []) {
+    assignedByMonth[row.month as string] = row.assigned_cents as Cents;
+  }
+
+  return computeAvailableThrough(month, activityByMonth, assignedByMonth);
+}
+
+/**
+ * Available balance for the Ready to Assign system category at the end of `month`.
+ * Inflows increase activity; assignments to other categories decrease it via
+ * negative `assigned_cents` on the RTA row in monthly_budgets.
+ */
+export async function getReadyToAssignAvailable(
+  client: SupabaseClient,
+  month: string,
+): Promise<Cents> {
+  const categoryId = await getReadyToAssignCategoryId(client);
+  return getCategoryAvailable(client, categoryId, month);
+}
+
+/** Create or update the assigned amount for a category in a budget month. */
+export async function upsertCategoryBudget(
+  client: SupabaseClient,
+  input: UpsertCategoryBudgetInput,
+): Promise<void> {
+  assertBudgetMonth(input.month);
+  assertIntegerCents(input.assignedCents, "assignedCents");
+
+  const { error } = await client.from("monthly_budgets").upsert(
+    {
+      month: input.month,
+      category_id: input.categoryId,
+      group_id: null,
+      assigned_cents: input.assignedCents,
+    },
+    { onConflict: "month,category_id" },
+  );
+
+  if (error) throw new LedgerError("db_error", error.message);
+}
+
+/** Create or update the assigned amount for a group in a budget month (group-mode pools). */
+export async function upsertGroupBudget(
+  client: SupabaseClient,
+  input: UpsertGroupBudgetInput,
+): Promise<void> {
+  assertBudgetMonth(input.month);
+  assertIntegerCents(input.assignedCents, "assignedCents");
+
+  const { error } = await client.from("monthly_budgets").upsert(
+    {
+      month: input.month,
+      category_id: null,
+      group_id: input.groupId,
+      assigned_cents: input.assignedCents,
+    },
+    { onConflict: "month,group_id" },
+  );
+
+  if (error) throw new LedgerError("db_error", error.message);
 }

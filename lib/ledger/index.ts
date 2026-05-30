@@ -6,6 +6,14 @@ export {
   sumPendingTransactionAmounts,
   sumTransactionAmounts,
 } from "./balance";
+export {
+  assertBudgetMonth,
+  computeAvailable,
+  computeAvailableThrough,
+  currentBudgetMonth,
+  nextBudgetMonth,
+  previousBudgetMonth,
+} from "./budget";
 export { checkReconciliation, RECONCILIATION_FIX_HINT } from "./reconciliation";
 export {
   assertIntegerCents,
@@ -28,11 +36,18 @@ export {
   evaluateReconciliation,
   getAccount,
   getAccountBalanceSummary,
+  getCategoryActivity,
+  getCategoryAvailable,
+  getGroupActivity,
+  getGroupAvailable,
+  getReadyToAssignAvailable,
   getReadyToAssignCategoryId,
   getTransactionAllocations,
   listAccounts,
   syncBankClearedBalance,
   updateTransaction,
+  upsertCategoryBudget,
+  upsertGroupBudget,
   upsertTransaction,
 } from "./operations";
 export type {
@@ -50,5 +65,7 @@ export type {
   TransactionAmountLine,
   TransactionRow,
   UpdateTransactionInput,
+  UpsertCategoryBudgetInput,
+  UpsertGroupBudgetInput,
   UpsertTransactionInput,
 } from "./types";

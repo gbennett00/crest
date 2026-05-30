@@ -43,6 +43,25 @@ describe("validateAllocations", () => {
       validateAllocations(-5000, [{ categoryId: "c1", amountCents: 0 }], null),
     ).toThrow(/cannot be zero/);
   });
+
+  it("rejects non-integer allocation amounts", () => {
+    expect(() =>
+      validateAllocations(-5000, [{ categoryId: "c1", amountCents: -49.99 }], null),
+    ).toThrow(LedgerError);
+  });
+
+  it("accepts inflow transaction with matching positive splits", () => {
+    expect(() =>
+      validateAllocations(
+        10000,
+        [
+          { categoryId: "c1", amountCents: 6000 },
+          { categoryId: "c2", amountCents: 4000 },
+        ],
+        "2026-05-01T00:00:00Z",
+      ),
+    ).not.toThrow();
+  });
 });
 
 describe("sumAllocationCents", () => {
