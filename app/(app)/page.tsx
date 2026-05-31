@@ -47,12 +47,11 @@ async function HomeContent() {
       .from("category_monthly_assigned")
       .select("category_id, month, assigned_cents")
       .lte("month", month),
-    // Group-mode assignments live in monthly_budgets with group_id set
+    // Group-mode assignments (keyed by group_id, all months)
     supabase
       .from("monthly_budgets")
       .select("group_id, month, assigned_cents")
-      .not("group_id", "is", null)
-      .lte("month", month),
+      .not("group_id", "is", null),
     supabase
       .from("categories")
       .select("id, name, group_id, role, is_hidden, category_groups!group_id(name)")
@@ -60,7 +59,44 @@ async function HomeContent() {
       .order("name"),
   ]);
 
-  // Build history maps
+  // Find RTA category ID
+  let rtaId: string | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  outer: for (const g of (groupsRes.data ?? []) as any[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of (g.categories ?? []) as any[]) {
+      if (c.role === "ready_to_assign") { rtaId = c.id as string; break outer; }
+    }
+  }
+
+  // Fetch RTA activity (through today) and all spending assignments — for direct RTA formula
+  const [rtaActivityRes, allCatBudgetsRes] = await Promise.all([
+    rtaId
+      ? supabase.from("category_monthly_activity")
+          .select("activity_cents")
+          .eq("category_id", rtaId)
+          .lte("month", month)
+      : Promise.resolve({ data: [] }),
+    rtaId
+      ? supabase.from("monthly_budgets")
+          .select("assigned_cents")
+          .not("category_id", "is", null)
+          .neq("category_id", rtaId)
+      : Promise.resolve({ data: [] }),
+  ]);
+
+  const rtaActivity = (rtaActivityRes.data ?? []).reduce(
+    (s, r) => s + (r.activity_cents as number), 0,
+  );
+  const allCatAssigned = (allCatBudgetsRes.data ?? []).reduce(
+    (s, r) => s + (r.assigned_cents as number), 0,
+  );
+  const allGrpAssigned = (groupAssignedRes.data ?? []).reduce(
+    (s, r) => s + (r.assigned_cents as number), 0,
+  );
+  const rtaAvailableCents = rtaActivity - allCatAssigned - allGrpAssigned;
+
+  // Build history maps for spending categories/groups
   const catActivityHistory: Record<string, Record<string, number>> = {};
   for (const row of catActivityRes.data ?? []) {
     (catActivityHistory[row.category_id as string] ??= {})[row.month as string] =
@@ -71,14 +107,14 @@ async function HomeContent() {
     (catAssignedHistory[row.category_id as string] ??= {})[row.month as string] =
       row.assigned_cents as number;
   }
-  // Group-level assignment history (keyed by group_id)
+  // Group-level assignment history (keyed by group_id, through current month for overspent/pinned)
   const groupAssignedHistory: Record<string, Record<string, number>> = {};
   for (const row of groupAssignedRes.data ?? []) {
     (groupAssignedHistory[row.group_id as string] ??= {})[row.month as string] =
       row.assigned_cents as number;
   }
 
-  // Compute available for each category/group, plus RTA
+  // Compute available for each spending category/group (for overspent + pinned sections)
   type AvailItem = {
     id: string;
     name: string;
@@ -89,7 +125,6 @@ async function HomeContent() {
     isGroup: boolean;
   };
 
-  let rtaAvailableCents = 0;
   const avails: AvailItem[] = [];
 
   for (const g of groupsRes.data ?? []) {
@@ -98,7 +133,7 @@ async function HomeContent() {
     const isGroupMode = grp.budget_mode === "group";
 
     if (isGroupMode) {
-      // Compute available at group level: sum category activities + group assignments
+      // Group-mode: compute available at group level
       const groupActH: Record<string, number> = {};
       for (const c of (grp.categories ?? []) as { id: string; is_hidden: boolean; role: string | null }[]) {
         if (c.is_hidden || c.role === "ready_to_assign") continue;
@@ -108,33 +143,29 @@ async function HomeContent() {
         }
       }
       const groupAsnH = groupAssignedHistory[grp.id as string] ?? {};
-      const available = computeAvailableThrough(month, groupActH, groupAsnH);
       avails.push({
         id: grp.id as string,
         name: grp.name as string,
         groupId: grp.id as string,
         groupName: grp.name as string,
-        availableCents: available,
+        availableCents: computeAvailableThrough(month, groupActH, groupAsnH),
         isPinned: grp.is_pinned as boolean,
         isGroup: true,
       });
     } else {
       // Category-mode: compute available per category
       for (const c of (grp.categories ?? []) as { id: string; name: string; role: string | null; is_pinned: boolean; is_hidden: boolean }[]) {
-        if (c.is_hidden) continue;
-        const actH = catActivityHistory[c.id] ?? {};
-        const asnH = catAssignedHistory[c.id] ?? {};
-        const available = computeAvailableThrough(month, actH, asnH);
-        if (c.role === "ready_to_assign") {
-          rtaAvailableCents = available;
-          continue;
-        }
+        if (c.is_hidden || c.role === "ready_to_assign") continue;
         avails.push({
           id: c.id,
           name: c.name,
           groupId: grp.id as string,
           groupName: grp.name as string,
-          availableCents: available,
+          availableCents: computeAvailableThrough(
+            month,
+            catActivityHistory[c.id] ?? {},
+            catAssignedHistory[c.id] ?? {},
+          ),
           isPinned: c.is_pinned || (grp.is_pinned as boolean),
           isGroup: false,
         });
@@ -176,7 +207,7 @@ async function HomeContent() {
     accountName: (t.accounts as { name: string } | null)?.name ?? "Unknown",
   }));
 
-  const hasItems = pending.length > 0 || overspent.length > 0;
+  const hasItems = pending.length > 0 || overspent.length > 0 || rtaAvailableCents < 0;
 
   return (
     <div className="p-4 space-y-5">
@@ -224,17 +255,26 @@ async function HomeContent() {
               "text-xs font-bold px-2 h-6 rounded-full flex items-center shrink-0 tabular-nums",
               rtaAvailableCents > 0
                 ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                : "bg-muted text-muted-foreground",
+                : rtaAvailableCents < 0
+                  ? "bg-destructive/10 text-destructive"
+                  : "bg-muted text-muted-foreground",
             )}
           >
             {formatCents(rtaAvailableCents)}
           </span>
-          <span className="flex-1 text-sm">Ready to assign</span>
+          <span className="flex-1 text-sm">
+            {rtaAvailableCents < 0 ? "Over assigned" : "Ready to assign"}
+          </span>
           <Link
             href="/budget"
-            className="text-xs font-semibold bg-primary text-primary-foreground px-3 py-1 rounded-full shrink-0"
+            className={cn(
+              "text-xs font-semibold px-3 py-1 rounded-full shrink-0",
+              rtaAvailableCents < 0
+                ? "bg-destructive text-destructive-foreground"
+                : "bg-primary text-primary-foreground",
+            )}
           >
-            Assign
+            {rtaAvailableCents < 0 ? "Fix" : "Assign"}
           </Link>
         </div>
       </div>

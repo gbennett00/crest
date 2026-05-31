@@ -12,6 +12,7 @@ import { assignCategory, assignGroup } from "@/app/(app)/budget/actions";
 import { AddGroupForm } from "./add-group-form";
 import { AddCategoryForm } from "./add-category-form";
 import { TargetButton } from "./target-form";
+import { AssignPopup } from "./assign-popup";
 
 // ---------------------------------------------------------------------------
 // Types (also imported by the page server component)
@@ -79,6 +80,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const [assignOpen, setAssignOpen] = useState(false);
 
   function navigate(month: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -101,8 +103,12 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
   );
 
   return (
-    <div className="flex flex-col">
-      {/* Month navigation */}
+    <div className="flex flex-col pt-12">
+      {assignOpen && (
+        <AssignPopup data={data} onClose={() => setAssignOpen(false)} />
+      )}
+
+      {/* Month navigation — sticky top-12 matches pt-12 on the wrapper so there's no jump on load */}
       <div className="sticky top-12 z-10 bg-background border-b flex items-center justify-between px-2 h-11 shrink-0">
         <button
           onClick={() => navigate(previousBudgetMonth(data.month))}
@@ -121,8 +127,10 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
         </button>
       </div>
 
-      {/* Ready to Assign banner */}
-      <RtaBanner cents={data.rtaAvailableCents} />
+      {/* Ready to Assign banner — clickable to open assign popup */}
+      <button className="text-left w-full" onClick={() => setAssignOpen(true)}>
+        <RtaBanner cents={data.rtaAvailableCents} />
+      </button>
 
       {/* Column headers */}
       <div
@@ -283,7 +291,7 @@ function RtaBanner({ cents }: { cents: number }) {
   return (
     <div
       className={cn(
-        "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between",
+        "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity",
         overAssigned
           ? "bg-destructive/10 border border-destructive/30"
           : "bg-primary/5 border border-primary/20",
@@ -302,9 +310,12 @@ function RtaBanner({ cents }: { cents: number }) {
           {formatCents(cents)}
         </p>
       </div>
-      {overAssigned && (
-        <span className="text-xs font-semibold text-destructive">Over-assigned</span>
-      )}
+      <div className="flex items-center gap-1.5">
+        {overAssigned && (
+          <span className="text-xs font-semibold text-destructive">Over-assigned</span>
+        )}
+        <ChevronRight size={18} className={overAssigned ? "text-destructive" : "text-primary"} />
+      </div>
     </div>
   );
 }

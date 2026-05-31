@@ -25,9 +25,11 @@ async function BudgetContent({
 }) {
   const { month: rawMonth } = await searchParams;
   const month = BUDGET_MONTH_RE.test(rawMonth ?? "") ? rawMonth! : currentBudgetMonth();
+  const todayMonth = currentBudgetMonth();
 
   const supabase = await createClient();
 
+  // Wave 1: all the data needed to render spending categories/groups
   const [groupsRes, catActivityRes, catAssignedRes, grpActivityRes, grpAssignedRes, targetsRes] =
     await Promise.all([
       supabase
@@ -58,6 +60,48 @@ async function BudgetContent({
         .select("category_id, group_id, type, amount_cents, target_date"),
     ]);
 
+  // Find RTA category ID from the groups data (synchronous — no extra round trip)
+  let rtaId: string | null = null;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  outer: for (const g of (groupsRes.data ?? []) as any[]) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const c of (g.categories ?? []) as any[]) {
+      if (c.role === "ready_to_assign") { rtaId = c.id as string; break outer; }
+    }
+  }
+
+  // Wave 2: RTA-specific queries — activity through today, all spending assignments ever
+  const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes] = await Promise.all([
+    rtaId
+      ? supabase
+          .from("category_monthly_activity")
+          .select("activity_cents")
+          .eq("category_id", rtaId)
+          .lte("month", todayMonth)
+      : Promise.resolve({ data: [] }),
+    rtaId
+      ? supabase
+          .from("monthly_budgets")
+          .select("assigned_cents")
+          .not("category_id", "is", null)
+          .neq("category_id", rtaId)
+      : Promise.resolve({ data: [] }),
+    supabase
+      .from("monthly_budgets")
+      .select("assigned_cents")
+      .not("group_id", "is", null),
+  ]);
+
+  // RTA = total inflows through today − total spending assignments (any month)
+  const rtaActivity = (rtaActivityRes.data ?? []).reduce(
+    (s, r) => s + (r.activity_cents as number), 0,
+  );
+  const totalSpendingAssigned =
+    (allCatBudgetsRes.data ?? []).reduce((s, r) => s + (r.assigned_cents as number), 0) +
+    (allGrpBudgetsRes.data ?? []).reduce((s, r) => s + (r.assigned_cents as number), 0);
+  const rtaAvailableCents = rtaActivity - totalSpendingAssigned;
+
+  // Build history maps for spending categories/groups
   const catActivityHistory: Record<string, Record<string, number>> = {};
   for (const row of catActivityRes.data ?? []) {
     (catActivityHistory[row.category_id as string] ??= {})[row.month as string] =
@@ -82,7 +126,7 @@ async function BudgetContent({
       row.assigned_cents as number;
   }
 
-  // Build targets lookup by category_id / group_id
+  // Build targets lookup
   const catTargets: Record<string, TargetData> = {};
   const grpTargets: Record<string, TargetData> = {};
   for (const t of targetsRes.data ?? []) {
@@ -94,8 +138,6 @@ async function BudgetContent({
     if (t.category_id) catTargets[t.category_id as string] = td;
     else if (t.group_id) grpTargets[t.group_id as string] = td;
   }
-
-  let rtaAvailableCents = 0;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const groups: BudgetGroup[] = (groupsRes.data ?? []).map((g: any) => {
@@ -109,8 +151,10 @@ async function BudgetContent({
     const categories: BudgetCategory[] = sortedCats.map((c: any) => {
       const actHistory = catActivityHistory[c.id as string] ?? {};
       const asnHistory = catAssignedHistory[c.id as string] ?? {};
-      const availableCents = computeAvailableThrough(month, actHistory, asnHistory);
-      if (c.role === "ready_to_assign") rtaAvailableCents = availableCents;
+      // RTA available is computed separately above; skip it in the regular rollover
+      const availableCents = c.role === "ready_to_assign"
+        ? 0 // placeholder — RTA not shown as a budget row
+        : computeAvailableThrough(month, actHistory, asnHistory);
       return {
         id: c.id as string,
         name: c.name as string,

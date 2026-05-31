@@ -2,37 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { upsertCategoryBudget, upsertGroupBudget, getReadyToAssignCategoryId } from "@/lib/ledger";
+import { upsertCategoryBudget, upsertGroupBudget } from "@/lib/ledger";
 
-// After any assignment, sync the RTA monthly_budget to -(sum of all non-RTA assignments).
-// This makes computeAvailableThrough correctly reflect how much has been assigned away from RTA.
-async function syncRtaBudget(supabase: Awaited<ReturnType<typeof createClient>>, month: string) {
-  const rtaId = await getReadyToAssignCategoryId(supabase);
-
-  const [catRes, grpRes] = await Promise.all([
-    supabase
-      .from("monthly_budgets")
-      .select("assigned_cents")
-      .eq("month", month)
-      .not("category_id", "is", null)
-      .neq("category_id", rtaId),
-    supabase
-      .from("monthly_budgets")
-      .select("assigned_cents")
-      .eq("month", month)
-      .not("group_id", "is", null),
-  ]);
-
-  const totalAssigned =
-    (catRes.data ?? []).reduce((s, r) => s + (r.assigned_cents as number), 0) +
-    (grpRes.data ?? []).reduce((s, r) => s + (r.assigned_cents as number), 0);
-
-  await upsertCategoryBudget(supabase, {
-    categoryId: rtaId,
-    month,
-    assignedCents: -totalAssigned,
-  });
-}
+// RTA is computed directly on read (see budget/page.tsx and home/page.tsx).
+// No monthly_budget entry is written for the RTA category — assignments to
+// spending categories simply reduce RTA implicitly.
 
 export async function assignCategory(
   categoryId: string,
@@ -41,7 +15,6 @@ export async function assignCategory(
 ) {
   const supabase = await createClient();
   await upsertCategoryBudget(supabase, { categoryId, month, assignedCents });
-  await syncRtaBudget(supabase, month);
   revalidatePath("/budget");
 }
 
@@ -52,8 +25,23 @@ export async function assignGroup(
 ) {
   const supabase = await createClient();
   await upsertGroupBudget(supabase, { groupId, month, assignedCents });
-  await syncRtaBudget(supabase, month);
   revalidatePath("/budget");
+}
+
+export async function bulkAssign(
+  assignments: { type: "category" | "group"; id: string; amountCents: number }[],
+  month: string,
+) {
+  const supabase = await createClient();
+  await Promise.all(
+    assignments.map(({ type, id, amountCents }) =>
+      type === "category"
+        ? upsertCategoryBudget(supabase, { categoryId: id, month, assignedCents: amountCents })
+        : upsertGroupBudget(supabase, { groupId: id, month, assignedCents: amountCents }),
+    ),
+  );
+  revalidatePath("/budget");
+  return { success: true };
 }
 
 export async function createGroup(formData: FormData) {
