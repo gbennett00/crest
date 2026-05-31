@@ -2,7 +2,6 @@ import { sumClearedTransactionAmounts } from "./balance";
 import type {
   ReconciliationCheckInput,
   ReconciliationCheckResult,
-  TransactionAmountLine,
 } from "./types";
 
 /**

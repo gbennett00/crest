@@ -1,7 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { LedgerError } from "./errors";
 import { createTransaction, updateTransaction, upsertTransaction } from "./operations";
 import type { TransactionRow } from "./types";
 

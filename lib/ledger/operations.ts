@@ -47,6 +47,48 @@ import {
   validateTransferAccounts,
 } from "./validation";
 
+// Creates a transaction row and, when it is being created as already-approved
+// with allocations, defers setting approved_at until after the allocations are
+// inserted.  The sequence is: INSERT (approved_at=null) → replaceAllocations →
+// UPDATE approved_at.  This prevents the deferred
+// "transactions_approved_require_allocations" trigger from firing at the commit
+// of the INSERT statement while allocations are still absent.
+async function insertWithAllocations(
+  client: SupabaseClient,
+  payload: Record<string, unknown>,
+  allocations: TransactionAllocationInput[] | undefined,
+): Promise<TransactionRow> {
+  const approvedAt = payload.approved_at as string | null;
+  const needsDeferredApproval =
+    approvedAt != null && allocations != null && allocations.length > 0;
+
+  const { data, error } = await client
+    .from("transactions")
+    .insert(needsDeferredApproval ? { ...payload, approved_at: null } : payload)
+    .select("*")
+    .single();
+  if (error) throw new LedgerError("db_error", error.message);
+
+  const row = data as TransactionRow;
+
+  if (allocations && allocations.length > 0) {
+    await replaceAllocations(client, row.id, allocations);
+  }
+
+  if (needsDeferredApproval) {
+    const { data: approved, error: approveErr } = await client
+      .from("transactions")
+      .update({ approved_at: approvedAt })
+      .eq("id", row.id)
+      .select("*")
+      .single();
+    if (approveErr) throw new LedgerError("db_error", approveErr.message);
+    return approved as TransactionRow;
+  }
+
+  return row;
+}
+
 // Delegates to ledger_replace_allocations RPC so the DELETE + INSERT run in one
 // PostgreSQL transaction, keeping the deferred split-sum constraint satisfied.
 async function replaceAllocations(
@@ -177,20 +219,7 @@ export async function upsertTransaction(
     };
   }
 
-  const { data: created, error: insertError } = await client
-    .from("transactions")
-    .insert(payload)
-    .select("*")
-    .single();
-
-  if (insertError) {
-    throw new LedgerError("db_error", insertError.message);
-  }
-
-  const row = created as TransactionRow;
-  if (input.allocations && input.allocations.length > 0) {
-    await replaceAllocations(client, row.id, input.allocations);
-  }
+  const row = await insertWithAllocations(client, payload, input.allocations);
 
   return {
     created: true as const,
@@ -210,9 +239,9 @@ export async function createTransaction(
     input.approvedAt ?? null,
   );
 
-  const { data, error } = await client
-    .from("transactions")
-    .insert({
+  const row = await insertWithAllocations(
+    client,
+    {
       account_id: input.accountId,
       amount_cents: input.amountCents,
       txn_date: input.txnDate,
@@ -221,18 +250,9 @@ export async function createTransaction(
       transfer_account_id: input.transferAccountId ?? null,
       cleared_at: input.clearedAt ?? null,
       approved_at: input.approvedAt ?? null,
-    })
-    .select("*")
-    .single();
-
-  if (error) {
-    throw new LedgerError("db_error", error.message);
-  }
-
-  const row = data as TransactionRow;
-  if (input.allocations && input.allocations.length > 0) {
-    await replaceAllocations(client, row.id, input.allocations);
-  }
+    },
+    input.allocations,
+  );
 
   return mapTransactionRow(row);
 }
@@ -838,17 +858,28 @@ export async function upsertCategoryBudget(
   assertBudgetMonth(input.month);
   assertIntegerCents(input.assignedCents, "assignedCents");
 
-  const { error } = await client.from("monthly_budgets").upsert(
-    {
+  const { data: existing } = await client
+    .from("monthly_budgets")
+    .select("id")
+    .eq("month", input.month)
+    .eq("category_id", input.categoryId)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await client
+      .from("monthly_budgets")
+      .update({ assigned_cents: input.assignedCents })
+      .eq("id", existing.id);
+    if (error) throw new LedgerError("db_error", error.message);
+  } else {
+    const { error } = await client.from("monthly_budgets").insert({
       month: input.month,
       category_id: input.categoryId,
       group_id: null,
       assigned_cents: input.assignedCents,
-    },
-    { onConflict: "month,category_id" },
-  );
-
-  if (error) throw new LedgerError("db_error", error.message);
+    });
+    if (error) throw new LedgerError("db_error", error.message);
+  }
 }
 
 /** Create or update the assigned amount for a group in a budget month (group-mode pools). */
@@ -859,15 +890,26 @@ export async function upsertGroupBudget(
   assertBudgetMonth(input.month);
   assertIntegerCents(input.assignedCents, "assignedCents");
 
-  const { error } = await client.from("monthly_budgets").upsert(
-    {
+  const { data: existing } = await client
+    .from("monthly_budgets")
+    .select("id")
+    .eq("month", input.month)
+    .eq("group_id", input.groupId)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await client
+      .from("monthly_budgets")
+      .update({ assigned_cents: input.assignedCents })
+      .eq("id", existing.id);
+    if (error) throw new LedgerError("db_error", error.message);
+  } else {
+    const { error } = await client.from("monthly_budgets").insert({
       month: input.month,
       category_id: null,
       group_id: input.groupId,
       assigned_cents: input.assignedCents,
-    },
-    { onConflict: "month,group_id" },
-  );
-
-  if (error) throw new LedgerError("db_error", error.message);
+    });
+    if (error) throw new LedgerError("db_error", error.message);
+  }
 }
