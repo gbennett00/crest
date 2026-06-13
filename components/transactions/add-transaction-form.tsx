@@ -15,12 +15,20 @@ export function AddTransactionForm({
   accounts,
   categories,
   defaultAccountId,
+  initialOpen = false,
+  onSuccess,
+  embedded = false,
 }: {
   accounts: AccountOption[];
   categories: CategoryOption[];
   defaultAccountId?: string;
+  initialOpen?: boolean;
+  onSuccess?: () => void;
+  // When rendered inside another modal (e.g. the home Add Transaction sheet),
+  // skip this component's own card wrapper, header, and close button.
+  embedded?: boolean;
 }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(initialOpen);
   const [direction, setDirection] = useState<"outflow" | "inflow">("outflow");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -36,7 +44,11 @@ export function AddTransactionForm({
       if (result?.error) {
         setError(result.error);
       } else {
-        setOpen(false);
+        if (onSuccess) {
+          onSuccess();
+        } else {
+          setOpen(false);
+        }
         setDirection("outflow");
         formRef.current?.reset();
       }
@@ -58,16 +70,18 @@ export function AddTransactionForm({
   }
 
   return (
-    <div className="border rounded-lg p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <h3 className="font-semibold text-sm">New Transaction</h3>
-        <button
-          onClick={() => { setOpen(false); setError(null); }}
-          className="text-muted-foreground hover:text-foreground"
-        >
-          <X size={16} />
-        </button>
-      </div>
+    <div className={embedded ? "px-3 pt-2 space-y-4" : "border rounded-lg p-4 space-y-4"}>
+      {!embedded && (
+        <div className="flex items-center justify-between">
+          <h3 className="font-semibold text-sm">New Transaction</h3>
+          <button
+            onClick={() => { setOpen(false); setError(null); }}
+            className="text-muted-foreground hover:text-foreground"
+          >
+            <X size={16} />
+          </button>
+        </div>
+      )}
 
       <form ref={formRef} action={handleSubmit} className="space-y-2.5">
         {/* Row 1: Account + Date */}

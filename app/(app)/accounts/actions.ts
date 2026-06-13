@@ -22,11 +22,11 @@ export async function createManualAccount(formData: FormData) {
   if (!["checking", "savings", "credit"].includes(type))
     return { error: "Invalid account type" };
 
-  const openingBalanceCents = rawBalance
-    ? Math.round(parseFloat(rawBalance) * 100)
-    : 0;
-  if (isNaN(openingBalanceCents))
-    return { error: "Invalid opening balance" };
+  const rawCents = rawBalance ? Math.round(parseFloat(rawBalance) * 100) : 0;
+  if (isNaN(rawCents)) return { error: "Invalid opening balance" };
+  // Credit card "balance owed" is entered as a positive number by the user but
+  // represents debt — store and record it as a negative (outflow from the account).
+  const openingBalanceCents = type === "credit" ? -rawCents : rawCents;
 
   const supabase = await createClient();
 

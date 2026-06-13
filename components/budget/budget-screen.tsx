@@ -8,11 +8,12 @@ import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/format";
 import { nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
 import { AssignedInput } from "./assigned-input";
-import { assignCategory, assignGroup } from "@/app/(app)/budget/actions";
+import { assignCategory, assignGroup, togglePin } from "@/app/(app)/budget/actions";
 import { AddGroupForm } from "./add-group-form";
 import { AddCategoryForm } from "./add-category-form";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
+import { Pin } from "lucide-react";
 
 // ---------------------------------------------------------------------------
 // Types (also imported by the page server component)
@@ -34,6 +35,9 @@ export type BudgetCategory = {
   activityCents: number;
   availableCents: number;
   target: TargetData | null;
+  // For credit card payment categories: the card's register balance (negative = debt).
+  // When abs(cardRegisterBalance) > availableCents the payment envelope is underfunded.
+  cardRegisterBalanceCents: number | null;
 };
 
 export type BudgetGroup = {
@@ -179,24 +183,38 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                   "px-4 py-2 border-b bg-muted/40 text-sm font-medium items-center",
                 )}
               >
-                <button
-                  className="flex items-center gap-1.5 text-left min-w-0"
-                  onClick={() => toggle(group.id)}
-                >
-                  {isExpanded ? (
-                    <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
-                  ) : (
-                    <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
-                  )}
-                  <span className="truncate">{group.name}</span>
-                  {group.budgetMode === "group" && (
-                    <TargetButton
-                      entityId={group.id}
-                      entityType="group"
-                      existingTarget={group.target}
-                    />
-                  )}
-                </button>
+                <div className="flex items-center gap-1 min-w-0">
+                  <button
+                    className="flex items-center gap-1.5 text-left min-w-0 flex-1"
+                    onClick={() => toggle(group.id)}
+                  >
+                    {isExpanded ? (
+                      <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+                    ) : (
+                      <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
+                    )}
+                    <span className="truncate">{group.name}</span>
+                    {group.budgetMode === "group" && (
+                      <TargetButton
+                        entityId={group.id}
+                        entityType="group"
+                        existingTarget={group.target}
+                      />
+                    )}
+                  </button>
+                  <button
+                    onClick={() => startTransition(async () => { await togglePin(group.id, "group"); })}
+                    className={cn(
+                      "shrink-0 p-0.5 rounded transition-colors",
+                      group.isPinned
+                        ? "text-primary"
+                        : "text-muted-foreground/40 hover:text-muted-foreground",
+                    )}
+                    title={group.isPinned ? "Unpin" : "Pin to home"}
+                  >
+                    <Pin size={11} />
+                  </button>
+                </div>
 
                 {group.budgetMode === "group" ? (
                   <AssignedInput
@@ -233,6 +251,18 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                           existingTarget={cat.target}
                         />
                       )}
+                      <button
+                        onClick={() => startTransition(async () => { await togglePin(cat.id, "category"); })}
+                        className={cn(
+                          "shrink-0 p-0.5 rounded transition-colors",
+                          cat.isPinned
+                            ? "text-primary"
+                            : "text-muted-foreground/40 hover:text-muted-foreground",
+                        )}
+                        title={cat.isPinned ? "Unpin" : "Pin to home"}
+                      >
+                        <Pin size={11} />
+                      </button>
                     </span>
 
                     {group.budgetMode === "category" ? (
@@ -262,7 +292,14 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                     </span>
 
                     {group.budgetMode === "category" ? (
-                      <AvailableCell cents={cat.availableCents} />
+                      <AvailableCell
+                        cents={cat.availableCents}
+                        underfunded={
+                          cat.cardRegisterBalanceCents !== null &&
+                          cat.cardRegisterBalanceCents < 0 &&
+                          cat.availableCents < Math.abs(cat.cardRegisterBalanceCents)
+                        }
+                      />
                     ) : (
                       <span className="text-right text-muted-foreground text-xs">—</span>
                     )}
@@ -320,7 +357,14 @@ function RtaBanner({ cents }: { cents: number }) {
   );
 }
 
-function AvailableCell({ cents }: { cents: number }) {
+function AvailableCell({ cents, underfunded = false }: { cents: number; underfunded?: boolean }) {
+  if (underfunded) {
+    return (
+      <span className="text-right font-medium tabular-nums text-amber-600 dark:text-amber-400">
+        {formatCents(cents)}
+      </span>
+    );
+  }
   return (
     <span
       className={cn(

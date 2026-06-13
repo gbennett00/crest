@@ -1,10 +1,14 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { computeAvailableThrough, currentBudgetMonth } from "@/lib/ledger";
+import { computeAvailableThrough, currentBudgetMonth, OPENING_BALANCE_IMPORTED_ID } from "@/lib/ledger";
 import { formatCents } from "@/lib/format";
 import { ApproveForm } from "@/components/home/approve-form";
 import type { CategoryOption } from "@/components/home/approve-form";
+import { HomeAddTransaction } from "@/components/home/home-add-transaction";
+import { HomeAssignButton } from "@/components/home/home-assign-button";
+import type { AccountOption } from "@/components/transactions/add-transaction-form";
+import type { BudgetData, BudgetGroup, BudgetCategory, TargetData } from "@/components/budget/budget-screen";
 import { cn } from "@/lib/utils";
 import { ChevronRight } from "lucide-react";
 
@@ -29,6 +33,9 @@ async function HomeContent() {
     catAssignedRes,
     groupAssignedRes,
     categoriesRes,
+    accountsRes,
+    grpActivityRes,
+    targetsRes,
   ] = await Promise.all([
     supabase
       .from("transactions")
@@ -57,6 +64,18 @@ async function HomeContent() {
       .select("id, name, group_id, role, is_hidden, category_groups!group_id(name)")
       .eq("is_hidden", false)
       .order("name"),
+    supabase
+      .from("accounts")
+      .select("id, name")
+      .eq("is_active", true)
+      .order("name"),
+    supabase
+      .from("group_monthly_activity")
+      .select("group_id, month, activity_cents")
+      .lte("month", month),
+    supabase
+      .from("targets")
+      .select("category_id, group_id, type, amount_cents, target_date"),
   ]);
 
   // Find RTA category ID
@@ -112,6 +131,44 @@ async function HomeContent() {
   for (const row of groupAssignedRes.data ?? []) {
     (groupAssignedHistory[row.group_id as string] ??= {})[row.month as string] =
       row.assigned_cents as number;
+  }
+
+  // Inject credit card funded spending into payment category activity (same logic as budget page)
+  const ccAccountsRes = await supabase
+    .from("accounts")
+    .select("id, payment_category_id")
+    .eq("type", "credit")
+    .not("payment_category_id", "is", null);
+
+  const ccAccountMapHome = new Map<string, string>();
+  for (const a of (ccAccountsRes.data ?? []) as { id: string; payment_category_id: string }[]) {
+    ccAccountMapHome.set(a.id, a.payment_category_id);
+  }
+  if (ccAccountMapHome.size > 0) {
+    const ccTxnsRes = await supabase
+      .from("transactions")
+      .select("account_id, amount_cents, txn_date, imported_id, transfer_account_id, transaction_allocations(id)")
+      .in("account_id", [...ccAccountMapHome.keys()])
+      .not("approved_at", "is", null)
+      .lte("txn_date", month + "-31"); // through current month
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const txn of (ccTxnsRes.data ?? []) as any[]) {
+      const paymentCatId = ccAccountMapHome.get(txn.account_id as string);
+      if (!paymentCatId) continue;
+      if (txn.imported_id === OPENING_BALANCE_IMPORTED_ID) continue;
+      const monthKey = (txn.txn_date as string).slice(0, 7) + "-01";
+      const amount = txn.amount_cents as number;
+      const isTransfer = !!(txn.transfer_account_id);
+      const hasAllocations = ((txn.transaction_allocations as { id: string }[]) ?? []).length > 0;
+      let contribution = 0;
+      if (amount < 0 && !isTransfer && hasAllocations) contribution = Math.abs(amount);
+      else if (amount > 0 && isTransfer) contribution = -amount;
+      if (contribution !== 0) {
+        (catActivityHistory[paymentCatId] ??= {})[monthKey] =
+          (catActivityHistory[paymentCatId]?.[monthKey] ?? 0) + contribution;
+      }
+    }
   }
 
   // Compute available for each spending category/group (for overspent + pinned sections)
@@ -207,7 +264,75 @@ async function HomeContent() {
     accountName: (t.accounts as { name: string } | null)?.name ?? "Unknown",
   }));
 
-  const hasItems = pending.length > 0 || overspent.length > 0 || rtaAvailableCents < 0;
+  const accounts: AccountOption[] = (accountsRes.data ?? []).map((a) => ({
+    id: a.id as string,
+    name: a.name as string,
+  }));
+
+  // Build group activity history for the assign popup
+  const grpActivityHistory: Record<string, Record<string, number>> = {};
+  for (const row of grpActivityRes.data ?? []) {
+    (grpActivityHistory[row.group_id as string] ??= {})[row.month as string] =
+      row.activity_cents as number;
+  }
+
+  // Build targets lookups
+  const catTargets: Record<string, TargetData> = {};
+  const grpTargets: Record<string, TargetData> = {};
+  for (const t of targetsRes.data ?? []) {
+    const td: TargetData = {
+      type: t.type as TargetData["type"],
+      amountCents: t.amount_cents as number,
+      targetDate: (t.target_date as string) ?? null,
+    };
+    if (t.category_id) catTargets[t.category_id as string] = td;
+    else if (t.group_id) grpTargets[t.group_id as string] = td;
+  }
+
+  // Construct BudgetData to pass to the AssignPopup (reused from the budget screen)
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const budgetGroups: BudgetGroup[] = (groupsRes.data ?? []).map((g: any) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const cats: BudgetCategory[] = ((g.categories ?? []) as any[])
+      .filter((c: { is_hidden: boolean }) => !c.is_hidden)
+      .map((c: { id: string; name: string; role: string | null; is_pinned: boolean; is_hidden: boolean }) => ({
+        id: c.id,
+        name: c.name,
+        role: (c.role as "ready_to_assign" | null) ?? null,
+        isPinned: c.is_pinned,
+        isHidden: c.is_hidden,
+        assignedCents: catAssignedHistory[c.id]?.[month] ?? 0,
+        activityCents: catActivityHistory[c.id]?.[month] ?? 0,
+        availableCents: computeAvailableThrough(
+          month,
+          catActivityHistory[c.id] ?? {},
+          catAssignedHistory[c.id] ?? {},
+        ),
+        target: catTargets[c.id] ?? null,
+        cardRegisterBalanceCents: null,
+      }));
+    return {
+      id: g.id as string,
+      name: g.name as string,
+      budgetMode: g.budget_mode as "category" | "group",
+      isPinned: g.is_pinned as boolean,
+      categories: cats,
+      groupAssignedCents: groupAssignedHistory[g.id as string]?.[month] ?? 0,
+      groupActivityCents: grpActivityHistory[g.id as string]?.[month] ?? 0,
+      groupAvailableCents: computeAvailableThrough(
+        month,
+        grpActivityHistory[g.id as string] ?? {},
+        groupAssignedHistory[g.id as string] ?? {},
+      ),
+      target: grpTargets[g.id as string] ?? null,
+    };
+  });
+
+  const budgetData: BudgetData = { month, rtaAvailableCents, groups: budgetGroups };
+
+  const hasItems = pending.length > 0 || overspent.length > 0 || rtaAvailableCents !== 0;
+  const showRtaRow = rtaAvailableCents !== 0;
+  const showPendingRow = pending.length > 0;
 
   return (
     <div className="p-4 space-y-5">
@@ -225,58 +350,50 @@ async function HomeContent() {
           </p>
         </div>
 
-        {/* Row 1: Pending transactions */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-t">
-          <span
-            className={cn(
-              "text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shrink-0",
-              pending.length > 0
-                ? "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400"
-                : "bg-muted text-muted-foreground",
-            )}
-          >
-            {pending.length}
-          </span>
-          <span className="flex-1 text-sm">New transactions</span>
-          {pending.length > 0 && (
+        {/* Row 1: Pending transactions — only shown when there are some */}
+        {showPendingRow && (
+          <div className="flex items-center gap-3 px-4 py-2.5 border-t">
+            <span className="text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
+              {pending.length}
+            </span>
+            <span className="flex-1 text-sm">New transactions</span>
             <Link
               href="#pending"
               className="text-xs font-semibold bg-primary text-primary-foreground px-3 py-1 rounded-full shrink-0"
             >
               Review
             </Link>
-          )}
-        </div>
+          </div>
+        )}
 
-        {/* Row 2: Ready to Assign */}
-        <div className="flex items-center gap-3 px-4 py-2.5 border-t">
-          <span
-            className={cn(
-              "text-xs font-bold px-2 h-6 rounded-full flex items-center shrink-0 tabular-nums",
-              rtaAvailableCents > 0
-                ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                : rtaAvailableCents < 0
-                  ? "bg-destructive/10 text-destructive"
-                  : "bg-muted text-muted-foreground",
+        {/* Row 2: Ready to Assign — hidden when exactly $0 */}
+        {showRtaRow && (
+          <div className="flex items-center gap-3 px-4 py-2.5 border-t">
+            <span
+              className={cn(
+                "text-xs font-bold px-2 h-6 rounded-full flex items-center shrink-0 tabular-nums",
+                rtaAvailableCents > 0
+                  ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
+                  : "bg-destructive/10 text-destructive",
+              )}
+            >
+              {formatCents(rtaAvailableCents)}
+            </span>
+            <span className="flex-1 text-sm">
+              {rtaAvailableCents < 0 ? "Over assigned" : "Ready to assign"}
+            </span>
+            {rtaAvailableCents < 0 ? (
+              <Link
+                href="/budget"
+                className="text-xs font-semibold bg-destructive text-destructive-foreground px-3 py-1 rounded-full shrink-0"
+              >
+                Fix
+              </Link>
+            ) : (
+              <HomeAssignButton data={budgetData} />
             )}
-          >
-            {formatCents(rtaAvailableCents)}
-          </span>
-          <span className="flex-1 text-sm">
-            {rtaAvailableCents < 0 ? "Over assigned" : "Ready to assign"}
-          </span>
-          <Link
-            href="/budget"
-            className={cn(
-              "text-xs font-semibold px-3 py-1 rounded-full shrink-0",
-              rtaAvailableCents < 0
-                ? "bg-destructive text-destructive-foreground"
-                : "bg-primary text-primary-foreground",
-            )}
-          >
-            {rtaAvailableCents < 0 ? "Fix" : "Assign"}
-          </Link>
-        </div>
+          </div>
+        )}
       </div>
 
       {/* Overspent */}
@@ -385,6 +502,9 @@ async function HomeContent() {
           </div>
         </Section>
       )}
+
+      {/* Floating Add Transaction button */}
+      <HomeAddTransaction accounts={accounts} categories={categories} />
     </div>
   );
 }

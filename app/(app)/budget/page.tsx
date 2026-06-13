@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { computeAvailableThrough, currentBudgetMonth } from "@/lib/ledger";
+import { computeAvailableThrough, currentBudgetMonth, nextBudgetMonth, OPENING_BALANCE_IMPORTED_ID } from "@/lib/ledger";
 import { BudgetScreen } from "@/components/budget/budget-screen";
 import type { BudgetCategory, BudgetData, BudgetGroup, TargetData } from "@/components/budget/budget-screen";
 
@@ -30,7 +30,7 @@ async function BudgetContent({
   const supabase = await createClient();
 
   // Wave 1: all the data needed to render spending categories/groups
-  const [groupsRes, catActivityRes, catAssignedRes, grpActivityRes, grpAssignedRes, targetsRes] =
+  const [groupsRes, catActivityRes, catAssignedRes, grpActivityRes, grpAssignedRes, targetsRes, ccAccountsRes] =
     await Promise.all([
       supabase
         .from("category_groups")
@@ -58,6 +58,13 @@ async function BudgetContent({
       supabase
         .from("targets")
         .select("category_id, group_id, type, amount_cents, target_date"),
+      // Credit card accounts: we need to compute payment category activity separately
+      // because CC purchases are allocated to spending categories, not the payment category.
+      supabase
+        .from("accounts")
+        .select("id, payment_category_id")
+        .eq("type", "credit")
+        .not("payment_category_id", "is", null),
     ]);
 
   // Find RTA category ID from the groups data (synchronous — no extra round trip)
@@ -106,6 +113,64 @@ async function BudgetContent({
   for (const row of catActivityRes.data ?? []) {
     (catActivityHistory[row.category_id as string] ??= {})[row.month as string] =
       row.activity_cents as number;
+  }
+
+  // Credit card: inject funded spending into payment category activity.
+  // Purchases on the card (approved, categorized, non-transfer) fill the payment
+  // category automatically. Payments made to the card (transfer inflows) drain it.
+  // Opening balance transactions are excluded — those represent pre-existing debt
+  // that the user must manually fund by assigning to the payment category.
+  const ccAccountMap = new Map<string, string>(); // accountId → paymentCategoryId
+  for (const a of (ccAccountsRes.data ?? []) as { id: string; payment_category_id: string }[]) {
+    ccAccountMap.set(a.id, a.payment_category_id);
+  }
+  // paymentCategoryId → card register balance (sum of all transactions on the card through `month`)
+  const ccRegisterBalance = new Map<string, number>();
+  if (ccAccountMap.size > 0) {
+    const ccTxnsRes = await supabase
+      .from("transactions")
+      .select("account_id, amount_cents, txn_date, imported_id, transfer_account_id, transaction_allocations(id)")
+      .in("account_id", [...ccAccountMap.keys()])
+      .not("approved_at", "is", null)
+      .lt("txn_date", nextBudgetMonth(month)); // everything through the displayed month
+
+    // Fetch ALL transactions (including unapproved) for register balance comparison
+    const ccAllTxnsRes = await supabase
+      .from("transactions")
+      .select("account_id, amount_cents")
+      .in("account_id", [...ccAccountMap.keys()])
+      .lt("txn_date", nextBudgetMonth(month));
+
+    for (const txn of (ccAllTxnsRes.data ?? []) as { account_id: string; amount_cents: number }[]) {
+      const paymentCatId = ccAccountMap.get(txn.account_id);
+      if (!paymentCatId) continue;
+      ccRegisterBalance.set(paymentCatId, (ccRegisterBalance.get(paymentCatId) ?? 0) + txn.amount_cents);
+    }
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    for (const txn of (ccTxnsRes.data ?? []) as any[]) {
+      const paymentCatId = ccAccountMap.get(txn.account_id as string);
+      if (!paymentCatId) continue;
+      if (txn.imported_id === OPENING_BALANCE_IMPORTED_ID) continue;
+
+      const monthKey = (txn.txn_date as string).slice(0, 7) + "-01";
+      const amount = txn.amount_cents as number;
+      const isTransfer = !!(txn.transfer_account_id);
+      const hasAllocations = ((txn.transaction_allocations as { id: string }[]) ?? []).length > 0;
+
+      let contribution = 0;
+      if (amount < 0 && !isTransfer && hasAllocations) {
+        contribution = Math.abs(amount);
+      } else if (amount > 0 && isTransfer) {
+        contribution = -amount;
+      }
+
+      if (contribution !== 0) {
+        (catActivityHistory[paymentCatId] ??= {})[monthKey] =
+          (catActivityHistory[paymentCatId]?.[monthKey] ?? 0) + contribution;
+      }
+    }
+
   }
 
   const catAssignedHistory: Record<string, Record<string, number>> = {};
@@ -165,6 +230,7 @@ async function BudgetContent({
         activityCents: actHistory[month] ?? 0,
         availableCents,
         target: catTargets[c.id as string] ?? null,
+        cardRegisterBalanceCents: ccRegisterBalance.get(c.id as string) ?? null,
       };
     });
 

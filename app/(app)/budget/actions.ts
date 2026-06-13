@@ -28,6 +28,20 @@ export async function assignGroup(
   revalidatePath("/budget");
 }
 
+export async function togglePin(id: string, type: "category" | "group") {
+  const supabase = await createClient();
+  const table = type === "category" ? "categories" : "category_groups";
+  const { data } = await supabase.from(table).select("is_pinned").eq("id", id).single();
+  const { error } = await supabase
+    .from(table)
+    .update({ is_pinned: !(data?.is_pinned as boolean) })
+    .eq("id", id);
+  if (error) return { error: error.message };
+  revalidatePath("/budget");
+  revalidatePath("/");
+  return { success: true };
+}
+
 export async function bulkAssign(
   assignments: { type: "category" | "group"; id: string; amountCents: number }[],
   month: string,
