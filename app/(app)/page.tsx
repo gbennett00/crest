@@ -113,7 +113,8 @@ async function HomeContent() {
   const allGrpAssigned = (groupAssignedRes.data ?? []).reduce(
     (s, r) => s + (r.assigned_cents as number), 0,
   );
-  const rtaAvailableCents = rtaActivity - allCatAssigned - allGrpAssigned;
+  // rtaAvailableCents is computed below, after we know the credit-card opening
+  // balances to exclude (see the CC section).
 
   // Build history maps for spending categories/groups
   const catActivityHistory: Record<string, Record<string, number>> = {};
@@ -144,6 +145,25 @@ async function HomeContent() {
   for (const a of (ccAccountsRes.data ?? []) as { id: string; payment_category_id: string }[]) {
     ccAccountMapHome.set(a.id, a.payment_category_id);
   }
+
+  // Exclude credit-card opening balances from RTA — pre-existing card debt is not
+  // assignable cash, so it must not drag Ready to Assign negative (which would show
+  // a false "Over assigned"). Mirrors the budget page; the debt instead surfaces as
+  // an underfunded payment category.
+  let ccOpeningBalanceTotal = 0;
+  if (ccAccountMapHome.size > 0) {
+    const ccOpeningRes = await supabase
+      .from("transactions")
+      .select("amount_cents")
+      .in("account_id", [...ccAccountMapHome.keys()])
+      .eq("imported_id", OPENING_BALANCE_IMPORTED_ID);
+    ccOpeningBalanceTotal = (ccOpeningRes.data ?? []).reduce(
+      (s, r) => s + (r.amount_cents as number), 0,
+    );
+  }
+  const rtaAvailableCents =
+    rtaActivity - ccOpeningBalanceTotal - allCatAssigned - allGrpAssigned;
+
   if (ccAccountMapHome.size > 0) {
     const ccTxnsRes = await supabase
       .from("transactions")

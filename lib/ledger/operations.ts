@@ -443,6 +443,12 @@ export async function getReadyToAssignCategoryId(
 /**
  * One cleared, approved line per account (`imported_id` crest:opening_balance)
  * with a split to Ready to Assign — register baseline for reconcile and RTA.
+ *
+ * Credit-card opening balances are also split to Ready to Assign (mirroring how
+ * YNAB shows them in the register), but the budget excludes them from the RTA
+ * total so pre-existing card debt does not reduce assignable cash — see the
+ * RTA calculation in app/(app)/budget/page.tsx. The card's payment category
+ * surfaces that debt as an underfunded (amber) envelope instead.
  */
 export async function createOpeningBalance(
   client: SupabaseClient,

@@ -139,7 +139,7 @@ Rules:
 
 * credit accounts require a payment category
 * linked accounts sync transactions via Plaid; balance sync writes Plaid `current` → `balance_cents`
-* **opening balance** at link/create: one cleared, approved transaction (`imported_id = crest:opening_balance`, payee “Starting Balance”) with a split to Ready to Assign
+* **opening balance** at link/create: one cleared, approved transaction (`imported_id = crest:opening_balance`, payee “Starting Balance”) with a split to Ready to Assign. This holds for **all** account types, including credit cards (whose opening balance is negative debt) — but credit-card opening balances are **excluded from the Ready to Assign total** so pre-existing debt does not reduce assignable cash (see READY TO ASSIGN and CREDIT CARD LOGIC)
 * **approximate available balance** (UI only, computed): `balance_cents` + sum(amount_cents) of uncleared register lines (`cleared_at IS NULL`)
 * **register cleared balance** (computed, for reconcile check): sum(cleared transaction amounts), including the opening-balance line
 * manual accounts are supported for testing (`createAccount` with `openingBalanceCents` seeds `balance_cents` and the opening transaction)
@@ -173,6 +173,7 @@ Rules:
 * `txn_date` is the calendar date of the ledger line (from Plaid or user entry). It drives register ordering and which budget month activity falls in. Keep it separate from `cleared_at` — clearing is bank workflow, not the transaction’s economic date.
 * approved transactions must have one or more splits that sum to `amount_cents`
 * unapproved transactions (e.g. Plaid import) may have zero splits until the user approves
+* **transfers are exempt**: a transaction with `transfer_account_id` set carries no allocations even when approved — its budget effect is derived from the transfer itself (see TRANSFERS), not from splits
 * imported transactions may start as pending approval
 * imported_id supports deduplication/upsert logic
 
@@ -191,6 +192,7 @@ Rules:
 
 * split sum must equal transaction amount when the parent transaction is approved
 * all categorized spending flows through splits (on approved transactions)
+* transfers carry no allocations (the split-sum and approved-requires-allocation rules are not enforced on transactions with `transfer_account_id` set)
 
 ---
 
@@ -324,6 +326,7 @@ Important:
 * represents unallocated cash in the **budget**, separate from the **ledger**
 * account `balance_cents` is only for reconciliation against the bank; never use it in Ready to Assign or category available math
 * spending categories consume cash via splits; assigning moves dollars from Ready to Assign into category envelopes
+* **credit-card opening balances are excluded from the total.** Their opening-balance split lands in Ready to Assign for register parity, but the computed RTA backs them out (the negative debt is not assignable cash). The debt instead surfaces as an underfunded credit-card payment category. The same exclusion must be applied everywhere RTA is computed (currently the budget page and the home page)
 
 ---
 
@@ -350,21 +353,60 @@ Then:
 
 ---
 
+## TRANSFERS
+
+A transfer is a movement of money between two of the user's own accounts. It is
+created via the `ledger_create_transfer` SQL function, which writes **both legs
+atomically**: an outflow on the source account and a matching inflow on the
+destination, each pointing at the other account via `transfer_account_id`. Never
+create a transfer by setting `transfer_account_id` on a single row — the mirror
+leg will be missing.
+
+Rules:
+
+* both legs are created **already approved** and carry **no allocations** — a
+  transfer is not income or spending, so it is never categorized
+* a transfer between two on-budget cash accounts (e.g. checking → savings) has
+  **zero budget effect** — the same budgeted dollars simply move accounts
+* a transfer **to a credit card** is a card payment: it drains that card's
+  payment category (see CREDIT CARD LOGIC)
+* because transfers are uncategorized, they are exempt from the
+  approved-requires-allocation and split-sum constraints (see TRANSACTIONS)
+* off-budget / tracking accounts are not yet supported; if added, transfers to
+  them would be categorized like spending and this section must be revisited
+
+---
+
 ## CREDIT CARD LOGIC
 
-Each credit account has a dedicated payment category.
+Each credit account has a dedicated payment category. Credit card handling mirrors
+YNAB-style reserved-cash behavior.
 
-When a credit card purchase occurs:
+When a credit card purchase occurs (an approved, categorized, non-transfer
+outflow on the card):
 
 * spending category activity decreases
-* corresponding payment category available increases by abs(amount)
+* corresponding payment category available increases by abs(amount) — i.e. cash
+  is reserved in the payment category to cover the new debt
 
-When a payment transfer to a credit card occurs:
+When a payment transfer to a credit card occurs (a transfer inflow on the card):
 
-* payment category available decreases
-* no spending category is involved
+* payment category available decreases by the payment amount
+* no spending category is involved, and the transfer is **not** categorized — the
+  drain is derived from the transfer itself in the budget read-models
 
-Credit card handling should mirror YNAB-style reserved cash behavior.
+Opening balance (pre-existing debt):
+
+* the card's negative opening balance is **not** injected into the payment
+  category and is **excluded from the Ready to Assign total** (see READY TO
+  ASSIGN). It is therefore unfunded — the payment category shows $0 available
+  against a negative card register balance, which the UI flags as **underfunded
+  (amber)** until the user assigns real dollars to cover it
+
+Note: payment-category activity is **derived** from the card's register
+(purchases fill it, transfer payments drain it), not from allocations to the
+payment category. Do not also categorize these transactions to the payment
+category — that double-counts.
 
 ---
 

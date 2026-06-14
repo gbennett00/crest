@@ -5,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
-import { createManualTransaction } from "@/app/(app)/accounts/actions";
+import { createManualTransaction, createManualTransfer } from "@/app/(app)/accounts/actions";
 import { Plus, X } from "lucide-react";
 
 export type AccountOption = { id: string; name: string };
@@ -29,7 +29,7 @@ export function AddTransactionForm({
   embedded?: boolean;
 }) {
   const [open, setOpen] = useState(initialOpen);
-  const [direction, setDirection] = useState<"outflow" | "inflow">("outflow");
+  const [direction, setDirection] = useState<"outflow" | "inflow" | "transfer">("outflow");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
@@ -38,9 +38,12 @@ export function AddTransactionForm({
 
   async function handleSubmit(formData: FormData) {
     setError(null);
-    formData.set("direction", direction);
+    if (direction !== "transfer") formData.set("direction", direction);
     startTransition(async () => {
-      const result = await createManualTransaction(formData);
+      const result =
+        direction === "transfer"
+          ? await createManualTransfer(formData)
+          : await createManualTransaction(formData);
       if (result?.error) {
         setError(result.error);
       } else {
@@ -54,6 +57,8 @@ export function AddTransactionForm({
       }
     });
   }
+
+  const isTransfer = direction === "transfer";
 
   if (!open) {
     return (
@@ -87,7 +92,7 @@ export function AddTransactionForm({
         {/* Row 1: Account + Date */}
         <div className="grid grid-cols-2 gap-2">
           <div className="space-y-1">
-            <Label htmlFor="txn-account" className="text-xs">Account</Label>
+            <Label htmlFor="txn-account" className="text-xs">{isTransfer ? "From" : "Account"}</Label>
             <select
               id="txn-account"
               name="accountId"
@@ -110,11 +115,13 @@ export function AddTransactionForm({
           </div>
         </div>
 
-        {/* Row 2: Payee */}
-        <div className="space-y-1">
-          <Label htmlFor="txn-payee" className="text-xs">Payee</Label>
-          <Input id="txn-payee" name="payee" placeholder="e.g. Grocery Store" className="h-8 text-sm" />
-        </div>
+        {/* Row 2: Payee — transfers derive their payee from the linked account */}
+        {!isTransfer && (
+          <div className="space-y-1">
+            <Label htmlFor="txn-payee" className="text-xs">Payee</Label>
+            <Input id="txn-payee" name="payee" placeholder="e.g. Grocery Store" className="h-8 text-sm" />
+          </div>
+        )}
 
         {/* Row 3: Amount + direction */}
         <div className="space-y-1">
@@ -137,13 +144,25 @@ export function AddTransactionForm({
                 type="button"
                 onClick={() => setDirection("inflow")}
                 className={cn(
-                  "px-2.5 py-1.5 transition-colors",
+                  "px-2.5 py-1.5 transition-colors border-l border-input",
                   direction === "inflow"
                     ? "bg-green-600 text-white"
                     : "bg-background text-muted-foreground hover:bg-muted",
                 )}
               >
                 In
+              </button>
+              <button
+                type="button"
+                onClick={() => setDirection("transfer")}
+                className={cn(
+                  "px-2.5 py-1.5 transition-colors border-l border-input",
+                  isTransfer
+                    ? "bg-primary text-primary-foreground"
+                    : "bg-background text-muted-foreground hover:bg-muted",
+                )}
+              >
+                Transfer
               </button>
             </div>
             <div className="relative flex-1">
@@ -153,39 +172,60 @@ export function AddTransactionForm({
           </div>
         </div>
 
-        {/* Row 4: Category */}
-        <div className="space-y-1">
-          <Label htmlFor="txn-category" className="text-xs">
-            Category <span className="text-muted-foreground font-normal">(optional)</span>
-          </Label>
-          <select
-            id="txn-category"
-            name="categoryId"
-            className={cn(
-              "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm",
-              "focus:outline-none focus:ring-1 focus:ring-ring",
-            )}
-          >
-            <option value="">No category (approve later)</option>
-            {Object.entries(
-              categories.reduce<Record<string, CategoryOption[]>>((acc, c) => {
-                (acc[c.groupName] ??= []).push(c);
-                return acc;
-              }, {}),
-            ).map(([group, cats]) => (
-              <optgroup key={group} label={group}>
-                {cats.map((c) => (
-                  <option key={c.id} value={c.id}>{c.name}</option>
-                ))}
-              </optgroup>
-            ))}
-          </select>
-        </div>
+        {/* Row 4: To account (transfer) or Category (normal) */}
+        {isTransfer ? (
+          <div className="space-y-1">
+            <Label htmlFor="txn-to-account" className="text-xs">To</Label>
+            <select
+              id="txn-to-account"
+              name="toAccountId"
+              defaultValue=""
+              required
+              className={cn(
+                "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm",
+                "focus:outline-none focus:ring-1 focus:ring-ring",
+              )}
+            >
+              <option value="" disabled>Select…</option>
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+        ) : (
+          <div className="space-y-1">
+            <Label htmlFor="txn-category" className="text-xs">
+              Category <span className="text-muted-foreground font-normal">(optional)</span>
+            </Label>
+            <select
+              id="txn-category"
+              name="categoryId"
+              className={cn(
+                "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm",
+                "focus:outline-none focus:ring-1 focus:ring-ring",
+              )}
+            >
+              <option value="">No category (approve later)</option>
+              {Object.entries(
+                categories.reduce<Record<string, CategoryOption[]>>((acc, c) => {
+                  (acc[c.groupName] ??= []).push(c);
+                  return acc;
+                }, {}),
+              ).map(([group, cats]) => (
+                <optgroup key={group} label={group}>
+                  {cats.map((c) => (
+                    <option key={c.id} value={c.id}>{c.name}</option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+          </div>
+        )}
 
         {error && <p className="text-xs text-destructive">{error}</p>}
 
         <Button type="submit" className="w-full h-8 text-sm" disabled={isPending}>
-          {isPending ? "Creating…" : "Create Transaction"}
+          {isPending ? "Creating…" : isTransfer ? "Create Transfer" : "Create Transaction"}
         </Button>
       </form>
     </div>

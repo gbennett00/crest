@@ -77,8 +77,10 @@ async function BudgetContent({
     }
   }
 
+  const ccAccountIds = ((ccAccountsRes.data ?? []) as { id: string }[]).map((a) => a.id);
+
   // Wave 2: RTA-specific queries — activity through today, all spending assignments ever
-  const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes] = await Promise.all([
+  const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes, ccOpeningRes] = await Promise.all([
     rtaId
       ? supabase
           .from("category_monthly_activity")
@@ -97,16 +99,32 @@ async function BudgetContent({
       .from("monthly_budgets")
       .select("assigned_cents")
       .not("group_id", "is", null),
+    // Credit-card opening balances are categorized to RTA (matching YNAB's register),
+    // but pre-existing card debt must not reduce assignable cash — fetch them so we
+    // can back them out of the RTA total below. The debt instead surfaces as an
+    // underfunded payment category.
+    ccAccountIds.length > 0
+      ? supabase
+          .from("transactions")
+          .select("amount_cents")
+          .in("account_id", ccAccountIds)
+          .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
+      : Promise.resolve({ data: [] }),
   ]);
 
-  // RTA = total inflows through today − total spending assignments (any month)
+  // RTA = total inflows through today − credit-card opening balances − total spending
+  // assignments (any month). CC opening balances are negative, so subtracting them
+  // adds the debt back out of the assignable-cash pool.
   const rtaActivity = (rtaActivityRes.data ?? []).reduce(
     (s, r) => s + (r.activity_cents as number), 0,
+  );
+  const ccOpeningBalanceTotal = (ccOpeningRes.data ?? []).reduce(
+    (s, r) => s + (r.amount_cents as number), 0,
   );
   const totalSpendingAssigned =
     (allCatBudgetsRes.data ?? []).reduce((s, r) => s + (r.assigned_cents as number), 0) +
     (allGrpBudgetsRes.data ?? []).reduce((s, r) => s + (r.assigned_cents as number), 0);
-  const rtaAvailableCents = rtaActivity - totalSpendingAssigned;
+  const rtaAvailableCents = rtaActivity - ccOpeningBalanceTotal - totalSpendingAssigned;
 
   // Build history maps for spending categories/groups
   const catActivityHistory: Record<string, Record<string, number>> = {};

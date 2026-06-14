@@ -6,6 +6,7 @@ import {
   applyReconciliation,
   createAccount,
   createTransaction,
+  createTransfer,
   LedgerError,
   syncBankClearedBalance,
 } from "@/lib/ledger";
@@ -131,6 +132,48 @@ export async function createManualTransaction(formData: FormData) {
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Failed to create transaction" };
+  }
+}
+
+export async function createManualTransfer(formData: FormData) {
+  const fromAccountId = formData.get("accountId") as string;
+  const toAccountId = formData.get("toAccountId") as string;
+  const txnDate = formData.get("txnDate") as string;
+  const memo = (formData.get("memo") as string)?.trim() || null;
+  const rawAmount = formData.get("amount") as string;
+
+  if (!fromAccountId) return { error: "From account is required" };
+  if (!toAccountId) return { error: "To account is required" };
+  if (fromAccountId === toAccountId)
+    return { error: "From and To accounts must differ" };
+  if (!txnDate) return { error: "Date is required" };
+  if (!rawAmount) return { error: "Amount is required" };
+
+  const amountCents = Math.round(parseFloat(rawAmount) * 100);
+  if (isNaN(amountCents) || amountCents <= 0)
+    return { error: "Invalid amount" };
+
+  const now = new Date().toISOString();
+  const supabase = await createClient();
+
+  try {
+    // Two-sided transfer: outflow on the source account, matching inflow on the
+    // destination. For a credit-card payment, From = bank, To = card.
+    await createTransfer(supabase, {
+      fromAccountId,
+      toAccountId,
+      amountCents,
+      txnDate,
+      memo: memo || undefined,
+      clearedAt: now,
+    });
+
+    revalidatePath("/accounts");
+    revalidatePath("/");
+    return { success: true };
+  } catch (e) {
+    if (e instanceof LedgerError) return { error: e.message };
+    return { error: "Failed to create transfer" };
   }
 }
 
