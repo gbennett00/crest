@@ -57,7 +57,10 @@ async function EditTransactionContent({
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const raw = txnRes.data as any;
   const allocs: { category_id: string; amount_cents: number }[] = raw.transaction_allocations ?? [];
-  const isSplit = allocs.length > 1;
+  const allocations = allocs.map((a) => ({
+    categoryId: a.category_id,
+    amountCents: a.amount_cents,
+  }));
   const primaryAlloc = allocs[0] ?? null;
 
   const txn = {
@@ -69,8 +72,8 @@ async function EditTransactionContent({
     memo: raw.memo as string | null,
     clearedAt: raw.cleared_at as string | null,
     isApproved: !!raw.approved_at,
-    isSplit,
     categoryId: primaryAlloc?.category_id ?? null,
+    allocations,
   };
 
   const accounts = (accountsRes.data ?? []).map((a) => ({

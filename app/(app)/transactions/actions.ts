@@ -9,13 +9,28 @@ export async function saveTransaction(formData: FormData) {
   const payee = (formData.get("payee") as string).trim();
   const txnDate = formData.get("txnDate") as string;
   const accountId = formData.get("accountId") as string;
-  const categoryId = (formData.get("categoryId") as string) || null;
   const memo = (formData.get("memo") as string).trim() || null;
   const cleared = formData.get("cleared") === "true";
   const amountCents = parseInt(formData.get("amountCents") as string, 10);
 
   if (!txnId || !txnDate || !accountId) {
     return { error: "Missing required fields" };
+  }
+
+  // Allocations are sent as a JSON array of { categoryId, amountCents }.
+  // An empty array means "leave allocations as-is" (e.g. a still-pending txn).
+  let allocations: { categoryId: string; amountCents: number }[];
+  try {
+    allocations = JSON.parse((formData.get("allocations") as string) || "[]");
+  } catch {
+    return { error: "Invalid allocations" };
+  }
+
+  if (allocations.length > 0) {
+    const allocSum = allocations.reduce((sum, a) => sum + a.amountCents, 0);
+    if (allocSum !== amountCents) {
+      return { error: "Split amounts must add up to the transaction total." };
+    }
   }
 
   const supabase = await createClient();
@@ -38,10 +53,13 @@ export async function saveTransaction(formData: FormData) {
     if (txnErr) throw new LedgerError("db_error", txnErr.message);
 
     // 2. Update allocations via RPC (handles deferred constraint correctly)
-    if (categoryId) {
+    if (allocations.length > 0) {
       const { error: allocErr } = await supabase.rpc("ledger_replace_allocations", {
         p_transaction_id: txnId,
-        p_allocations: [{ category_id: categoryId, amount_cents: amountCents }],
+        p_allocations: allocations.map((a) => ({
+          category_id: a.categoryId,
+          amount_cents: a.amountCents,
+        })),
       });
       if (allocErr) throw new LedgerError("db_error", allocErr.message);
     }
