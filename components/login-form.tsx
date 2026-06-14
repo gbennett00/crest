@@ -59,7 +59,7 @@ export function LoginForm({
         <CardContent>
           <form onSubmit={handleLogin}>
             <div className="flex flex-col gap-6">
-              <div className="grid gap-2">
+              <div className="grid gap-2" suppressHydrationWarning>
                 <Label htmlFor="email">Email</Label>
                 <Input
                   id="email"
@@ -70,7 +70,7 @@ export function LoginForm({
                   onChange={(e) => setEmail(e.target.value)}
                 />
               </div>
-              <div className="grid gap-2">
+              <div className="grid gap-2" suppressHydrationWarning>
                 <div className="flex items-center">
                   <Label htmlFor="password">Password</Label>
                   <Link
