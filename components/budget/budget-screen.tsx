@@ -14,49 +14,17 @@ import { AddCategoryForm } from "./add-category-form";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
 import { Pin } from "lucide-react";
+import type {
+  BudgetCategory,
+  BudgetData,
+  BudgetGroup,
+  TargetData,
+} from "@/lib/budget/types";
 
-// ---------------------------------------------------------------------------
-// Types (also imported by the page server component)
-// ---------------------------------------------------------------------------
-
-export type TargetData = {
-  type: "fill_up_to" | "set_aside" | "by_date";
-  amountCents: number;
-  targetDate: string | null;
-};
-
-export type BudgetCategory = {
-  id: string;
-  name: string;
-  role: "ready_to_assign" | null;
-  isPinned: boolean;
-  isHidden: boolean;
-  assignedCents: number;
-  activityCents: number;
-  availableCents: number;
-  target: TargetData | null;
-  // For credit card payment categories: the card's register balance (negative = debt).
-  // When abs(cardRegisterBalance) > availableCents the payment envelope is underfunded.
-  cardRegisterBalanceCents: number | null;
-};
-
-export type BudgetGroup = {
-  id: string;
-  name: string;
-  budgetMode: "category" | "group";
-  isPinned: boolean;
-  categories: BudgetCategory[];
-  groupAssignedCents: number;
-  groupActivityCents: number;
-  groupAvailableCents: number;
-  target: TargetData | null;
-};
-
-export type BudgetData = {
-  month: string;
-  rtaAvailableCents: number;
-  groups: BudgetGroup[];
-};
+// View-model types live in @/lib/budget/types so server data-loaders and client
+// components can share them without crossing the server/client boundary.
+// Re-exported here for the existing import sites that reference them via this module.
+export type { BudgetCategory, BudgetData, BudgetGroup, TargetData };
 
 // ---------------------------------------------------------------------------
 // Helpers
