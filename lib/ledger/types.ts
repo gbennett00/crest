@@ -35,6 +35,7 @@ export type CreateTransactionInput = {
 
 export type UpdateTransactionInput = {
   id: string;
+  accountId?: string;
   amountCents?: Cents;
   txnDate?: string;
   payee?: string;

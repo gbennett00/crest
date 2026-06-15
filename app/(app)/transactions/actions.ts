@@ -2,24 +2,84 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { LedgerError } from "@/lib/ledger";
+import {
+  createTransaction,
+  createTransfer,
+  deleteTransaction,
+  updateTransaction,
+  LedgerError,
+} from "@/lib/ledger";
 
+type Allocation = { categoryId: string; amountCents: number };
+
+function revalidateAll() {
+  revalidatePath("/accounts");
+  revalidatePath("/");
+  revalidatePath("/budget");
+}
+
+/**
+ * Unified create / edit / convert entry point for the shared transaction form.
+ *
+ * - No `txnId` → create.
+ * - With `txnId` → edit (including changing amount, account, and category).
+ * - `direction === "transfer"` with a `txnId` for a non-transfer → convert the
+ *   single-sided transaction into a two-sided transfer (delete + recreate).
+ */
 export async function saveTransaction(formData: FormData) {
-  const txnId = formData.get("txnId") as string;
-  const payee = (formData.get("payee") as string).trim();
-  const txnDate = formData.get("txnDate") as string;
+  const txnId = (formData.get("txnId") as string) || null;
+  const direction = (formData.get("direction") as string) || "outflow";
   const accountId = formData.get("accountId") as string;
-  const memo = (formData.get("memo") as string).trim() || null;
+  const txnDate = formData.get("txnDate") as string;
+  const payee = (formData.get("payee") as string)?.trim() || "";
+  const memo = (formData.get("memo") as string)?.trim() || null;
   const cleared = formData.get("cleared") === "true";
-  const amountCents = parseInt(formData.get("amountCents") as string, 10);
+  const rawAmount = formData.get("amount") as string;
 
-  if (!txnId || !txnDate || !accountId) {
-    return { error: "Missing required fields" };
+  if (!accountId) return { error: "Account is required" };
+  if (!txnDate) return { error: "Date is required" };
+  if (!rawAmount) return { error: "Amount is required" };
+
+  const absAmount = Math.round(parseFloat(rawAmount) * 100);
+  if (isNaN(absAmount) || absAmount <= 0) return { error: "Invalid amount" };
+
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+  const clearedAt = cleared ? now : null;
+
+  // ---- Transfer (incl. converting an existing outflow/inflow) ----
+  if (direction === "transfer") {
+    const toAccountId = formData.get("toAccountId") as string;
+    if (!toAccountId) return { error: "To account is required" };
+    if (toAccountId === accountId)
+      return { error: "From and To accounts must differ" };
+
+    try {
+      // Converting an existing single-sided line: drop it and recreate as a
+      // proper two-sided transfer. transaction_allocations cascade on delete.
+      if (txnId) {
+        await deleteTransaction(supabase, txnId);
+      }
+      await createTransfer(supabase, {
+        fromAccountId: accountId,
+        toAccountId,
+        amountCents: absAmount,
+        txnDate,
+        memo: memo || undefined,
+        clearedAt,
+      });
+      revalidateAll();
+      return { success: true };
+    } catch (e) {
+      if (e instanceof LedgerError) return { error: e.message };
+      return { error: "Failed to save transfer" };
+    }
   }
 
-  // Allocations are sent as a JSON array of { categoryId, amountCents }.
-  // An empty array means "leave allocations as-is" (e.g. a still-pending txn).
-  let allocations: { categoryId: string; amountCents: number }[];
+  // ---- Outflow / inflow ----
+  const amountCents = direction === "inflow" ? absAmount : -absAmount;
+
+  let allocations: Allocation[];
   try {
     allocations = JSON.parse((formData.get("allocations") as string) || "[]");
   } catch {
@@ -27,46 +87,41 @@ export async function saveTransaction(formData: FormData) {
   }
 
   if (allocations.length > 0) {
-    const allocSum = allocations.reduce((sum, a) => sum + a.amountCents, 0);
-    if (allocSum !== amountCents) {
+    const sum = allocations.reduce((s, a) => s + a.amountCents, 0);
+    if (sum !== amountCents) {
       return { error: "Split amounts must add up to the transaction total." };
     }
   }
 
-  const supabase = await createClient();
+  const hasAllocations = allocations.length > 0;
 
   try {
-    const clearedAt = cleared ? new Date().toISOString() : null;
-
-    // 1. Update simple fields (including account_id which updateTransaction doesn't support)
-    const { error: txnErr } = await supabase
-      .from("transactions")
-      .update({
+    if (txnId) {
+      // An empty allocations array un-approves the transaction (back to pending).
+      await updateTransaction(supabase, {
+        id: txnId,
+        accountId,
+        amountCents,
+        txnDate,
         payee,
-        txn_date: txnDate,
-        account_id: accountId,
         memo,
-        cleared_at: clearedAt,
-      })
-      .eq("id", txnId);
-
-    if (txnErr) throw new LedgerError("db_error", txnErr.message);
-
-    // 2. Update allocations via RPC (handles deferred constraint correctly)
-    if (allocations.length > 0) {
-      const { error: allocErr } = await supabase.rpc("ledger_replace_allocations", {
-        p_transaction_id: txnId,
-        p_allocations: allocations.map((a) => ({
-          category_id: a.categoryId,
-          amount_cents: a.amountCents,
-        })),
+        clearedAt,
+        approvedAt: hasAllocations ? now : null,
+        allocations,
       });
-      if (allocErr) throw new LedgerError("db_error", allocErr.message);
+    } else {
+      await createTransaction(supabase, {
+        accountId,
+        amountCents,
+        txnDate,
+        payee,
+        memo: memo || undefined,
+        clearedAt,
+        approvedAt: hasAllocations ? now : null,
+        allocations: hasAllocations ? allocations : undefined,
+      });
     }
-
-    revalidatePath("/accounts");
-    revalidatePath("/");
-    revalidatePath("/budget");
+    revalidateAll();
     return { success: true };
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };

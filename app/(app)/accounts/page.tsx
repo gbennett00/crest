@@ -3,9 +3,9 @@ import { createClient } from "@/lib/supabase/server";
 import { approximateAvailableCents } from "@/lib/ledger";
 import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
-import { AddTransactionForm } from "@/components/transactions/add-transaction-form";
+import { TransactionForm } from "@/components/transactions/transaction-form";
 import type { AccountData } from "@/components/accounts/account-card";
-import type { CategoryOption } from "@/components/transactions/add-transaction-form";
+import type { CategoryOption } from "@/components/transactions/transaction-form";
 import { formatCents } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -93,7 +93,7 @@ async function AccountsContent() {
     return (
       <div className="space-y-4">
         <AddAccountForm />
-        <AddTransactionForm accounts={accountOptions} categories={categories} />
+        <TransactionForm accounts={accountOptions} categories={categories} />
         <p className="text-sm text-muted-foreground py-8 text-center">
           No accounts yet. Add one above to get started.
         </p>
@@ -104,7 +104,7 @@ async function AccountsContent() {
   return (
     <div className="space-y-4">
       <AddAccountForm />
-      <AddTransactionForm accounts={accountOptions} categories={categories} />
+      <TransactionForm accounts={accountOptions} categories={categories} />
 
       {/* Cash accounts */}
       {cashAccounts.length > 0 && (

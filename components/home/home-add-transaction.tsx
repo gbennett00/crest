@@ -2,8 +2,8 @@
 
 import { useState } from "react";
 import { Plus, X } from "lucide-react";
-import { AddTransactionForm } from "@/components/transactions/add-transaction-form";
-import type { AccountOption, CategoryOption } from "@/components/transactions/add-transaction-form";
+import { TransactionForm } from "@/components/transactions/transaction-form";
+import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
 export function HomeAddTransaction({
   accounts,
@@ -39,7 +39,7 @@ export function HomeAddTransaction({
               </button>
             </div>
             <div className="px-2 pb-4">
-              <AddTransactionForm
+              <TransactionForm
                 accounts={accounts}
                 categories={categories}
                 initialOpen={true}
