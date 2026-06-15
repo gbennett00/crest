@@ -333,6 +333,7 @@ export async function updateTransaction(
   }
 
   const patch: Record<string, unknown> = {};
+  if (input.accountId !== undefined) patch.account_id = input.accountId;
   if (input.amountCents !== undefined) {
     // Safe to include even when the RPC already set it: trigger sees OLD == NEW
     // and skips the constraint check.

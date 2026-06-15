@@ -220,4 +220,41 @@ describe("updateTransaction — conditional split enforcement", () => {
       updateTransaction(client, { id: "nonexistent" }),
     ).rejects.toMatchObject({ code: "not_found" });
   });
+
+  it("moves an approved categorized txn onto a new account (account_id in patch)", async () => {
+    // Records the payload passed to .update() so we can assert account_id lands.
+    const updateArgs: Record<string, unknown>[] = [];
+    const singleFn = vi
+      .fn()
+      .mockResolvedValue({ data: txnRow({ approved_at: APPROVED_AT }), error: null });
+    const proxy: Record<string, unknown> = new Proxy(
+      {} as Record<string, unknown>,
+      {
+        get(_, prop) {
+          if (prop === "single") return singleFn;
+          if (prop === "update")
+            return (arg: Record<string, unknown>) => {
+              updateArgs.push(arg);
+              return proxy;
+            };
+          return () => proxy;
+        },
+      },
+    );
+    const client = {
+      from: vi.fn(() => proxy),
+      rpc: vi.fn().mockResolvedValue({ error: null }),
+    } as unknown as SupabaseClient;
+
+    await expect(
+      updateTransaction(client, {
+        id: "txn-1",
+        accountId: "acc-2",
+        amountCents: -5000,
+        allocations: ALLOCS_OK,
+      }),
+    ).resolves.toBeDefined();
+
+    expect(updateArgs.some((a) => a.account_id === "acc-2")).toBe(true);
+  });
 });

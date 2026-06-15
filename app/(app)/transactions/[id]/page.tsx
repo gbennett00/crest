@@ -2,8 +2,8 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { ChevronLeft } from "lucide-react";
-import { EditTransactionForm } from "@/components/transactions/edit-transaction-form";
-import type { CategoryOption } from "@/components/transactions/edit-transaction-form";
+import { TransactionForm } from "@/components/transactions/transaction-form";
+import type { CategoryOption } from "@/components/transactions/transaction-form";
 
 export default function EditTransactionPage({
   params,
@@ -35,7 +35,7 @@ async function EditTransactionContent({
   const [txnRes, accountsRes, categoriesRes] = await Promise.all([
     supabase
       .from("transactions")
-      .select("id, payee, amount_cents, txn_date, memo, cleared_at, approved_at, account_id, transaction_allocations(category_id, amount_cents, categories(name))")
+      .select("id, payee, amount_cents, txn_date, memo, cleared_at, reconciled_at, approved_at, account_id, transfer_account_id, transaction_allocations(category_id, amount_cents, categories(name))")
       .eq("id", id)
       .single(),
     supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
@@ -71,6 +71,8 @@ async function EditTransactionContent({
     amountCents: raw.amount_cents as number,
     memo: raw.memo as string | null,
     clearedAt: raw.cleared_at as string | null,
+    reconciledAt: raw.reconciled_at as string | null,
+    transferAccountId: raw.transfer_account_id as string | null,
     isApproved: !!raw.approved_at,
     categoryId: primaryAlloc?.category_id ?? null,
     allocations,
@@ -103,7 +105,7 @@ async function EditTransactionContent({
         <h1 className="font-semibold text-sm">Edit Transaction</h1>
       </div>
 
-      <EditTransactionForm
+      <TransactionForm
         txn={txn}
         accounts={accounts}
         categories={categories}
