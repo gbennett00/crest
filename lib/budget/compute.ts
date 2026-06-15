@@ -70,7 +70,7 @@ export function injectCreditCardActivity(
 /**
  * Ready to Assign — the global pool of assignable cash.
  *
- * RTA = total inflows through today − credit-card opening balances − total
+ * RTA = inflows through the viewed month − credit-card opening balances − total
  * spending assignments (any month). Credit-card opening balances are
  * categorized to RTA (matching YNAB's register) but represent pre-existing
  * debt, not assignable cash; they are negative, so subtracting them backs the

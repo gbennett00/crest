@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import {
   currentBudgetMonth,
   nextBudgetMonth,
+  previousBudgetMonth,
   OPENING_BALANCE_IMPORTED_ID,
 } from "@/lib/ledger";
 import type { BudgetData, TargetData } from "./types";
@@ -31,17 +32,29 @@ export async function getBudgetView(month: string): Promise<BudgetData> {
 /**
  * Load and compute the full budget view for `month`.
  *
- * Ready to Assign is a *global* pool (assignable cash across all time), so it is
- * always computed through the current calendar month regardless of which month
- * is being viewed.
+ * Ready to Assign is a per-month figure. Inflows categorized to RTA and the
+ * credit-card opening balances backed out of the pool are always measured
+ * through the *viewed* month, so an earlier view never counts later money.
+ *
+ * Spending assignments use a sliding window matching YNAB: for the previous,
+ * current, and next month, *all* assignments are subtracted (so assigning next
+ * month's money reduces this month's RTA and can't be double-assigned). For any
+ * month older than the previous month, only assignments through that month are
+ * subtracted, so historical months read as the self-contained snapshots they
+ * were instead of being dragged negative by later assignments.
+ *
+ * `month` is clamped to `[minMonth, maxMonth]` (earliest activity → next month);
+ * those bounds are returned so the UI can gate navigation.
  */
 export async function loadBudgetView(
   client: SupabaseClient,
-  month: string,
+  requestedMonth: string,
 ): Promise<BudgetData> {
-  const rtaThroughMonth = currentBudgetMonth();
+  const maxMonth = nextBudgetMonth(currentBudgetMonth());
+  const month = requestedMonth > maxMonth ? maxMonth : requestedMonth;
 
-  // Wave 1: everything needed to render spending categories/groups.
+  // Wave 1: everything needed to render spending categories/groups, plus the
+  // earliest transaction/assignment used to compute the lower navigation bound.
   const [
     groupsRes,
     catActivityRes,
@@ -50,6 +63,8 @@ export async function loadBudgetView(
     grpAssignedRes,
     targetsRes,
     ccAccountsRes,
+    firstTxnRes,
+    firstBudgetRes,
   ] = await Promise.all([
     client
       .from("category_groups")
@@ -83,7 +98,29 @@ export async function loadBudgetView(
       .select("id, payment_category_id")
       .eq("type", "credit")
       .not("payment_category_id", "is", null),
+    client
+      .from("transactions")
+      .select("txn_date")
+      .order("txn_date", { ascending: true })
+      .limit(1),
+    client
+      .from("monthly_budgets")
+      .select("month")
+      .order("month", { ascending: true })
+      .limit(1),
   ]);
+
+  // Navigation bounds: viewable from the earliest transaction/assignment month
+  // through next month. Falls back to the current month for an empty budget.
+  const firstTxnDate = (firstTxnRes.data?.[0] as { txn_date: string } | undefined)?.txn_date;
+  const firstBudgetMonth = (firstBudgetRes.data?.[0] as { month: string } | undefined)?.month;
+  const monthCandidates = [
+    firstTxnDate ? `${firstTxnDate.slice(0, 7)}-01` : undefined,
+    firstBudgetMonth,
+  ].filter((m): m is string => !!m);
+  const minMonth = monthCandidates.length
+    ? monthCandidates.reduce((a, b) => (a < b ? a : b))
+    : currentBudgetMonth();
 
   const groups = (groupsRes.data ?? []) as unknown as RawGroup[];
   const rtaId = findReadyToAssignId(groups);
@@ -94,8 +131,27 @@ export async function loadBudgetView(
   }
   const ccAccountIds = [...ccAccountMap.keys()];
 
-  // Wave 2: RTA inputs (activity through today, all spending assignments ever,
-  // credit-card opening balances to back out).
+  // Wave 2: RTA inputs. Inflows and the CC-opening back-out are bounded by the
+  // viewed month. Spending assignments are bounded only when viewing a month
+  // older than the previous month; the previous/current/next window sees all
+  // assignments, so future commitments reduce today's RTA (see the docstring).
+  const snapshotAssignments = month < previousBudgetMonth(currentBudgetMonth());
+  const afterViewedMonth = nextBudgetMonth(month); // exclusive upper bound
+
+  let catBudgetsQuery = client
+    .from("monthly_budgets")
+    .select("assigned_cents")
+    .not("category_id", "is", null)
+    .neq("category_id", rtaId ?? "");
+  let grpBudgetsQuery = client
+    .from("monthly_budgets")
+    .select("assigned_cents")
+    .not("group_id", "is", null);
+  if (snapshotAssignments) {
+    catBudgetsQuery = catBudgetsQuery.lte("month", month);
+    grpBudgetsQuery = grpBudgetsQuery.lte("month", month);
+  }
+
   const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes, ccOpeningRes] =
     await Promise.all([
       rtaId
@@ -103,25 +159,17 @@ export async function loadBudgetView(
             .from("category_monthly_activity")
             .select("activity_cents")
             .eq("category_id", rtaId)
-            .lte("month", rtaThroughMonth)
+            .lte("month", month)
         : Promise.resolve({ data: [] }),
-      rtaId
-        ? client
-            .from("monthly_budgets")
-            .select("assigned_cents")
-            .not("category_id", "is", null)
-            .neq("category_id", rtaId)
-        : Promise.resolve({ data: [] }),
-      client
-        .from("monthly_budgets")
-        .select("assigned_cents")
-        .not("group_id", "is", null),
+      rtaId ? catBudgetsQuery : Promise.resolve({ data: [] }),
+      grpBudgetsQuery,
       ccAccountIds.length > 0
         ? client
             .from("transactions")
             .select("amount_cents")
             .in("account_id", ccAccountIds)
             .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
+            .lt("txn_date", afterViewedMonth)
         : Promise.resolve({ data: [] }),
     ]);
 
@@ -169,7 +217,7 @@ export async function loadBudgetView(
     cardRegisterBalance,
   });
 
-  return { month, rtaAvailableCents, groups: budgetGroups };
+  return { month, minMonth, maxMonth, rtaAvailableCents, groups: budgetGroups };
 }
 
 // ---------------------------------------------------------------------------
