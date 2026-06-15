@@ -31,7 +31,13 @@ function group(partial: Partial<BudgetGroup> & { id: string; name: string }): Bu
 }
 
 function data(groups: BudgetGroup[]): BudgetData {
-  return { month: "2026-06-01", rtaAvailableCents: 0, groups };
+  return {
+    month: "2026-06-01",
+    minMonth: "2026-06-01",
+    maxMonth: "2026-07-01",
+    rtaAvailableCents: 0,
+    groups,
+  };
 }
 
 describe("selectBudgetItems", () => {

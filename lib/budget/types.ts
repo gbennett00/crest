@@ -40,6 +40,9 @@ export type BudgetGroup = {
 
 export type BudgetData = {
   month: string;
+  // Inclusive navigation bounds: earliest month with activity → next month.
+  minMonth: string;
+  maxMonth: string;
   rtaAvailableCents: number;
   groups: BudgetGroup[];
 };

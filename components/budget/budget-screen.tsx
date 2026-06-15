@@ -74,6 +74,16 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
       g.categories.some((c) => c.role !== "ready_to_assign" && !c.isHidden),
   );
 
+  // RTA banner visibility (matches YNAB). maxMonth is next month, so two steps
+  // back is the previous month — the start of the prev/current/next "live"
+  // window. Inside that window we show any non-zero RTA; older months only
+  // surface it when over-assigned (a positive leftover has rolled forward).
+  const liveWindowStart = previousBudgetMonth(previousBudgetMonth(data.maxMonth));
+  const showRta =
+    data.month >= liveWindowStart
+      ? data.rtaAvailableCents !== 0
+      : data.rtaAvailableCents < 0;
+
   return (
     <div className="flex flex-col pt-12">
       {assignOpen && (
@@ -84,7 +94,8 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
       <div className="sticky top-12 z-10 bg-background border-b flex items-center justify-between px-2 h-11 shrink-0">
         <button
           onClick={() => navigate(previousBudgetMonth(data.month))}
-          className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground"
+          disabled={data.month <= data.minMonth}
+          className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground disabled:opacity-30 disabled:pointer-events-none"
           aria-label="Previous month"
         >
           <ChevronLeft size={18} />
@@ -92,17 +103,20 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
         <span className="font-semibold text-sm">{formatMonth(data.month)}</span>
         <button
           onClick={() => navigate(nextBudgetMonth(data.month))}
-          className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground"
+          disabled={data.month >= data.maxMonth}
+          className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground disabled:opacity-30 disabled:pointer-events-none"
           aria-label="Next month"
         >
           <ChevronRight size={18} />
         </button>
       </div>
 
-      {/* Ready to Assign banner — clickable to open assign popup */}
-      <button className="text-left w-full" onClick={() => setAssignOpen(true)}>
-        <RtaBanner cents={data.rtaAvailableCents} />
-      </button>
+      {/* Ready to Assign banner — clickable to open assign popup. */}
+      {showRta && (
+        <button className="text-left w-full" onClick={() => setAssignOpen(true)}>
+          <RtaBanner cents={data.rtaAvailableCents} />
+        </button>
+      )}
 
       {/* Column headers */}
       <div
