@@ -3,14 +3,16 @@
 import { useState, useTransition } from "react";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
-import { renameCategory } from "@/app/(app)/budget/actions";
+import { renameCategory, renameGroup } from "@/app/(app)/budget/actions";
 
-interface EditableCategoryNameProps {
-  categoryId: string;
+interface EditableNameProps {
+  id: string;
   name: string;
+  type: "category" | "group";
+  className?: string;
 }
 
-export function EditableCategoryName({ categoryId, name }: EditableCategoryNameProps) {
+export function EditableName({ id, name, type, className }: EditableNameProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(name);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +31,10 @@ export function EditableCategoryName({ categoryId, name }: EditableCategoryNameP
       return;
     }
     startTransition(async () => {
-      const result = await renameCategory(categoryId, trimmed);
+      const result =
+        type === "category"
+          ? await renameCategory(id, trimmed)
+          : await renameGroup(id, trimmed);
       if (result?.error) {
         setError(result.error);
       } else {
@@ -57,7 +62,7 @@ export function EditableCategoryName({ categoryId, name }: EditableCategoryNameP
           }
         }}
         title={error ?? undefined}
-        className={cn("h-6 text-sm py-0 px-1.5", error && "border-destructive")}
+        className={cn("h-6 text-sm py-0 px-1.5", error && "border-destructive", className)}
       />
     );
   }
@@ -65,8 +70,11 @@ export function EditableCategoryName({ categoryId, name }: EditableCategoryNameP
   return (
     <button
       onClick={startEditing}
-      title="Rename category"
-      className="truncate text-left rounded px-1 -mx-1 py-0.5 transition-colors hover:bg-accent"
+      title={`Rename ${type}`}
+      className={cn(
+        "truncate text-left rounded px-1 -mx-1 py-0.5 transition-colors hover:bg-accent",
+        className,
+      )}
     >
       {name}
     </button>

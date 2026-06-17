@@ -109,6 +109,23 @@ export async function renameCategory(categoryId: string, name: string) {
   return { success: true };
 }
 
+export async function renameGroup(groupId: string, name: string) {
+  const trimmed = name?.trim();
+  if (!trimmed) return { error: "Group name is required" };
+  if (!groupId) return { error: "Group is required" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("category_groups")
+    .update({ name: trimmed })
+    .eq("id", groupId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/budget");
+  revalidatePath("/");
+  return { success: true };
+}
+
 export async function upsertTarget(
   entityId: string,
   entityType: "category" | "group",
