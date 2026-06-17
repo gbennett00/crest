@@ -2,10 +2,15 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { formatCents } from "@/lib/format";
-import { sumClearedTransactionAmounts, approximateAvailableCents } from "@/lib/ledger";
+import {
+  sumClearedTransactionAmounts,
+  sumPendingTransactionAmounts,
+  workingBalanceCents,
+} from "@/lib/ledger";
 import { cn } from "@/lib/utils";
 import { Lock } from "lucide-react";
 import { AccountDetailHeader } from "@/components/accounts/account-detail-header";
+import { AccountBalanceSummary } from "@/components/accounts/account-balance-summary";
 
 export default function AccountRegisterPage({
   params,
@@ -68,7 +73,8 @@ async function RegisterContent({
     clearedAt: r.cleared_at as string | null,
   }));
   const registerClearedBalanceCents = sumClearedTransactionAmounts(allLines);
-  const approxAvailableCents = approximateAvailableCents(balanceCents, allLines);
+  const unclearedCents = sumPendingTransactionAmounts(allLines);
+  const workingCents = workingBalanceCents(allLines);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let txns = (txnsRes.data ?? []) as any[];
@@ -118,25 +124,12 @@ async function RegisterContent({
       />
 
       {/* Balance summary */}
-      <div className="px-4 py-4 border-b bg-muted/20">
-        <p className="text-xs text-muted-foreground text-center mb-1">{subtitle}</p>
-        <div className="flex justify-center gap-6">
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">Statement</p>
-            <p className="text-sm font-semibold tabular-nums">{formatCents(balanceCents)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">Cleared</p>
-            <p className="text-sm font-semibold tabular-nums">{formatCents(registerClearedBalanceCents)}</p>
-          </div>
-          <div className="text-center">
-            <p className="text-xs text-muted-foreground">Available</p>
-            <p className={cn("text-sm font-semibold tabular-nums", approxAvailableCents < 0 && "text-destructive")}>
-              {formatCents(approxAvailableCents)}
-            </p>
-          </div>
-        </div>
-      </div>
+      <AccountBalanceSummary
+        subtitle={subtitle}
+        workingBalanceCents={workingCents}
+        clearedCents={registerClearedBalanceCents}
+        unclearedCents={unclearedCents}
+      />
 
       {txns.length === 0 ? (
         <p className="text-center text-sm text-muted-foreground py-16">No transactions.</p>

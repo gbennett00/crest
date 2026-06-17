@@ -140,8 +140,9 @@ Rules:
 * credit accounts require a payment category
 * linked accounts sync transactions via Plaid; balance sync writes Plaid `current` → `balance_cents`
 * **opening balance** at link/create: one cleared, approved transaction (`imported_id = crest:opening_balance`, payee “Starting Balance”) with a split to Ready to Assign. This holds for **all** account types, including credit cards (whose opening balance is negative debt) — but credit-card opening balances are **excluded from the Ready to Assign total** so pre-existing debt does not reduce assignable cash (see READY TO ASSIGN and CREDIT CARD LOGIC)
-* **approximate available balance** (UI only, computed): `balance_cents` + sum(amount_cents) of uncleared register lines (`cleared_at IS NULL`)
-* **register cleared balance** (computed, for reconcile check): sum(cleared transaction amounts), including the opening-balance line
+* **working balance** (the default account figure everywhere in the UI, computed): sum(amount_cents) of **all** register lines, cleared and uncleared. This is the register's own truth and updates the instant a transaction is entered, so it never lags Plaid sync or reconciliation the way `balance_cents` does. On the account register it can be expanded into its cleared / uncleared split. `balance_cents` (the bank statement balance) is **not shown outside the reconcile flow**.
+* **register cleared balance** (computed, for reconcile check + the working-balance split): sum(cleared transaction amounts), including the opening-balance line
+* **approximate available balance** (legacy computed helper, no longer surfaced in the UI): `balance_cents` + sum(amount_cents) of uncleared register lines (`cleared_at IS NULL`)
 * manual accounts are supported for testing (`createAccount` with `openingBalanceCents` seeds `balance_cents` and the opening transaction)
 
 ---

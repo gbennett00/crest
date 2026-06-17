@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { approximateAvailableCents } from "@/lib/ledger";
+import { workingBalanceCents } from "@/lib/ledger";
 import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
 import { TransactionForm } from "@/components/transactions/transaction-form";
@@ -73,11 +73,7 @@ async function AccountsContent() {
       id: acc.id as string,
       name: acc.name as string,
       type: acc.type as "checking" | "savings" | "credit",
-      balanceCents: acc.balance_cents as number,
-      approximateAvailableCents: approximateAvailableCents(
-        acc.balance_cents as number,
-        lines,
-      ),
+      workingBalanceCents: workingBalanceCents(lines),
       isLinked: acc.is_linked as boolean,
     };
   });
@@ -86,8 +82,8 @@ async function AccountsContent() {
   const cashAccounts = accounts.filter((a) => a.type === "checking" || a.type === "savings");
   const creditAccounts = accounts.filter((a) => a.type === "credit");
 
-  const cashTotal = cashAccounts.reduce((s, a) => s + a.approximateAvailableCents, 0);
-  const creditTotal = creditAccounts.reduce((s, a) => s + a.approximateAvailableCents, 0);
+  const cashTotal = cashAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
+  const creditTotal = creditAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
 
   if (accounts.length === 0) {
     return (
