@@ -16,7 +16,10 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
-import { saveTransaction } from "@/app/(app)/transactions/actions";
+import {
+  deleteTransactionAction,
+  saveTransaction,
+} from "@/app/(app)/transactions/actions";
 import { Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
@@ -76,6 +79,7 @@ export function TransactionForm({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const [showReconcileConfirm, setShowReconcileConfirm] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -228,6 +232,44 @@ export function TransactionForm({
     });
   }
 
+  function doDelete() {
+    startTransition(async () => {
+      const result = await deleteTransactionAction(txn!.id);
+      if (result?.error) {
+        setError(result.error);
+        setShowDeleteConfirm(false);
+      } else {
+        router.push(backHref ?? "/accounts");
+        router.refresh();
+      }
+    });
+  }
+
+  // Confirmation shared by the normal edit form and the transfer view.
+  const deleteDialog = (
+    <AlertDialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Delete this transaction?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {txn?.transferAccountId
+              ? "This permanently removes the transfer, including its matching line in the other account. This can’t be undone."
+              : "This permanently removes the transaction. This can’t be undone."}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel>Cancel</AlertDialogCancel>
+          <AlertDialogAction
+            onClick={doDelete}
+            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+          >
+            Delete
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  );
+
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
@@ -265,13 +307,25 @@ export function TransactionForm({
         <p className="text-sm text-muted-foreground">
           Editing existing transfers isn&apos;t supported yet.
         </p>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => router.push(backHref ?? "/accounts")}
-        >
-          Back
-        </Button>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => router.push(backHref ?? "/accounts")}
+          >
+            Back
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            disabled={isPending}
+            onClick={() => setShowDeleteConfirm(true)}
+          >
+            Delete
+          </Button>
+        </div>
+        {deleteDialog}
       </div>
     );
   }
@@ -652,24 +706,36 @@ export function TransactionForm({
       >
         <input type="hidden" name="txnId" value={txn!.id} />
 
-        <div className="sticky top-[109px] z-10 bg-background -mx-4 px-4 pb-3 pt-1 border-b flex items-center justify-end gap-2">
+        <div className="sticky top-[109px] z-10 bg-background -mx-4 px-4 pb-3 pt-1 border-b flex items-center justify-between gap-2">
           <Button
             type="button"
             variant="ghost"
-            className="h-8 px-3 text-sm"
-            onClick={() => router.push(backHref ?? "/accounts")}
+            className="h-8 px-3 text-sm text-destructive hover:text-destructive"
+            disabled={isPending}
+            onClick={() => setShowDeleteConfirm(true)}
           >
-            Cancel
+            Delete
           </Button>
-          <Button type="submit" className="h-8 px-4" disabled={isPending}>
-            {isPending ? "Saving…" : "Save"}
-          </Button>
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-8 px-3 text-sm"
+              onClick={() => router.push(backHref ?? "/accounts")}
+            >
+              Cancel
+            </Button>
+            <Button type="submit" className="h-8 px-4" disabled={isPending}>
+              {isPending ? "Saving…" : "Save"}
+            </Button>
+          </div>
         </div>
 
         {fields}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
         {reconcileDialog}
+        {deleteDialog}
       </form>
     );
   }
