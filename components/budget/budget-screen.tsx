@@ -11,6 +11,7 @@ import { AssignedInput } from "./assigned-input";
 import { assignCategory, assignGroup, togglePin } from "@/app/(app)/budget/actions";
 import { AddGroupForm } from "./add-group-form";
 import { AddCategoryForm } from "./add-category-form";
+import { EditableCategoryName } from "./editable-category-name";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
 import { Pin } from "lucide-react";
@@ -225,7 +226,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                     className={cn(COLS, "px-4 pl-8 py-2 border-b text-sm items-center")}
                   >
                     <span className="flex items-center gap-1 min-w-0">
-                      <span className="truncate">{cat.name}</span>
+                      <EditableCategoryName categoryId={cat.id} name={cat.name} />
                       {group.budgetMode === "category" && (
                         <TargetButton
                           entityId={cat.id}
