@@ -42,6 +42,6 @@ done
 shopt -u nullglob
 
 echo "  installing dependencies…"
-( cd "$dir" && npm install --no-audit --no-fund )
+( cd "$dir" && pnpm install )
 
 echo "✓ ready: $dir"
