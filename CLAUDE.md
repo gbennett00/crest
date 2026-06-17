@@ -9,12 +9,12 @@ Crest is a zero-based budgeting web app (YNAB-inspired) built with Next.js 15, S
 ## Commands
 
 ```bash
-npm run dev          # start Next.js dev server
-npm run build        # production build
-npm run lint         # ESLint
-npm run test         # run all tests once (vitest)
-npm run test:watch   # vitest in watch mode
-npx vitest run path/to/foo.test.ts  # run a single test file
+pnpm dev             # start Next.js dev server
+pnpm build           # production build
+pnpm lint            # ESLint
+pnpm test            # run all tests once (vitest)
+pnpm test:watch      # vitest in watch mode
+pnpm vitest run path/to/foo.test.ts  # run a single test file
 ```
 
 ## Architecture
