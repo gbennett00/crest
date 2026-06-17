@@ -386,6 +386,59 @@ export async function deleteTransaction(
   }
 }
 
+/**
+ * User-facing delete. Removes the transaction and, when it is one leg of a
+ * transfer, the mirror leg too so no orphaned half-transfer is left behind.
+ *
+ * The two legs of a transfer share no direct foreign key, so the counterpart is
+ * located by its mirrored shape: the opposite account, the negated amount, and
+ * the same date. `transaction_allocations` are removed by ON DELETE CASCADE.
+ */
+export async function deleteTransactionWithCounterpart(
+  client: SupabaseClient,
+  transactionId: string,
+) {
+  const { data: existing, error: fetchError } = await client
+    .from("transactions")
+    .select("id, account_id, amount_cents, txn_date, transfer_account_id")
+    .eq("id", transactionId)
+    .single();
+
+  if (fetchError || !existing) {
+    throw new LedgerError(
+      "not_found",
+      fetchError?.message ?? "transaction not found",
+    );
+  }
+
+  const txn = existing as Pick<
+    TransactionRow,
+    "id" | "account_id" | "amount_cents" | "txn_date" | "transfer_account_id"
+  >;
+
+  if (txn.transfer_account_id) {
+    const { data: counterparts, error: counterpartError } = await client
+      .from("transactions")
+      .select("id")
+      .eq("account_id", txn.transfer_account_id)
+      .eq("transfer_account_id", txn.account_id)
+      .eq("amount_cents", -txn.amount_cents)
+      .eq("txn_date", txn.txn_date)
+      .neq("id", txn.id);
+
+    if (counterpartError) {
+      throw new LedgerError("db_error", counterpartError.message);
+    }
+
+    const counterpartId = (counterparts ?? [])[0]?.id as string | undefined;
+    if (counterpartId) {
+      await deleteTransaction(client, counterpartId);
+    }
+  }
+
+  await deleteTransaction(client, transactionId);
+}
+
 export async function createTransfer(
   client: SupabaseClient,
   input: CreateTransferInput,

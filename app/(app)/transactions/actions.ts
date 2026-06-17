@@ -6,6 +6,7 @@ import {
   createTransaction,
   createTransfer,
   deleteTransaction,
+  deleteTransactionWithCounterpart,
   updateTransaction,
   LedgerError,
 } from "@/lib/ledger";
@@ -126,5 +127,23 @@ export async function saveTransaction(formData: FormData) {
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Failed to save transaction" };
+  }
+}
+
+/**
+ * Permanently delete a transaction. When the transaction is one leg of a
+ * transfer, the matching mirror leg is removed too. Splits cascade in the DB.
+ */
+export async function deleteTransactionAction(txnId: string) {
+  if (!txnId) return { error: "Transaction is required" };
+
+  const supabase = await createClient();
+  try {
+    await deleteTransactionWithCounterpart(supabase, txnId);
+    revalidateAll();
+    return { success: true };
+  } catch (e) {
+    if (e instanceof LedgerError) return { error: e.message };
+    return { error: "Failed to delete transaction" };
   }
 }

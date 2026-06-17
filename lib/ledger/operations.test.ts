@@ -1,7 +1,12 @@
 import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
-import { createTransaction, updateTransaction, upsertTransaction } from "./operations";
+import {
+  createTransaction,
+  deleteTransactionWithCounterpart,
+  updateTransaction,
+  upsertTransaction,
+} from "./operations";
 import type { TransactionRow } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -256,5 +261,84 @@ describe("updateTransaction — conditional split enforcement", () => {
     ).resolves.toBeDefined();
 
     expect(updateArgs.some((a) => a.account_id === "acc-2")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// deleteTransactionWithCounterpart — transfer-aware delete
+// ---------------------------------------------------------------------------
+
+// Records every id passed to a `.delete().eq("id", …)` chain. `single()`
+// returns the fetched row; un-terminated select chains resolve to
+// `counterpartRows` (the transfer counterpart lookup).
+function makeDeleteMock(
+  fetchRow: TransactionRow | null,
+  counterpartRows: { id: string }[] = [],
+) {
+  const deletedIds: string[] = [];
+
+  const client = {
+    from: vi.fn(() => {
+      let mode: "select" | "delete" = "select";
+      const filters: Record<string, unknown> = {};
+      const builder: Record<string, unknown> = {
+        select: () => builder,
+        delete: () => {
+          mode = "delete";
+          return builder;
+        },
+        eq: (col: string, val: unknown) => {
+          filters[col] = val;
+          return builder;
+        },
+        neq: () => builder,
+        single: () => Promise.resolve({ data: fetchRow, error: null }),
+        then: (resolve: (v: unknown) => void) => {
+          if (mode === "delete") {
+            deletedIds.push(filters.id as string);
+            resolve({ data: null, error: null });
+          } else {
+            resolve({ data: counterpartRows, error: null });
+          }
+        },
+      };
+      return builder;
+    }),
+  } as unknown as SupabaseClient;
+
+  return { client, deletedIds };
+}
+
+describe("deleteTransactionWithCounterpart", () => {
+  it("deletes a plain transaction by id", async () => {
+    const { client, deletedIds } = makeDeleteMock(txnRow());
+    await deleteTransactionWithCounterpart(client, "txn-1");
+    expect(deletedIds).toEqual(["txn-1"]);
+  });
+
+  it("deletes both legs of a transfer", async () => {
+    const { client, deletedIds } = makeDeleteMock(
+      txnRow({ transfer_account_id: "acc-2", amount_cents: -5000 }),
+      [{ id: "txn-2" }],
+    );
+    await deleteTransactionWithCounterpart(client, "txn-1");
+    expect(deletedIds).toContain("txn-2");
+    expect(deletedIds).toContain("txn-1");
+  });
+
+  it("deletes only the leg present when no counterpart is found", async () => {
+    const { client, deletedIds } = makeDeleteMock(
+      txnRow({ transfer_account_id: "acc-2" }),
+      [],
+    );
+    await deleteTransactionWithCounterpart(client, "txn-1");
+    expect(deletedIds).toEqual(["txn-1"]);
+  });
+
+  it("throws not_found when the transaction does not exist", async () => {
+    const { client } = makeDeleteMock(null);
+    await expect(
+      deleteTransactionWithCounterpart(client, "nope"),
+    ).rejects.toMatchObject({ code: "not_found" });
   });
 });

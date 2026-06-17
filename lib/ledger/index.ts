@@ -33,6 +33,7 @@ export {
   createTransaction,
   createTransfer,
   deleteTransaction,
+  deleteTransactionWithCounterpart,
   evaluateReconciliation,
   getAccount,
   getAccountBalanceSummary,
