@@ -5,6 +5,7 @@ import {
   sumClearedTransactionAmounts,
   sumPendingTransactionAmounts,
   sumTransactionAmounts,
+  workingBalanceCents,
 } from "./balance";
 
 const line = (amountCents: number, cleared: boolean) => ({
@@ -39,6 +40,22 @@ describe("sumClearedTransactionAmounts", () => {
         line(-2500, false),
       ]),
     ).toBe(5000);
+  });
+});
+
+describe("workingBalanceCents", () => {
+  it("sums every line regardless of cleared state", () => {
+    expect(
+      workingBalanceCents([
+        line(10_000, true),
+        line(-2500, false),
+        line(-5000, true),
+      ]),
+    ).toBe(2500);
+  });
+
+  it("is zero for an empty register", () => {
+    expect(workingBalanceCents([])).toBe(0);
   });
 });
 

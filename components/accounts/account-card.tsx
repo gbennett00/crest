@@ -7,8 +7,7 @@ export type AccountData = {
   id: string;
   name: string;
   type: "checking" | "savings" | "credit";
-  balanceCents: number;
-  approximateAvailableCents: number;
+  workingBalanceCents: number;
   isLinked: boolean;
 };
 
@@ -39,10 +38,10 @@ export function AccountCard({ account }: { account: AccountData }) {
         <span
           className={cn(
             "text-sm font-semibold tabular-nums",
-            account.approximateAvailableCents < 0 ? "text-destructive" : "",
+            account.workingBalanceCents < 0 ? "text-destructive" : "",
           )}
         >
-          {formatCents(account.approximateAvailableCents)}
+          {formatCents(account.workingBalanceCents)}
         </span>
         <ChevronRight size={14} className="text-muted-foreground" />
       </div>

@@ -5,6 +5,7 @@ export {
   sumClearedTransactionAmounts,
   sumPendingTransactionAmounts,
   sumTransactionAmounts,
+  workingBalanceCents,
 } from "./balance";
 export {
   assertBudgetMonth,
