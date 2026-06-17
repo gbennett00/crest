@@ -11,6 +11,7 @@ import { AssignedInput } from "./assigned-input";
 import { assignCategory, assignGroup, togglePin } from "@/app/(app)/budget/actions";
 import { AddGroupForm } from "./add-group-form";
 import { AddCategoryForm } from "./add-category-form";
+import { EditableName } from "./editable-name";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
 import { Pin } from "lucide-react";
@@ -165,25 +166,26 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                   "px-4 py-2 border-b bg-muted/40 text-sm font-medium items-center",
                 )}
               >
-                <div className="flex items-center gap-1 min-w-0">
+                <div className="flex items-center gap-1.5 min-w-0">
                   <button
-                    className="flex items-center gap-1.5 text-left min-w-0 flex-1"
+                    className="shrink-0 text-muted-foreground"
                     onClick={() => toggle(group.id)}
+                    aria-label={isExpanded ? "Collapse group" : "Expand group"}
                   >
                     {isExpanded ? (
-                      <ChevronDown size={14} className="shrink-0 text-muted-foreground" />
+                      <ChevronDown size={14} />
                     ) : (
-                      <ChevronRight size={14} className="shrink-0 text-muted-foreground" />
-                    )}
-                    <span className="truncate">{group.name}</span>
-                    {group.budgetMode === "group" && (
-                      <TargetButton
-                        entityId={group.id}
-                        entityType="group"
-                        existingTarget={group.target}
-                      />
+                      <ChevronRight size={14} />
                     )}
                   </button>
+                  <EditableName id={group.id} name={group.name} type="group" className="flex-1 min-w-0" />
+                  {group.budgetMode === "group" && (
+                    <TargetButton
+                      entityId={group.id}
+                      entityType="group"
+                      existingTarget={group.target}
+                    />
+                  )}
                   <button
                     onClick={() => startTransition(async () => { await togglePin(group.id, "group"); })}
                     className={cn(
@@ -225,7 +227,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                     className={cn(COLS, "px-4 pl-8 py-2 border-b text-sm items-center")}
                   >
                     <span className="flex items-center gap-1 min-w-0">
-                      <span className="truncate">{cat.name}</span>
+                      <EditableName id={cat.id} name={cat.name} type="category" />
                       {group.budgetMode === "category" && (
                         <TargetButton
                           entityId={cat.id}

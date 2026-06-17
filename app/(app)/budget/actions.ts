@@ -91,6 +91,41 @@ export async function createCategory(formData: FormData) {
   return { success: true };
 }
 
+export async function renameCategory(categoryId: string, name: string) {
+  const trimmed = name?.trim();
+  if (!trimmed) return { error: "Category name is required" };
+  if (!categoryId) return { error: "Category is required" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("categories")
+    .update({ name: trimmed })
+    .eq("id", categoryId)
+    .is("role", null); // exclude the Ready to Assign system category
+
+  if (error) return { error: error.message };
+  revalidatePath("/budget");
+  revalidatePath("/");
+  return { success: true };
+}
+
+export async function renameGroup(groupId: string, name: string) {
+  const trimmed = name?.trim();
+  if (!trimmed) return { error: "Group name is required" };
+  if (!groupId) return { error: "Group is required" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("category_groups")
+    .update({ name: trimmed })
+    .eq("id", groupId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/budget");
+  revalidatePath("/");
+  return { success: true };
+}
+
 export async function upsertTarget(
   entityId: string,
   entityType: "category" | "group",
