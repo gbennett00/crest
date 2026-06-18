@@ -8,6 +8,7 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "db:dump": "node scripts/db-dump.mjs",
     "db:reset": "node scripts/db-reset.mjs"
   },
   "dependencies": {
