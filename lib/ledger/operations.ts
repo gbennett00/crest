@@ -13,6 +13,7 @@ import {
 import {
   OPENING_BALANCE_IMPORTED_ID,
   OPENING_BALANCE_PAYEE,
+  RECONCILIATION_ADJUSTMENT_PAYEE,
 } from "./constants";
 import {
   RECONCILIATION_FIX_HINT,
@@ -754,6 +755,67 @@ export async function applyReconciliation(
   }
 
   return { reconciledAt: now };
+}
+
+/**
+ * "The calculated cleared balance is correct" path: snap `balance_cents` to the
+ * register cleared balance, then mark all cleared, unreconciled lines reconciled.
+ *
+ * For unlinked accounts `balance_cents` only ever moves during reconciliation,
+ * so syncing it here is what lets a register-truth reconcile actually succeed.
+ */
+export async function reconcileWithRegisterBalance(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const transactions = await loadTransactionAmountLines(client, accountId);
+  const registerCleared = sumClearedTransactionAmounts(transactions);
+
+  await syncBankClearedBalance(client, accountId, registerCleared);
+
+  return applyReconciliation(client, accountId, {
+    bankClearedBalanceCents: registerCleared,
+    transactions,
+  });
+}
+
+/**
+ * "The calculated balance is off" path: write a cleared balance-adjustment line
+ * for the difference (assigned to Ready to Assign so the inflow/outflow stays
+ * accounted for), set `balance_cents` to the actual cleared balance, then
+ * reconcile. `actualClearedCents` is signed — credit-card debt is negative.
+ */
+export async function reconcileWithAdjustment(
+  client: SupabaseClient,
+  accountId: string,
+  actualClearedCents: Cents,
+) {
+  assertIntegerCents(actualClearedCents, "actualClearedCents");
+
+  const transactions = await loadTransactionAmountLines(client, accountId);
+  const registerCleared = sumClearedTransactionAmounts(transactions);
+  const differenceCents = actualClearedCents - registerCleared;
+
+  if (differenceCents !== 0) {
+    const readyToAssignId = await getReadyToAssignCategoryId(client);
+    const now = new Date().toISOString();
+
+    await createTransaction(client, {
+      accountId,
+      amountCents: differenceCents,
+      txnDate: now.slice(0, 10),
+      payee: RECONCILIATION_ADJUSTMENT_PAYEE,
+      clearedAt: now,
+      approvedAt: now,
+      allocations: [
+        { categoryId: readyToAssignId, amountCents: differenceCents },
+      ],
+    });
+  }
+
+  await syncBankClearedBalance(client, accountId, actualClearedCents);
+
+  return applyReconciliation(client, accountId);
 }
 
 export async function getTransactionAllocations(

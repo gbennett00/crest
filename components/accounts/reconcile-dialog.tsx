@@ -4,35 +4,44 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import { formatCents } from "@/lib/format";
-import { reconcileAccount, updateStatementBalance } from "@/app/(app)/accounts/actions";
+import {
+  reconcileMatched,
+  reconcileWithAdjustmentAction,
+} from "@/app/(app)/accounts/actions";
 import { cn } from "@/lib/utils";
 import { CheckCircle2, X } from "lucide-react";
 
-type Step = "confirm" | "update-balance" | "success";
+type Step = "confirm" | "adjust" | "success";
 
 export function ReconcileDialog({
   accountId,
   registerClearedBalanceCents,
-  bankClearedBalanceCents,
   onClose,
 }: {
   accountId: string;
   registerClearedBalanceCents: number;
-  bankClearedBalanceCents: number;
   onClose: () => void;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>("confirm");
-  const [balanceInput, setBalanceInput] = useState(
-    (Math.abs(bankClearedBalanceCents) / 100).toFixed(2),
+  const [actualInput, setActualInput] = useState(
+    (registerClearedBalanceCents / 100).toFixed(2),
   );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
+  // Parsed actual cleared balance and how far the register is off, used to drive
+  // the adjustment step's messaging and CTA.
+  const actualCents = Math.round(parseFloat(actualInput) * 100);
+  const actualIsValid = !isNaN(actualCents);
+  const differenceCents = actualIsValid
+    ? actualCents - registerClearedBalanceCents
+    : 0;
+
   function handleYes() {
     setError(null);
     startTransition(async () => {
-      const result = await reconcileAccount(accountId);
+      const result = await reconcileMatched(accountId);
       if (result.error) {
         setError(result.error);
       } else {
@@ -42,23 +51,16 @@ export function ReconcileDialog({
     });
   }
 
-  function handleUpdateBalance() {
-    const cents = Math.round(parseFloat(balanceInput) * 100);
-    if (isNaN(cents) || cents < 0) {
+  function handleCreateAdjustment() {
+    if (!actualIsValid) {
       setError("Enter a valid balance");
       return;
     }
     setError(null);
     startTransition(async () => {
-      const updateResult = await updateStatementBalance(accountId, cents);
-      if (updateResult.error) {
-        setError(updateResult.error);
-        return;
-      }
-      // After updating balance, attempt to reconcile
-      const reconcileResult = await reconcileAccount(accountId);
-      if (reconcileResult.error) {
-        setError(reconcileResult.error);
+      const result = await reconcileWithAdjustmentAction(accountId, actualCents);
+      if (result.error) {
+        setError(result.error);
       } else {
         setStep("success");
         router.refresh();
@@ -82,29 +84,19 @@ export function ReconcileDialog({
           </button>
         </div>
 
-        {/* Step: Confirm */}
+        {/* Step: Confirm the calculated balance */}
         {step === "confirm" && (
           <div className="px-5 pb-5 space-y-4">
-            <div className="rounded-lg bg-muted/40 p-4 space-y-2">
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Cleared in Crest</span>
-                <span className="font-semibold tabular-nums">
-                  {formatCents(registerClearedBalanceCents)}
-                </span>
-              </div>
-              <div className="flex items-center justify-between text-sm">
-                <span className="text-muted-foreground">Statement balance</span>
-                <span className="font-semibold tabular-nums">
-                  {formatCents(bankClearedBalanceCents)}
-                </span>
-              </div>
+            <div className="rounded-lg bg-muted/40 p-4 text-center">
+              <p className="text-xs text-muted-foreground mb-1">
+                Cleared balance in Crest
+              </p>
+              <p className="text-2xl font-semibold tabular-nums">
+                {formatCents(registerClearedBalanceCents)}
+              </p>
             </div>
             <p className="text-sm text-muted-foreground leading-snug">
-              Does your cleared balance of{" "}
-              <strong className="text-foreground">
-                {formatCents(registerClearedBalanceCents)}
-              </strong>{" "}
-              match what your bank shows?
+              Does this match the cleared balance shown in your bank app?
             </p>
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="space-y-2">
@@ -113,15 +105,18 @@ export function ReconcileDialog({
                 onClick={handleYes}
                 disabled={isPending}
               >
-                {isPending ? "Reconciling…" : "Yes, they match"}
+                {isPending ? "Reconciling…" : "Yes, it looks right"}
               </Button>
               <Button
                 variant="outline"
                 className="w-full"
-                onClick={() => { setError(null); setStep("update-balance"); }}
+                onClick={() => {
+                  setError(null);
+                  setStep("adjust");
+                }}
                 disabled={isPending}
               >
-                No, update balance
+                No, it&apos;s off
               </Button>
               <Button
                 variant="ghost"
@@ -135,28 +130,26 @@ export function ReconcileDialog({
           </div>
         )}
 
-        {/* Step: Update bank balance */}
-        {step === "update-balance" && (
+        {/* Step: Enter the actual balance and create an adjustment */}
+        {step === "adjust" && (
           <div className="px-5 pb-5 space-y-4">
             <p className="text-sm text-muted-foreground leading-snug">
-              Enter the cleared balance shown in your bank app.
+              Enter the cleared balance shown in your bank app. We&apos;ll add an
+              adjustment to make up the difference.
             </p>
-            <div className="rounded-lg bg-muted/40 p-4">
-              <p className="text-xs text-muted-foreground mb-1">Crest cleared</p>
-              <p className="font-semibold tabular-nums text-sm">
-                {formatCents(registerClearedBalanceCents)}
-              </p>
-            </div>
             <div>
-              <label className="text-xs text-muted-foreground block mb-1">Bank balance</label>
+              <label className="text-xs text-muted-foreground block mb-1">
+                Actual cleared balance
+              </label>
               <div className="relative">
-                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">$</span>
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
+                  $
+                </span>
                 <input
                   type="number"
-                  min="0"
                   step="0.01"
-                  value={balanceInput}
-                  onChange={(e) => setBalanceInput(e.target.value)}
+                  value={actualInput}
+                  onChange={(e) => setActualInput(e.target.value)}
                   className={cn(
                     "w-full rounded-md border border-input bg-background pl-7 pr-3 py-2 text-sm",
                     "focus:outline-none focus:ring-1 focus:ring-ring",
@@ -164,19 +157,55 @@ export function ReconcileDialog({
                 />
               </div>
             </div>
+            {actualIsValid && differenceCents !== 0 && (
+              <div className="rounded-lg bg-muted/40 p-4 space-y-2 text-sm">
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Cleared in Crest</span>
+                  <span className="font-semibold tabular-nums">
+                    {formatCents(registerClearedBalanceCents)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-muted-foreground">Adjustment</span>
+                  <span
+                    className={cn(
+                      "font-semibold tabular-nums",
+                      differenceCents < 0
+                        ? "text-destructive"
+                        : "text-green-600 dark:text-green-400",
+                    )}
+                  >
+                    {differenceCents > 0 ? "+" : ""}
+                    {formatCents(differenceCents)}
+                  </span>
+                </div>
+              </div>
+            )}
+            {actualIsValid && differenceCents === 0 && (
+              <p className="text-sm text-muted-foreground">
+                That matches the calculated balance — no adjustment needed.
+              </p>
+            )}
             {error && <p className="text-sm text-destructive">{error}</p>}
             <div className="space-y-2">
               <Button
                 className="w-full"
-                onClick={handleUpdateBalance}
+                onClick={handleCreateAdjustment}
                 disabled={isPending}
               >
-                {isPending ? "Saving…" : "Update & Reconcile"}
+                {isPending
+                  ? "Reconciling…"
+                  : differenceCents === 0
+                    ? "Reconcile"
+                    : "Create adjustment & reconcile"}
               </Button>
               <Button
                 variant="ghost"
                 className="w-full text-muted-foreground"
-                onClick={() => { setError(null); setStep("confirm"); }}
+                onClick={() => {
+                  setError(null);
+                  setStep("confirm");
+                }}
                 disabled={isPending}
               >
                 Back
