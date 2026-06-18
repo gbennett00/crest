@@ -414,9 +414,9 @@ category — that double-counts.
 ## RECONCILIATION
 
 When a user initiates account reconciliation:
-* Compare `balance_cents` (last bank **cleared** balance on file) to sum(amount_cents) of all **cleared** transactions (`cleared_at` set) on that account, including the opening-balance transaction
-* If they match, set `reconciled_at = now()` for all cleared, unreconciled transactions — the user does not need to open the bank app
-* Otherwise, report the difference in cents and explain how to fix the register; only then ask the user to confirm against the bank app
+* Show the **register cleared balance** — sum(amount_cents) of all **cleared** transactions (`cleared_at` set), including the opening-balance line — and ask the user whether it matches their bank
+* If it looks right, snap `balance_cents` to the register cleared balance and set `reconciled_at = now()` for all cleared, unreconciled transactions (`reconcileWithRegisterBalance`). For unlinked accounts `balance_cents` only moves here, so this snap is what keeps the stored bank balance current.
+* If it's off, the user enters the actual cleared balance (signed — credit-card debt is negative). Write a single cleared, approved balance-adjustment line for the difference, **assigned to Ready to Assign**, then snap `balance_cents` to the actual amount and reconcile (`reconcileWithAdjustment`).
 * Pending register lines are excluded from reconciliation but included in the computed approximate available balance
 
 ---

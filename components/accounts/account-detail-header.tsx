@@ -15,13 +15,11 @@ export function AccountDetailHeader({
   accountId,
   accountName,
   registerClearedBalanceCents,
-  bankClearedBalanceCents,
   backHref,
 }: {
   accountId: string;
   accountName: string;
   registerClearedBalanceCents: number;
-  bankClearedBalanceCents: number;
   backHref: string;
 }) {
   const [reconcileOpen, setReconcileOpen] = useState(false);
@@ -54,7 +52,6 @@ export function AccountDetailHeader({
         <ReconcileDialog
           accountId={accountId}
           registerClearedBalanceCents={registerClearedBalanceCents}
-          bankClearedBalanceCents={bankClearedBalanceCents}
           onClose={() => setReconcileOpen(false)}
         />
       )}

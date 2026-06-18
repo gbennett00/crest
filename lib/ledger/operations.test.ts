@@ -4,9 +4,12 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   createTransaction,
   deleteTransactionWithCounterpart,
+  reconcileWithAdjustment,
+  reconcileWithRegisterBalance,
   updateTransaction,
   upsertTransaction,
 } from "./operations";
+import { RECONCILIATION_ADJUSTMENT_PAYEE } from "./constants";
 import type { TransactionRow } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -340,5 +343,217 @@ describe("deleteTransactionWithCounterpart", () => {
     await expect(
       deleteTransactionWithCounterpart(client, "nope"),
     ).rejects.toMatchObject({ code: "not_found" });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// reconcileWithRegisterBalance / reconcileWithAdjustment
+// ---------------------------------------------------------------------------
+
+type Line = { amount_cents: number; cleared_at: string | null };
+
+// Stateful Supabase fake: cleared inserts land in the register and account
+// balance updates stick, so a follow-up reconcile sees a consistent picture —
+// enough to exercise the full reconcile-with-adjustment path end to end.
+function makeReconcileMock(initial: {
+  transactions: Line[];
+  balanceCents: number;
+  readyToAssignId?: string | null;
+}) {
+  const state = {
+    transactions: [...initial.transactions],
+    balanceCents: initial.balanceCents,
+  };
+  const readyToAssignId =
+    initial.readyToAssignId === undefined ? "rta-1" : initial.readyToAssignId;
+  const inserted: Record<string, unknown>[] = [];
+  const rpcCalls: { fn: string; args: Record<string, unknown> }[] = [];
+
+  function makeBuilder(table: string) {
+    let op: "select" | "insert" | "update" | "delete" = "select";
+    let payload: Record<string, unknown> | null = null;
+
+    function resolveSingle() {
+      if (table === "categories") {
+        return {
+          data: readyToAssignId ? { id: readyToAssignId } : null,
+          error: null,
+        };
+      }
+      if (table === "accounts") {
+        if (op === "update") {
+          state.balanceCents = payload!.balance_cents as number;
+        }
+        return {
+          data: {
+            id: "acc-1",
+            name: "Acct",
+            type: "checking",
+            balance_cents: state.balanceCents,
+            payment_category_id: null,
+            is_linked: false,
+            is_active: true,
+            created_at: "2026-01-01T00:00:00Z",
+          },
+          error: null,
+        };
+      }
+      if (table === "transactions" && op === "insert") {
+        const row: TransactionRow = {
+          id: `txn-${inserted.length + 1}`,
+          account_id: (payload!.account_id as string) ?? "acc-1",
+          amount_cents: payload!.amount_cents as number,
+          txn_date: payload!.txn_date as string,
+          payee: (payload!.payee as string) ?? "",
+          memo: (payload!.memo as string | null) ?? null,
+          transfer_account_id: null,
+          imported_id: null,
+          approved_at: (payload!.approved_at as string | null) ?? null,
+          cleared_at: (payload!.cleared_at as string | null) ?? null,
+          reconciled_at: null,
+          created_at: "2026-01-01T00:00:00Z",
+        };
+        inserted.push(payload!);
+        state.transactions.push({
+          amount_cents: row.amount_cents,
+          cleared_at: row.cleared_at,
+        });
+        return { data: row, error: null };
+      }
+      // transactions UPDATE … RETURNING (deferred-approval step)
+      return {
+        data: { ...txnRow(), approved_at: (payload?.approved_at as string) ?? null },
+        error: null,
+      };
+    }
+
+    function resolveList() {
+      if (table === "transactions" && op === "select") {
+        return {
+          data: state.transactions.map((t) => ({
+            amount_cents: t.amount_cents,
+            cleared_at: t.cleared_at,
+          })),
+          error: null,
+        };
+      }
+      return { data: null, error: null };
+    }
+
+    const builder: Record<string, unknown> = {
+      select: () => builder,
+      insert: (p: Record<string, unknown>) => {
+        op = "insert";
+        payload = p;
+        return builder;
+      },
+      update: (p: Record<string, unknown>) => {
+        op = "update";
+        payload = p;
+        return builder;
+      },
+      delete: () => {
+        op = "delete";
+        return builder;
+      },
+      eq: () => builder,
+      neq: () => builder,
+      not: () => builder,
+      is: () => builder,
+      lte: () => builder,
+      order: () => builder,
+      limit: () => builder,
+      maybeSingle: () => Promise.resolve(resolveSingle()),
+      single: () => Promise.resolve(resolveSingle()),
+      then: (resolve: (v: unknown) => void) => resolve(resolveList()),
+    };
+    return builder;
+  }
+
+  const client = {
+    from: vi.fn((table: string) => makeBuilder(table)),
+    rpc: vi.fn((fn: string, args: Record<string, unknown>) => {
+      rpcCalls.push({ fn, args });
+      return Promise.resolve({ error: null });
+    }),
+  } as unknown as SupabaseClient;
+
+  return { client, state, inserted, rpcCalls };
+}
+
+describe("reconcileWithRegisterBalance", () => {
+  it("snaps balance_cents to the register cleared sum and reconciles", async () => {
+    const { client, state, inserted } = makeReconcileMock({
+      transactions: [
+        { amount_cents: 10_000, cleared_at: "2026-05-01T00:00:00Z" },
+        { amount_cents: -3000, cleared_at: "2026-05-01T00:00:00Z" },
+      ],
+      balanceCents: 99_999, // stale, as it would be on an unlinked account
+    });
+
+    const result = await reconcileWithRegisterBalance(client, "acc-1");
+
+    expect(result.reconciledAt).toBeDefined();
+    expect(state.balanceCents).toBe(7000);
+    expect(inserted).toHaveLength(0); // no adjustment on the "looks right" path
+  });
+});
+
+describe("reconcileWithAdjustment", () => {
+  it("rejects a non-integer cents amount before touching the DB", async () => {
+    const { client } = makeReconcileMock({ transactions: [], balanceCents: 0 });
+    await expect(
+      reconcileWithAdjustment(client, "acc-1", 1234.5),
+    ).rejects.toMatchObject({ code: "invalid_cents" });
+  });
+
+  it("writes a cleared adjustment for the difference, assigned to Ready to Assign", async () => {
+    const { client, state, inserted, rpcCalls } = makeReconcileMock({
+      transactions: [{ amount_cents: 10_000, cleared_at: "2026-05-01T00:00:00Z" }],
+      balanceCents: 10_000,
+    });
+
+    const result = await reconcileWithAdjustment(client, "acc-1", 15_000);
+
+    expect(result.reconciledAt).toBeDefined();
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({
+      amount_cents: 5000,
+      payee: RECONCILIATION_ADJUSTMENT_PAYEE,
+    });
+    expect(inserted[0].cleared_at).not.toBeNull();
+    expect(state.balanceCents).toBe(15_000);
+
+    const allocRpc = rpcCalls.find((c) => c.fn === "ledger_replace_allocations");
+    expect(allocRpc?.args.p_allocations).toEqual([
+      { category_id: "rta-1", amount_cents: 5000 },
+    ]);
+  });
+
+  it("allows a negative adjustment for credit-card debt", async () => {
+    const { client, state, inserted } = makeReconcileMock({
+      transactions: [{ amount_cents: -10_000, cleared_at: "2026-05-01T00:00:00Z" }],
+      balanceCents: -10_000,
+    });
+
+    const result = await reconcileWithAdjustment(client, "acc-1", -15_000);
+
+    expect(result.reconciledAt).toBeDefined();
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({ amount_cents: -5000 });
+    expect(state.balanceCents).toBe(-15_000);
+  });
+
+  it("skips the adjustment when the actual balance already matches", async () => {
+    const { client, state, inserted } = makeReconcileMock({
+      transactions: [{ amount_cents: 10_000, cleared_at: "2026-05-01T00:00:00Z" }],
+      balanceCents: 10_000,
+    });
+
+    const result = await reconcileWithAdjustment(client, "acc-1", 10_000);
+
+    expect(result.reconciledAt).toBeDefined();
+    expect(inserted).toHaveLength(0);
+    expect(state.balanceCents).toBe(10_000);
   });
 });

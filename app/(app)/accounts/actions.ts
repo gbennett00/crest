@@ -3,10 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import {
-  applyReconciliation,
   createAccount,
   LedgerError,
-  syncBankClearedBalance,
+  reconcileWithAdjustment,
+  reconcileWithRegisterBalance,
 } from "@/lib/ledger";
 
 export async function createManualAccount(formData: FormData) {
@@ -77,10 +77,14 @@ export async function createManualAccount(formData: FormData) {
   }
 }
 
-export async function reconcileAccount(accountId: string) {
+/**
+ * "The calculated cleared balance looks right" path: set balance_cents to the
+ * register cleared balance and mark cleared lines reconciled.
+ */
+export async function reconcileMatched(accountId: string) {
   const supabase = await createClient();
   try {
-    const result = await applyReconciliation(supabase, accountId);
+    const result = await reconcileWithRegisterBalance(supabase, accountId);
     revalidatePath("/accounts");
     return { success: true, reconciledAt: result.reconciledAt };
   } catch (e) {
@@ -89,17 +93,21 @@ export async function reconcileAccount(accountId: string) {
   }
 }
 
-export async function updateStatementBalance(
+/**
+ * "The calculated balance is off" path: write a balance adjustment for the
+ * difference (assigned to Ready to Assign), then reconcile to `actualCents`.
+ */
+export async function reconcileWithAdjustmentAction(
   accountId: string,
-  balanceCents: number,
+  actualCents: number,
 ) {
   const supabase = await createClient();
   try {
-    await syncBankClearedBalance(supabase, accountId, balanceCents);
+    const result = await reconcileWithAdjustment(supabase, accountId, actualCents);
     revalidatePath("/accounts");
-    return { success: true };
+    return { success: true, reconciledAt: result.reconciledAt };
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
-    return { error: "Failed to update balance" };
+    return { error: "Reconciliation failed" };
   }
 }

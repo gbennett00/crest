@@ -1,5 +1,9 @@
 export { LedgerError, isLedgerError } from "./errors";
-export { OPENING_BALANCE_IMPORTED_ID, OPENING_BALANCE_PAYEE } from "./constants";
+export {
+  OPENING_BALANCE_IMPORTED_ID,
+  OPENING_BALANCE_PAYEE,
+  RECONCILIATION_ADJUSTMENT_PAYEE,
+} from "./constants";
 export {
   approximateAvailableCents,
   sumClearedTransactionAmounts,
@@ -46,6 +50,8 @@ export {
   getReadyToAssignCategoryId,
   getTransactionAllocations,
   listAccounts,
+  reconcileWithAdjustment,
+  reconcileWithRegisterBalance,
   syncBankClearedBalance,
   updateTransaction,
   upsertCategoryBudget,

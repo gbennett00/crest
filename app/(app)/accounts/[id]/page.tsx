@@ -38,7 +38,7 @@ async function RegisterContent({
   const supabase = await createClient();
 
   const [accountRes, txnsRes, allTxnAmountsRes, categoriesRes] = await Promise.all([
-    supabase.from("accounts").select("id, name, type, balance_cents, is_linked").eq("id", id).single(),
+    supabase.from("accounts").select("id, name, type, is_linked").eq("id", id).single(),
     supabase
       .from("transactions")
       .select(
@@ -65,7 +65,6 @@ async function RegisterContent({
   }
 
   const account = accountRes.data;
-  const balanceCents = account.balance_cents as number;
 
   // Compute balance summaries
   const allLines = (allTxnAmountsRes.data ?? []).map((r) => ({
@@ -119,7 +118,6 @@ async function RegisterContent({
         accountId={id}
         accountName={categoryName ? `${categoryName} — ${account.name}` : (account.name as string)}
         registerClearedBalanceCents={registerClearedBalanceCents}
-        bankClearedBalanceCents={balanceCents}
         backHref="/accounts"
       />
 
