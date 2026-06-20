@@ -11,6 +11,18 @@ export type TargetData = {
   targetDate: string | null;
 };
 
+// YNAB-style activity breakdown for a credit-card payment category, for a single
+// (viewed) month. `totalActivityCents === fundedSpendingCents + paymentsAndReturnsCents`
+// and equals the payment category's activity for the month.
+export type PaymentCategoryBreakdown = {
+  spendingCents: number; // gross purchases (negative)
+  returnsCents: number; // returns/refunds on the card (positive)
+  totalSpendingCents: number; // spending + returns
+  fundedSpendingCents: number; // covered portion of spending (positive)
+  paymentsAndReturnsCents: number; // -(payments + returns) (negative)
+  totalActivityCents: number; // net change to payment available
+};
+
 export type BudgetCategory = {
   id: string;
   name: string;
@@ -24,6 +36,8 @@ export type BudgetCategory = {
   // For credit card payment categories: the card's register balance (negative = debt).
   // When abs(cardRegisterBalance) > availableCents the payment envelope is underfunded.
   cardRegisterBalanceCents: number | null;
+  // For credit card payment categories: viewed-month activity breakdown (popover).
+  cardActivityBreakdown: PaymentCategoryBreakdown | null;
 };
 
 export type BudgetGroup = {
