@@ -41,7 +41,7 @@ for f in "$main_root"/.env "$main_root"/.env.*; do
 done
 shopt -u nullglob
 
-echo "  installing dependencies…"
-( cd "$dir" && pnpm install )
+echo "  installing dependencies in background…"
+( cd "$dir" && pnpm install ) &
 
 echo "✓ ready: $dir"
