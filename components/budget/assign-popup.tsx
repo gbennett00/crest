@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatCents } from "@/lib/format";
+import { formatCents, parseMoneyExpression } from "@/lib/format";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import type { BudgetData, TargetData } from "./budget-screen";
 
@@ -283,12 +283,11 @@ function EntryRow({
 
   function commit(raw: string) {
     setFocused(false);
-    const parsed = parseFloat(raw);
-    if (raw === "" || isNaN(parsed)) {
+    const cents = parseMoneyExpression(raw);
+    if (cents === null) {
       onChange(0);
       setInputVal("");
     } else {
-      const cents = Math.round(parsed * 100);
       onChange(cents);
       setInputVal(cents === 0 ? "" : (cents / 100).toFixed(2));
     }
@@ -327,19 +326,23 @@ function EntryRow({
             $
           </span>
           <input
-            type="number"
-            min="0"
-            step="0.01"
+            // type="text" (not "number") so "+"/"-" expressions are accepted.
+            type="text"
+            inputMode="text"
             value={displayVal}
             placeholder="0.00"
-            onFocus={handleFocus}
+            onFocus={(e) => {
+              handleFocus();
+              // Cursor at the end so the user can append "+23.49" to adjust.
+              const len = e.target.value.length;
+              e.target.setSelectionRange(len, len);
+            }}
             onChange={(e) => setInputVal(e.target.value)}
             onBlur={(e) => commit(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
             className={cn(
               "w-full rounded-md border border-input bg-background pl-5 pr-2 py-1.5 text-sm text-right",
               "focus:outline-none focus:ring-1 focus:ring-ring",
-              "[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none",
             )}
           />
         </div>
