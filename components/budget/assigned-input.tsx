@@ -1,8 +1,8 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useState } from "react";
 import { Input } from "@/components/ui/input";
-import { formatCents } from "@/lib/format";
+import { formatCents, parseMoneyExpression } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface AssignedInputProps {
@@ -14,17 +14,18 @@ interface AssignedInputProps {
 export function AssignedInput({ value, onSave, className }: AssignedInputProps) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
-  const inputRef = useRef<HTMLInputElement>(null);
 
   function startEditing() {
-    setDraft(value === 0 ? "" : (Math.abs(value) / 100).toFixed(2));
+    // Prefill with the current value so the user can append "+23.49" or
+    // "-23.49" to adjust it without retyping the whole amount.
+    setDraft(value === 0 ? "" : (value / 100).toFixed(2));
     setEditing(true);
   }
 
   function commit() {
-    const dollars = parseFloat(draft);
-    if (!isNaN(dollars) && dollars >= 0) {
-      onSave(Math.round(dollars * 100));
+    const cents = parseMoneyExpression(draft);
+    if (cents !== null) {
+      onSave(cents);
     }
     setEditing(false);
   }
@@ -32,12 +33,17 @@ export function AssignedInput({ value, onSave, className }: AssignedInputProps) 
   if (editing) {
     return (
       <Input
-        ref={inputRef}
         autoFocus
-        type="number"
-        min="0"
-        step="0.01"
+        // type="text" (not "number") so "+"/"-" expressions are accepted.
+        type="text"
+        inputMode="text"
         value={draft}
+        // Place the cursor at the end so typing continues after the prefilled
+        // amount rather than overwriting it.
+        onFocus={(e) => {
+          const len = e.target.value.length;
+          e.target.setSelectionRange(len, len);
+        }}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={commit}
         onKeyDown={(e) => {
