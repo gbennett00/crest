@@ -14,6 +14,7 @@ import { AddCategoryForm } from "./add-category-form";
 import { EditableName } from "./editable-name";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
+import { PaymentCategoryAvailable } from "./payment-category-popover";
 import { Pin } from "lucide-react";
 import type {
   BudgetCategory,
@@ -276,14 +277,11 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                     </span>
 
                     {group.budgetMode === "category" ? (
-                      <AvailableCell
-                        cents={cat.availableCents}
-                        underfunded={
-                          cat.cardRegisterBalanceCents !== null &&
-                          cat.cardRegisterBalanceCents < 0 &&
-                          cat.availableCents < Math.abs(cat.cardRegisterBalanceCents)
-                        }
-                      />
+                      cat.cardRegisterBalanceCents !== null ? (
+                        <PaymentCategoryAvailable cat={cat} month={data.month} />
+                      ) : (
+                        <AvailableCell cents={cat.availableCents} />
+                      )
                     ) : (
                       <span className="text-right text-muted-foreground text-xs">—</span>
                     )}
@@ -341,14 +339,7 @@ function RtaBanner({ cents }: { cents: number }) {
   );
 }
 
-function AvailableCell({ cents, underfunded = false }: { cents: number; underfunded?: boolean }) {
-  if (underfunded) {
-    return (
-      <span className="text-right font-medium tabular-nums text-amber-600 dark:text-amber-400">
-        {formatCents(cents)}
-      </span>
-    );
-  }
+function AvailableCell({ cents }: { cents: number }) {
   return (
     <span
       className={cn(

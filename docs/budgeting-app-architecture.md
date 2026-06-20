@@ -381,33 +381,67 @@ Rules:
 ## CREDIT CARD LOGIC
 
 Each credit account has a dedicated payment category. Credit card handling mirrors
-YNAB-style reserved-cash behavior.
+YNAB-style reserved-cash behavior. Payment-category activity is **derived** from
+the card's register (it is never categorized to the payment category directly —
+that would double-count). For a viewed month it decomposes as:
 
-When a credit card purchase occurs (an approved, categorized, non-transfer
-outflow on the card):
+```
+total activity = funded spending − payments − returns
+```
 
-* spending category activity decreases
-* corresponding payment category available increases by abs(amount) — i.e. cash
-  is reserved in the payment category to cover the new debt
+and the budget screen exposes this as a popover breakdown (Spending, Returns,
+Funded Spending, Payments & Returns, Totals).
 
-When a payment transfer to a credit card occurs (a transfer inflow on the card):
+**Funded spending.** When a credit-card purchase occurs (an approved, categorized,
+non-transfer outflow on the card), the spending category's activity decreases, and
+the payment category is filled with only the **funded** portion of the spend — the
+amount the spending category actually had money to cover. Concretely, for a
+spending category in a month, the funds available before its credit purchases =
+its rolled-forward available + that month's credit outflow (adding the outflow back
+recovers the pre-purchase balance, which already reflects assignments, cash
+spending, and returns). The funded amount is capped at those funds; any excess is
+**uncovered debt** and surfaces as an underfunded payment category. Funded spending
+is computed per funding unit per month and attributed across cards in proportion
+to each card's share of that unit's outflow. The funding unit is the spending
+category itself, except for categories in a **group-budgeted** group, whose funds
+live on the group — there the cap is assessed against the group's available, not
+the (always-negative) per-category available.
 
-* payment category available decreases by the payment amount
-* no spending category is involved, and the transfer is **not** categorized — the
-  drain is derived from the transfer itself in the budget read-models
+This means an underfunded spending category no longer reserves cash it doesn't
+have: the payment category's available reflects what's truly covered, not the raw
+card balance.
 
-Opening balance (pre-existing debt):
+**Returns.** A return/refund (a categorized, non-transfer **inflow** on the card)
+reduces the card's debt, so it drains the payment category by the return amount
+(grouped with payments as "Payments & Returns"). The refund also flows back into
+its spending category's available via the allocation, as usual.
 
-* the card's negative opening balance is **not** injected into the payment
-  category and is **excluded from the Ready to Assign total** (see READY TO
-  ASSIGN). It is therefore unfunded — the payment category shows $0 available
-  against a negative card register balance, which the UI flags as **underfunded
-  (amber)** until the user assigns real dollars to cover it
+**Payments.** A payment transfer to a credit card (a transfer inflow on the card)
+drains the payment category by the payment amount. No spending category is
+involved and the transfer is not categorized — the drain is derived from the
+transfer itself.
 
-Note: payment-category activity is **derived** from the card's register
-(purchases fill it, transfer payments drain it), not from allocations to the
-payment category. Do not also categorize these transactions to the payment
-category — that double-counts.
+**Opening balance (pre-existing debt).** The card's negative opening balance is
+**not** injected into the payment category and is **excluded from the Ready to
+Assign total** (see READY TO ASSIGN). It is part of the card's register balance
+(real debt) but unfunded, so the payment category shows $0 available against a
+negative register balance until the user assigns real dollars.
+
+**Register balance vs. funded available.** The card's register balance is the
+**real amount owed**: it sums *all* transactions (approved or not) plus the
+opening balance. Funded spending, by contrast, counts only approved, categorized,
+covered purchases (the budget read-models are approved-only). So an
+unapproved/uncategorized purchase — which can't be approved without an allocation —
+adds to the debt and to gross **Spending** in the breakdown, but contributes
+**no** funded spending, leaving the payment category underfunded until it is
+approved and covered.
+
+**Underfunded indicator.** The payment category is flagged **underfunded (amber)**
+when its (funded) available is less than the card's debt. The shortfall —
+`max(0, abs(cardRegisterBalance) − available)` when there is debt — is computed by
+`paymentShortfallCents` (the single source of truth for both the amber state and
+the one-click "assign to cover" amount). It is non-zero for uncovered spending,
+unapproved/uncategorized purchases, and unassigned opening debt alike.
 
 ---
 
