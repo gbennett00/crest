@@ -80,13 +80,15 @@ Add unit tests whenever you add or change business logic or financial calculatio
 
 ## Verifying changes
 
-Local Supabase is already running when you start work —
-NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY
-are set in the environment, pointing at the local instance.
+### Supabase setup
+
+In cloud environments (`CLAUDE_CODE_REMOTE=true`), if Supabase is not already running (check with `supabase status`), run `scripts/start-local-supabase.sh` before starting the dev server. This script starts Docker and Supabase, and writes the required env vars. Do not run this script locally — Docker is not available on the local machine.
+
+### Frontend changes
 
 Before considering a frontend change done:
 
-1. Run `npm run dev` (backgrounded) and confirm it starts cleanly
+1. Run `pnpm dev` (backgrounded) and confirm it starts cleanly
 2. Hit the relevant route(s) on localhost to confirm the change works
 3. Check for errors in the dev server output
 4. Stop the dev server when done verifying
