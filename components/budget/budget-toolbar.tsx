@@ -31,33 +31,44 @@ export function BudgetToolbar({
 
   return (
     <>
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild>
-          <button
-            className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground"
-            aria-label="Plan options"
-          >
-            <Plus size={18} />
-          </button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="w-44">
-          <DropdownMenuItem
-            onSelect={() => setModal("category")}
-            className="gap-2"
-            disabled={groups.length === 0}
-          >
-            <ListPlus size={14} /> Add category
-          </DropdownMenuItem>
-          <DropdownMenuItem onSelect={() => setModal("group")} className="gap-2">
-            <FolderPlus size={14} /> Add group
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem onSelect={onToggleReorder} className="gap-2">
-            {reordering ? <Check size={14} /> : <ArrowUpDown size={14} />}
-            {reordering ? "Done reordering" : "Reorder"}
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+      {reordering ? (
+        // While reordering, a direct check button finishes — no dropdown needed.
+        <button
+          onClick={onToggleReorder}
+          className="p-2 rounded text-primary hover:bg-accent transition-colors"
+          aria-label="Done reordering"
+          title="Done reordering"
+        >
+          <Check size={18} />
+        </button>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground"
+              aria-label="Plan options"
+            >
+              <Plus size={18} />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-44">
+            <DropdownMenuItem
+              onSelect={() => setModal("category")}
+              className="gap-2"
+              disabled={groups.length === 0}
+            >
+              <ListPlus size={14} /> Add category
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => setModal("group")} className="gap-2">
+              <FolderPlus size={14} /> Add group
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onToggleReorder} className="gap-2">
+              <ArrowUpDown size={14} /> Reorder
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
       {modal === "category" && (
         <AddCategoryModal groups={groups} onClose={() => setModal(null)} />
