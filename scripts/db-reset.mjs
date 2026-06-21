@@ -41,6 +41,8 @@ const {
 
 // FK-safe set; TRUNCATE ... CASCADE clears them together regardless of order.
 const TABLES = [
+  "plans",
+  "plan_members",
   "category_groups",
   "categories",
   "accounts",

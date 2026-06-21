@@ -42,8 +42,11 @@ const {
 } = process.env;
 
 // The app tables, dumped data-only. Order matters for restore: parents before
-// children so FK references resolve as rows are COPYed in.
+// children so FK references resolve as rows are COPYed in. (plan_members also
+// references auth.users, which must already exist in the target database.)
 const TABLES = [
+  "plans",
+  "plan_members",
   "category_groups",
   "categories",
   "accounts",

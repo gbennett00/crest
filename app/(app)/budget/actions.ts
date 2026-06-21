@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { upsertCategoryBudget, upsertGroupBudget } from "@/lib/ledger";
+import { getActivePlanId } from "@/lib/plan/active-plan";
 
 // RTA is computed directly on read (see budget/page.tsx and home/page.tsx).
 // No monthly_budget entry is written for the RTA category — assignments to
@@ -66,6 +67,7 @@ export async function createGroup(formData: FormData) {
     return { error: "Invalid budget mode" };
 
   const supabase = await createClient();
+  const planId = await getActivePlanId(supabase);
   // New groups go to the end of the order.
   const { data: last } = await supabase
     .from("category_groups")
@@ -77,7 +79,7 @@ export async function createGroup(formData: FormData) {
 
   const { error } = await supabase
     .from("category_groups")
-    .insert({ name, budget_mode: budgetMode, sort_index: sortIndex });
+    .insert({ name, budget_mode: budgetMode, sort_index: sortIndex, plan_id: planId });
 
   if (error) return { error: error.message };
   revalidatePath("/budget");

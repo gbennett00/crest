@@ -563,6 +563,7 @@ export async function createAccount(
   const { data, error } = await client
     .from("accounts")
     .insert({
+      plan_id: input.planId,
       name: input.name,
       type: input.type,
       balance_cents: openingBalance,

@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  createAccount,
   createTransaction,
   deleteTransactionWithCounterpart,
   reconcileWithAdjustment,
@@ -555,5 +556,47 @@ describe("reconcileWithAdjustment", () => {
     expect(result.reconciledAt).toBeDefined();
     expect(inserted).toHaveLength(0);
     expect(state.balanceCents).toBe(10_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// createAccount — plan ownership
+// ---------------------------------------------------------------------------
+
+describe("createAccount", () => {
+  // Captures the payload passed to accounts.insert(); single() echoes it back as
+  // the created row. openingBalanceCents defaults to 0, so no further DB calls fire.
+  function makeAccountMock() {
+    const insert = vi.fn();
+    const client = {
+      from: vi.fn(() => ({
+        insert: (payload: Record<string, unknown>) => {
+          insert(payload);
+          return {
+            select: () => ({
+              single: vi.fn().mockResolvedValue({
+                data: { id: "acc-9", is_active: true, created_at: "x", ...payload },
+                error: null,
+              }),
+            }),
+          };
+        },
+      })),
+    } as unknown as SupabaseClient;
+    return { client, insert };
+  }
+
+  it("stamps plan_id on the inserted account row", async () => {
+    const { client, insert } = makeAccountMock();
+
+    await createAccount(client, {
+      planId: "plan-1",
+      name: "Checking",
+      type: "checking",
+    });
+
+    expect(insert).toHaveBeenCalledWith(
+      expect.objectContaining({ plan_id: "plan-1", name: "Checking", type: "checking" }),
+    );
   });
 });

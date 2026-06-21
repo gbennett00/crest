@@ -8,6 +8,7 @@ import {
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
 } from "@/lib/ledger";
+import { getActivePlanId } from "@/lib/plan/active-plan";
 
 export async function createManualAccount(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
@@ -30,10 +31,11 @@ export async function createManualAccount(formData: FormData) {
   const supabase = await createClient();
 
   try {
+    const planId = await getActivePlanId(supabase);
     let paymentCategoryId: string | null = null;
 
     if (type === "credit") {
-      // Find or create the Credit Cards group
+      // Find or create the Credit Cards group (RLS scopes this to the plan).
       const { data: existing } = await supabase
         .from("category_groups")
         .select("id")
@@ -46,7 +48,7 @@ export async function createManualAccount(formData: FormData) {
       } else {
         const { data: newGroup, error: gErr } = await supabase
           .from("category_groups")
-          .insert({ name: "Credit Cards", budget_mode: "category" })
+          .insert({ name: "Credit Cards", budget_mode: "category", plan_id: planId })
           .select("id")
           .single();
         if (gErr) return { error: gErr.message };
@@ -63,6 +65,7 @@ export async function createManualAccount(formData: FormData) {
     }
 
     await createAccount(supabase, {
+      planId,
       name,
       type,
       openingBalanceCents,
