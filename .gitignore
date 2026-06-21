@@ -43,3 +43,5 @@ next-env.d.ts
 
 # claude local config (credentials, personal settings)
 .claude/
+.claude/*
+!.claude/settings.json
