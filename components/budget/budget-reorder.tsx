@@ -45,34 +45,29 @@ export function BudgetReorder({ groups }: { groups: BudgetGroup[] }) {
   function handleGroupDragEnd(e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    setItems((prev) => {
-      const oldIndex = prev.findIndex((g) => g.id === active.id);
-      const newIndex = prev.findIndex((g) => g.id === over.id);
-      if (oldIndex < 0 || newIndex < 0) return prev;
-      const next = arrayMove(prev, oldIndex, newIndex);
-      startTransition(async () => {
-        await reorderGroups(next.map((g) => g.id));
-      });
-      return next;
+    const oldIndex = items.findIndex((g) => g.id === active.id);
+    const newIndex = items.findIndex((g) => g.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const next = arrayMove(items, oldIndex, newIndex);
+    setItems(next);
+    startTransition(async () => {
+      await reorderGroups(next.map((g) => g.id));
     });
   }
 
   function handleCategoryDragEnd(groupId: string, e: DragEndEvent) {
     const { active, over } = e;
     if (!over || active.id === over.id) return;
-    setItems((prev) =>
-      prev.map((g) => {
-        if (g.id !== groupId) return g;
-        const oldIndex = g.categories.findIndex((c) => c.id === active.id);
-        const newIndex = g.categories.findIndex((c) => c.id === over.id);
-        if (oldIndex < 0 || newIndex < 0) return g;
-        const cats = arrayMove(g.categories, oldIndex, newIndex);
-        startTransition(async () => {
-          await reorderCategories(groupId, cats.map((c) => c.id));
-        });
-        return { ...g, categories: cats };
-      }),
-    );
+    const group = items.find((g) => g.id === groupId);
+    if (!group) return;
+    const oldIndex = group.categories.findIndex((c) => c.id === active.id);
+    const newIndex = group.categories.findIndex((c) => c.id === over.id);
+    if (oldIndex < 0 || newIndex < 0) return;
+    const cats = arrayMove(group.categories, oldIndex, newIndex);
+    setItems(items.map((g) => (g.id === groupId ? { ...g, categories: cats } : g)));
+    startTransition(async () => {
+      await reorderCategories(groupId, cats.map((c) => c.id));
+    });
   }
 
   return (
