@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"$CLAUDE_PROJECT_DIR\"/scripts/start-local-supabase.sh"
+            "command": "./scripts/start-local-supabase.sh"
           }
         ]
       }
