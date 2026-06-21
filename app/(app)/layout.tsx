@@ -1,13 +1,13 @@
 import { Suspense } from "react";
-import { LogoutButton } from "@/components/logout-button";
+import { UserMenu } from "@/components/user-menu";
 import { BottomNav, Sidebar } from "@/components/nav";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
       <header className="sticky top-0 z-20 h-12 border-b bg-background flex items-center px-4 justify-between shrink-0">
-        <span className="font-semibold tracking-tight">Crest</span>
-        <LogoutButton />
+        <span className="font-semibold tracking-tight text-primary">Crest</span>
+        <UserMenu />
       </header>
 
       <div className="flex flex-1 min-h-0">

@@ -1,21 +1,26 @@
 "use client";
 
-import { useState, useTransition } from "react";
-import Link from "next/link";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { formatCents } from "@/lib/format";
 import { nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
+import { Input } from "@/components/ui/input";
 import { AssignedInput } from "./assigned-input";
-import { assignCategory, assignGroup, togglePin } from "@/app/(app)/budget/actions";
-import { AddGroupForm } from "./add-group-form";
-import { AddCategoryForm } from "./add-category-form";
-import { EditableName } from "./editable-name";
+import {
+  assignCategory,
+  assignGroup,
+  renameCategory,
+  renameGroup,
+} from "@/app/(app)/budget/actions";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
-import { Pin } from "lucide-react";
+import { RowMenu } from "./row-menu";
+import { BudgetToolbar } from "./budget-toolbar";
+import { BudgetReorder } from "./budget-reorder";
+import { paymentShortfallCents } from "@/lib/budget/compute";
 import type {
   BudgetCategory,
   BudgetData,
@@ -43,7 +48,9 @@ function formatMonth(month: string): string {
   return `${MONTH_NAMES[m - 1]} ${y}`;
 }
 
-const COLS = "grid grid-cols-[1fr_68px_68px_76px]";
+// Activity is the 3rd column and is hidden on small screens (hidden md:block on
+// each activity cell removes it from the grid entirely there).
+const COLS = "grid grid-cols-[1fr_68px_76px] md:grid-cols-[1fr_68px_68px_76px]";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -55,6 +62,24 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
   const [, startTransition] = useTransition();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
+  const [reordering, setReordering] = useState(false);
+
+  // On mobile, group-budgeted groups have nothing useful in their member rows
+  // (per-category assigned/available are "—" and the Activity column is hidden),
+  // so collapse them by default. Done once after mount to avoid a hydration
+  // mismatch; users can still expand them.
+  const didInitCollapse = useRef(false);
+  useEffect(() => {
+    if (didInitCollapse.current) return;
+    didInitCollapse.current = true;
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      setCollapsed(
+        new Set(
+          data.groups.filter((g) => g.budgetMode === "group").map((g) => g.id),
+        ),
+      );
+    }
+  }, [data.groups]);
 
   function navigate(month: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -86,14 +111,16 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
       ? data.rtaAvailableCents !== 0
       : data.rtaAvailableCents < 0;
 
+  const groupOptions = displayGroups.map((g) => ({ id: g.id, name: g.name }));
+
   return (
-    <div className="flex flex-col pt-12">
+    <div className="flex flex-col">
       {assignOpen && (
         <AssignPopup data={data} onClose={() => setAssignOpen(false)} />
       )}
 
-      {/* Month navigation — sticky top-12 matches pt-12 on the wrapper so there's no jump on load */}
-      <div className="sticky top-12 z-10 bg-background border-b flex items-center justify-between px-2 h-11 shrink-0">
+      {/* Month navigation — sticky directly under the global header. */}
+      <div className="sticky top-0 z-10 bg-background border-b flex items-center justify-between px-2 h-11 shrink-0">
         <button
           onClick={() => navigate(previousBudgetMonth(data.month))}
           disabled={data.month <= data.minMonth}
@@ -103,201 +130,367 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
           <ChevronLeft size={18} />
         </button>
         <span className="font-semibold text-sm">{formatMonth(data.month)}</span>
-        <button
-          onClick={() => navigate(nextBudgetMonth(data.month))}
-          disabled={data.month >= data.maxMonth}
-          className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground disabled:opacity-30 disabled:pointer-events-none"
-          aria-label="Next month"
-        >
-          <ChevronRight size={18} />
-        </button>
+        <div className="flex items-center">
+          <button
+            onClick={() => navigate(nextBudgetMonth(data.month))}
+            disabled={data.month >= data.maxMonth}
+            className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground disabled:opacity-30 disabled:pointer-events-none"
+            aria-label="Next month"
+          >
+            <ChevronRight size={18} />
+          </button>
+          <BudgetToolbar
+            groups={groupOptions}
+            reordering={reordering}
+            onToggleReorder={() => setReordering((r) => !r)}
+          />
+        </div>
       </div>
 
-      {/* Ready to Assign banner — clickable to open assign popup. */}
-      {showRta && (
-        <button className="text-left w-full" onClick={() => setAssignOpen(true)}>
-          <RtaBanner cents={data.rtaAvailableCents} />
-        </button>
-      )}
-
-      {/* Column headers */}
-      <div
-        className={cn(
-          COLS,
-          "px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground border-b",
-        )}
-      >
-        <span>Category</span>
-        <span className="text-right">Assigned</span>
-        <span className="text-right">Activity</span>
-        <span className="text-right">Available</span>
-      </div>
-
-      {/* Groups */}
-      {displayGroups.length === 0 ? (
-        <p className="text-center text-muted-foreground text-sm py-16">
-          No categories yet.
-        </p>
+      {reordering ? (
+        <BudgetReorder groups={displayGroups} />
       ) : (
-        displayGroups.map((group) => {
-          const isExpanded = !collapsed.has(group.id);
-          const visibleCats = group.categories.filter(
-            (c) => c.role !== "ready_to_assign" && !c.isHidden,
-          );
+        <>
+          {/* Ready to Assign banner — clickable to open assign popup. */}
+          {showRta && (
+            <button className="text-left w-full" onClick={() => setAssignOpen(true)}>
+              <RtaBanner cents={data.rtaAvailableCents} />
+            </button>
+          )}
 
-          const totalAssigned =
-            group.budgetMode === "group"
-              ? group.groupAssignedCents
-              : visibleCats.reduce((s, c) => s + c.assignedCents, 0);
-          const totalActivity =
-            group.budgetMode === "group"
-              ? group.groupActivityCents
-              : visibleCats.reduce((s, c) => s + c.activityCents, 0);
-          const totalAvailable =
-            group.budgetMode === "group"
-              ? group.groupAvailableCents
-              : visibleCats.reduce((s, c) => s + c.availableCents, 0);
+          {/* Column headers */}
+          <div
+            className={cn(
+              COLS,
+              "px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground border-b",
+            )}
+          >
+            <span>Category</span>
+            <span className="text-right">Assigned</span>
+            <span className="hidden md:block text-right">Activity</span>
+            <span className="text-right">Available</span>
+          </div>
 
-          return (
-            <div key={group.id}>
-              {/* Group header row */}
-              <div
-                className={cn(
-                  COLS,
-                  "px-4 py-2 border-b bg-muted/40 text-sm font-medium items-center",
-                )}
-              >
-                <div className="flex items-center gap-1.5 min-w-0">
-                  <button
-                    className="shrink-0 text-muted-foreground"
-                    onClick={() => toggle(group.id)}
-                    aria-label={isExpanded ? "Collapse group" : "Expand group"}
-                  >
-                    {isExpanded ? (
-                      <ChevronDown size={14} />
-                    ) : (
-                      <ChevronRight size={14} />
-                    )}
-                  </button>
-                  <EditableName id={group.id} name={group.name} type="group" className="flex-1 min-w-0" />
-                  {group.budgetMode === "group" && (
-                    <TargetButton
-                      entityId={group.id}
-                      entityType="group"
-                      existingTarget={group.target}
-                    />
-                  )}
-                  <button
-                    onClick={() => startTransition(async () => { await togglePin(group.id, "group"); })}
-                    className={cn(
-                      "shrink-0 p-0.5 rounded transition-colors",
-                      group.isPinned
-                        ? "text-primary"
-                        : "text-muted-foreground/40 hover:text-muted-foreground",
-                    )}
-                    title={group.isPinned ? "Unpin" : "Pin to home"}
-                  >
-                    <Pin size={11} />
-                  </button>
-                </div>
+          {/* Groups */}
+          {displayGroups.length === 0 ? (
+            <p className="text-center text-muted-foreground text-sm py-16">
+              No categories yet. Use the + button to add one.
+            </p>
+          ) : (
+            displayGroups.map((group) => {
+              const isExpanded = !collapsed.has(group.id);
+              const visibleCats = group.categories.filter(
+                (c) => c.role !== "ready_to_assign" && !c.isHidden,
+              );
 
-                {group.budgetMode === "group" ? (
-                  <AssignedInput
-                    value={totalAssigned}
-                    onSave={(cents) =>
+              const totalAssigned =
+                group.budgetMode === "group"
+                  ? group.groupAssignedCents
+                  : visibleCats.reduce((s, c) => s + c.assignedCents, 0);
+              const totalActivity =
+                group.budgetMode === "group"
+                  ? group.groupActivityCents
+                  : visibleCats.reduce((s, c) => s + c.activityCents, 0);
+              const totalAvailable =
+                group.budgetMode === "group"
+                  ? group.groupAvailableCents
+                  : visibleCats.reduce((s, c) => s + c.availableCents, 0);
+
+              return (
+                <div key={group.id}>
+                  <GroupHeaderRow
+                    group={group}
+                    isExpanded={isExpanded}
+                    onToggle={() => toggle(group.id)}
+                    assigned={totalAssigned}
+                    activity={totalActivity}
+                    available={totalAvailable}
+                    onAssignGroup={(cents) =>
                       startTransition(async () => {
                         await assignGroup(group.id, data.month, cents);
                       })
                     }
                   />
-                ) : (
-                  <span className="text-right">{formatCents(totalAssigned)}</span>
-                )}
 
-                <span className="text-right text-muted-foreground">
-                  {formatCents(totalActivity)}
-                </span>
-                <AvailableCell cents={totalAvailable} />
-              </div>
-
-              {/* Category rows */}
-              {isExpanded &&
-                visibleCats.map((cat) => (
-                  <div
-                    key={cat.id}
-                    className={cn(COLS, "px-4 pl-8 py-2 border-b text-sm items-center")}
-                  >
-                    <span className="flex items-center gap-1 min-w-0">
-                      <EditableName id={cat.id} name={cat.name} type="category" />
-                      {group.budgetMode === "category" && (
-                        <TargetButton
-                          entityId={cat.id}
-                          entityType="category"
-                          existingTarget={cat.target}
-                        />
-                      )}
-                      <button
-                        onClick={() => startTransition(async () => { await togglePin(cat.id, "category"); })}
-                        className={cn(
-                          "shrink-0 p-0.5 rounded transition-colors",
-                          cat.isPinned
-                            ? "text-primary"
-                            : "text-muted-foreground/40 hover:text-muted-foreground",
-                        )}
-                        title={cat.isPinned ? "Unpin" : "Pin to home"}
-                      >
-                        <Pin size={11} />
-                      </button>
-                    </span>
-
-                    {group.budgetMode === "category" ? (
-                      <AssignedInput
-                        value={cat.assignedCents}
-                        onSave={(cents) =>
+                  {isExpanded &&
+                    visibleCats.map((cat) => (
+                      <CategoryRow
+                        key={cat.id}
+                        cat={cat}
+                        group={group}
+                        month={data.month}
+                        onAssign={(cents) =>
                           startTransition(async () => {
                             await assignCategory(cat.id, data.month, cents);
                           })
                         }
                       />
-                    ) : (
-                      <span className="text-right text-muted-foreground text-xs">—</span>
-                    )}
+                    ))}
+                </div>
+              );
+            })
+          )}
+        </>
+      )}
+    </div>
+  );
+}
 
-                    <span className="text-right text-muted-foreground">
-                      {cat.cardRegisterBalanceCents !== null ? (
-                        // Credit-card payment categories have no directly-allocated
-                        // transactions to link to; the activity opens a breakdown popover.
-                        <PaymentCategoryActivity cat={cat} month={data.month} />
-                      ) : cat.activityCents !== 0 ? (
-                        <Link
-                          href={`/transactions?category=${cat.id}&month=${data.month}`}
-                          className="hover:underline"
-                        >
-                          {formatCents(cat.activityCents)}
-                        </Link>
-                      ) : (
-                        <span className="text-xs">—</span>
-                      )}
-                    </span>
+// ---------------------------------------------------------------------------
+// Rows
+// ---------------------------------------------------------------------------
 
-                    {group.budgetMode === "category" ? (
-                      <AvailableCell cents={cat.availableCents} />
-                    ) : (
-                      <span className="text-right text-muted-foreground text-xs">—</span>
-                    )}
-                  </div>
-                ))}
+function GroupHeaderRow({
+  group,
+  isExpanded,
+  onToggle,
+  assigned,
+  activity,
+  available,
+  onAssignGroup,
+}: {
+  group: BudgetGroup;
+  isExpanded: boolean;
+  onToggle: () => void;
+  assigned: number;
+  activity: number;
+  available: number;
+  onAssignGroup: (cents: number) => void;
+}) {
+  const [renaming, setRenaming] = useState(false);
+  const [targetOpen, setTargetOpen] = useState(false);
+  const isGroupBudget = group.budgetMode === "group";
 
-              {/* Add category form (shown when group is expanded) */}
-              {isExpanded && <AddCategoryForm groupId={group.id} />}
-            </div>
-          );
-        })
+  return (
+    <div
+      onClick={() => { if (!renaming) onToggle(); }}
+      className={cn(
+        COLS,
+        "px-4 py-2 border-b bg-primary/5 hover:bg-primary/10 text-sm font-medium items-center cursor-pointer transition-colors",
+      )}
+    >
+      <div className="flex items-center gap-1.5 min-w-0">
+        <span className="shrink-0 text-muted-foreground">
+          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
+        </span>
+        <InlineName
+          id={group.id}
+          name={group.name}
+          type="group"
+          editing={renaming}
+          onDone={() => setRenaming(false)}
+        />
+        {!renaming && (
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+            <RowMenu
+              onRename={() => setRenaming(true)}
+              onEditTarget={isGroupBudget ? () => setTargetOpen(true) : undefined}
+              hasTarget={!!group.target}
+              showTarget={isGroupBudget}
+            />
+          </div>
+        )}
+        {isGroupBudget && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <TargetButton
+              entityId={group.id}
+              entityType="group"
+              existingTarget={group.target}
+              open={targetOpen}
+              onOpenChange={setTargetOpen}
+              showTrigger={false}
+            />
+          </span>
+        )}
+      </div>
+
+      {isGroupBudget ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <AssignedInput value={assigned} onSave={onAssignGroup} />
+        </div>
+      ) : (
+        <span className="text-right">{formatCents(assigned)}</span>
       )}
 
-      {/* Add group form at the bottom */}
-      <AddGroupForm />
+      <span className="hidden md:block text-right text-muted-foreground">
+        {formatCents(activity)}
+      </span>
+      <AvailableCell cents={available} />
     </div>
+  );
+}
+
+function CategoryRow({
+  cat,
+  group,
+  month,
+  onAssign,
+}: {
+  cat: BudgetCategory;
+  group: BudgetGroup;
+  month: string;
+  onAssign: (cents: number) => void;
+}) {
+  const router = useRouter();
+  const [renaming, setRenaming] = useState(false);
+  const [targetOpen, setTargetOpen] = useState(false);
+  const [ccOpen, setCcOpen] = useState(false);
+
+  const isCategoryBudget = group.budgetMode === "category";
+  const isCC = cat.cardRegisterBalanceCents !== null;
+  const underfunded =
+    isCC && paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents) > 0;
+
+  function handleRowClick() {
+    if (renaming) return;
+    if (isCC) setCcOpen((o) => !o);
+    else router.push(`/transactions?category=${cat.id}&month=${month}`);
+  }
+
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={handleRowClick}
+      className={cn(
+        COLS,
+        "px-4 pl-8 py-2 border-b text-sm items-center cursor-pointer hover:bg-accent/40 transition-colors",
+      )}
+    >
+      <span className="flex items-center gap-1 min-w-0">
+        <InlineName
+          id={cat.id}
+          name={cat.name}
+          type="category"
+          editing={renaming}
+          onDone={() => setRenaming(false)}
+        />
+        {!renaming && (
+          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
+            <RowMenu
+              onRename={() => setRenaming(true)}
+              onEditTarget={isCategoryBudget ? () => setTargetOpen(true) : undefined}
+              hasTarget={!!cat.target}
+              showTarget={isCategoryBudget}
+            />
+          </div>
+        )}
+        {isCategoryBudget && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <TargetButton
+              entityId={cat.id}
+              entityType="category"
+              existingTarget={cat.target}
+              open={targetOpen}
+              onOpenChange={setTargetOpen}
+              showTrigger={false}
+            />
+          </span>
+        )}
+      </span>
+
+      {isCategoryBudget ? (
+        <div onClick={(e) => e.stopPropagation()}>
+          <AssignedInput value={cat.assignedCents} onSave={onAssign} />
+        </div>
+      ) : (
+        <span className="text-right text-muted-foreground text-xs">—</span>
+      )}
+
+      <span className="hidden md:block text-right text-muted-foreground">
+        {isCC ? (
+          <span
+            className={cn(
+              "tabular-nums",
+              underfunded && "text-amber-600 dark:text-amber-400",
+            )}
+          >
+            {formatCents(cat.activityCents)}
+          </span>
+        ) : cat.activityCents !== 0 ? (
+          formatCents(cat.activityCents)
+        ) : (
+          <span className="text-xs">—</span>
+        )}
+      </span>
+
+      {isCategoryBudget ? (
+        <span className="relative block text-right">
+          <AvailableCell cents={cat.availableCents} />
+          {isCC && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <PaymentCategoryActivity
+                cat={cat}
+                month={month}
+                open={ccOpen}
+                onOpenChange={setCcOpen}
+                showTrigger={false}
+              />
+            </span>
+          )}
+        </span>
+      ) : (
+        <span className="text-right text-muted-foreground text-xs">—</span>
+      )}
+    </div>
+  );
+}
+
+// Inline rename field shared by group/category rows. When not editing it renders
+// the name as plain text so the row's click handler (navigate / toggle) works.
+function InlineName({
+  id,
+  name,
+  type,
+  editing,
+  onDone,
+}: {
+  id: string;
+  name: string;
+  type: "category" | "group";
+  editing: boolean;
+  onDone: () => void;
+}) {
+  const [, startTransition] = useTransition();
+
+  if (!editing) {
+    return <span className="truncate min-w-0">{name}</span>;
+  }
+
+  function commit(value: string) {
+    const trimmed = value.trim();
+    if (trimmed && trimmed !== name) {
+      startTransition(async () => {
+        if (type === "category") await renameCategory(id, trimmed);
+        else await renameGroup(id, trimmed);
+        onDone();
+      });
+    } else {
+      onDone();
+    }
+  }
+
+  return (
+    <Input
+      autoFocus
+      defaultValue={name}
+      onClick={(e) => e.stopPropagation()}
+      onFocus={(e) => {
+        const len = e.target.value.length;
+        e.target.setSelectionRange(len, len);
+      }}
+      onBlur={(e) => commit(e.target.value)}
+      onKeyDown={(e) => {
+        e.stopPropagation();
+        if (e.key === "Enter") {
+          e.preventDefault();
+          commit((e.target as HTMLInputElement).value);
+        }
+        if (e.key === "Escape") onDone();
+      }}
+      // text-base on mobile (16px) prevents iOS zoom-on-focus.
+      className="h-6 text-base md:text-sm py-0 px-1.5"
+    />
   );
 }
 
@@ -313,7 +506,7 @@ function RtaBanner({ cents }: { cents: number }) {
         "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity",
         overAssigned
           ? "bg-destructive/10 border border-destructive/30"
-          : "bg-primary/5 border border-primary/20",
+          : "bg-primary/10 border border-primary/30",
       )}
     >
       <div>

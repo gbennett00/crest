@@ -5,6 +5,7 @@ import { formatCents } from "@/lib/format";
 import { ApproveForm } from "@/components/home/approve-form";
 import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { HomeAssignButton } from "@/components/home/home-assign-button";
+import { PinManager } from "@/components/home/pin-manager";
 import { cn } from "@/lib/utils";
 import { ChevronRight } from "lucide-react";
 
@@ -163,9 +164,20 @@ async function HomeContent() {
         </Section>
       )}
 
-      {/* Pinned categories */}
-      {pinned.length > 0 && (
-        <Section title="Pinned" count={pinned.length}>
+      {/* Pinned categories — always shown so the pin manager is reachable */}
+      <div className="border rounded-xl overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/20">
+          <div className="flex items-center gap-2">
+            <h2 className="text-sm font-semibold">Pinned</h2>
+            {pinned.length > 0 && (
+              <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
+                {pinned.length}
+              </span>
+            )}
+          </div>
+          <PinManager data={budgetData} />
+        </div>
+        {pinned.length > 0 ? (
           <div className="divide-y">
             {pinned.map((item) => (
               <div
@@ -193,8 +205,12 @@ async function HomeContent() {
               </div>
             ))}
           </div>
-        </Section>
-      )}
+        ) : (
+          <p className="px-4 py-6 text-center text-xs text-muted-foreground">
+            No pinned categories yet. Tap “Manage” to add some.
+          </p>
+        )}
+      </div>
 
       {/* Floating Add Transaction button */}
       <HomeAddTransaction accounts={accounts} categories={categories} />

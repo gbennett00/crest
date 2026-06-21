@@ -53,12 +53,22 @@ function LineItem({
 export function PaymentCategoryActivity({
   cat,
   month,
+  open: openProp,
+  onOpenChange,
+  showTrigger = true,
 }: {
   cat: BudgetCategory;
   month: string;
+  // Controlled mode lets a row click open the breakdown popover (the activity
+  // column itself is hidden on mobile).
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  showTrigger?: boolean;
 }) {
   const router = useRouter();
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = onOpenChange ?? setOpenState;
   const [isPending, startTransition] = useTransition();
 
   const shortfall = paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents);
@@ -75,16 +85,18 @@ export function PaymentCategoryActivity({
 
   return (
     <span className="relative inline-block text-right">
-      <button
-        type="button"
-        onClick={() => setOpen((o) => !o)}
-        className={cn(
-          "tabular-nums hover:underline",
-          underfunded ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
-        )}
-      >
-        {formatCents(cat.activityCents)}
-      </button>
+      {showTrigger && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className={cn(
+            "tabular-nums hover:underline",
+            underfunded ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
+          )}
+        >
+          {formatCents(cat.activityCents)}
+        </button>
+      )}
 
       {open && (
         <>
