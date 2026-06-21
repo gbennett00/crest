@@ -3,6 +3,22 @@ if [ "$CLAUDE_CODE_REMOTE" != "true" ]; then
   exit 0
 fi
 cd "$CLAUDE_PROJECT_DIR" || exit 1
+
+if ! docker info >/dev/null 2>&1; then
+  sudo dockerd > /var/log/dockerd.log 2>&1 &
+  disown
+  TRIES=0
+  MAX_TRIES=60
+  until docker info >/dev/null 2>&1; do
+    TRIES=$((TRIES + 1))
+    if [ "$TRIES" -ge "$MAX_TRIES" ]; then
+      echo "[setup] ERROR: Docker did not become ready after ${MAX_TRIES}s" >&2
+      exit 1
+    fi
+    sleep 1
+  done
+fi
+
 supabase start --exclude edge-runtime,storage-api
 
 STATUS=$(supabase status -o json)
