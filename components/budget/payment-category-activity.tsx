@@ -44,11 +44,13 @@ function LineItem({
 }
 
 /**
- * Available cell for a credit-card payment category: shows the (funded)
- * available amount, amber when underfunded, and opens a YNAB-style activity
- * breakdown popover with a one-click "assign to cover" action.
+ * Activity cell for a credit-card payment category. Unlike a normal category,
+ * a payment category has no directly-allocated transactions to link to, so the
+ * activity amount instead opens a YNAB-style breakdown popover with a one-click
+ * "assign to cover" action when the payment envelope is underfunded. The amount
+ * turns amber while underfunded so the funding gap is visible at a glance.
  */
-export function PaymentCategoryAvailable({
+export function PaymentCategoryActivity({
   cat,
   month,
 }: {
@@ -77,17 +79,11 @@ export function PaymentCategoryAvailable({
         type="button"
         onClick={() => setOpen((o) => !o)}
         className={cn(
-          "font-medium tabular-nums hover:underline",
-          underfunded
-            ? "text-amber-600 dark:text-amber-400"
-            : cat.availableCents < 0
-              ? "text-destructive"
-              : cat.availableCents === 0
-                ? "text-muted-foreground"
-                : "text-foreground",
+          "tabular-nums hover:underline",
+          underfunded ? "text-amber-600 dark:text-amber-400" : "text-muted-foreground",
         )}
       >
-        {formatCents(cat.availableCents)}
+        {formatCents(cat.activityCents)}
       </button>
 
       {open && (
