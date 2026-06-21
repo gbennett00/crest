@@ -11,6 +11,7 @@ import { cn } from "@/lib/utils";
 import { Lock } from "lucide-react";
 import { AccountDetailHeader } from "@/components/accounts/account-detail-header";
 import { AccountBalanceSummary } from "@/components/accounts/account-balance-summary";
+import { AccountAddTransaction } from "@/components/accounts/account-add-transaction";
 
 export default function AccountRegisterPage({
   params,
@@ -37,24 +38,35 @@ async function RegisterContent({
   const { category: categoryFilter, month: monthFilter } = await searchParams;
   const supabase = await createClient();
 
-  const [accountRes, txnsRes, allTxnAmountsRes, categoriesRes] = await Promise.all([
-    supabase.from("accounts").select("id, name, type, is_linked").eq("id", id).single(),
-    supabase
-      .from("transactions")
-      .select(
-        "id, payee, amount_cents, txn_date, approved_at, cleared_at, reconciled_at, memo, transaction_allocations(category_id, amount_cents, categories(name))",
-      )
-      .eq("account_id", id)
-      .order("txn_date", { ascending: false })
-      .order("created_at", { ascending: false })
-      .limit(200),
-    // Fetch all transaction amounts for balance calculations
-    supabase
-      .from("transactions")
-      .select("amount_cents, cleared_at")
-      .eq("account_id", id),
-    supabase.from("categories").select("id, name").not("role", "eq", "ready_to_assign"),
-  ]);
+  const [accountRes, txnsRes, allTxnAmountsRes, categoriesRes, accountsRes] =
+    await Promise.all([
+      supabase.from("accounts").select("id, name, type, is_linked").eq("id", id).single(),
+      supabase
+        .from("transactions")
+        .select(
+          "id, payee, amount_cents, txn_date, approved_at, cleared_at, reconciled_at, memo, transaction_allocations(category_id, amount_cents, categories(name))",
+        )
+        .eq("account_id", id)
+        .order("txn_date", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(200),
+      // Fetch all transaction amounts for balance calculations
+      supabase
+        .from("transactions")
+        .select("amount_cents, cleared_at")
+        .eq("account_id", id),
+      supabase
+        .from("categories")
+        .select("id, name, role, category_groups!group_id(name)")
+        .eq("is_hidden", false)
+        .order("name"),
+      // Active accounts power the Add-Transaction form's account picker.
+      supabase
+        .from("accounts")
+        .select("id, name")
+        .eq("is_active", true)
+        .order("name"),
+    ]);
 
   if (accountRes.error || !accountRes.data) {
     return (
@@ -111,6 +123,24 @@ async function RegisterContent({
   const subtitle = monthFilter
     ? `${MONTH_NAMES[+monthFilter.slice(5, 7) - 1]} ${monthFilter.slice(0, 4)}`
     : "All transactions";
+
+  // Options for the floating Add-Transaction form.
+  const accountOptions = ((accountsRes.data ?? []) as { id: string; name: string }[]).map(
+    (a) => ({ id: a.id, name: a.name }),
+  );
+  const categoryOptions = (
+    (categoriesRes.data ?? []) as unknown as Array<{
+      id: string;
+      name: string;
+      role: string | null;
+      category_groups: { name: string } | null;
+    }>
+  ).map((c) => ({
+    id: c.id,
+    name: c.role === "ready_to_assign" ? "Ready to Assign" : c.name,
+    groupName:
+      c.role === "ready_to_assign" ? "— Inflows —" : c.category_groups?.name ?? "Other",
+  }));
 
   return (
     <div className="max-w-2xl pt-12">
@@ -202,6 +232,12 @@ async function RegisterContent({
           ))}
         </div>
       )}
+
+      <AccountAddTransaction
+        accountId={id}
+        accounts={accountOptions}
+        categories={categoryOptions}
+      />
     </div>
   );
 }

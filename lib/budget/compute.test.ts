@@ -362,8 +362,9 @@ describe("findReadyToAssignId", () => {
         name: "Bills",
         budget_mode: "category",
         is_pinned: false,
+        sort_index: 0,
         categories: [
-          { id: "c1", name: "Rent", role: null, is_pinned: false, is_hidden: false },
+          { id: "c1", name: "Rent", role: null, is_pinned: false, is_hidden: false, sort_index: 0 },
         ],
       },
       {
@@ -371,8 +372,9 @@ describe("findReadyToAssignId", () => {
         name: "Inflows",
         budget_mode: "category",
         is_pinned: false,
+        sort_index: 1,
         categories: [
-          { id: "rta", name: "RTA", role: "ready_to_assign", is_pinned: false, is_hidden: false },
+          { id: "rta", name: "RTA", role: "ready_to_assign", is_pinned: false, is_hidden: false, sort_index: 0 },
         ],
       },
     ];
@@ -391,14 +393,15 @@ describe("buildBudgetGroups", () => {
       name: "Monthly Bills",
       budget_mode: "category",
       is_pinned: false,
+      sort_index: 0,
       categories: [
-        { id: "c-rent", name: "Rent", role: null, is_pinned: false, is_hidden: false },
-        { id: "c-water", name: "Water", role: null, is_pinned: true, is_hidden: false },
+        { id: "c-rent", name: "Rent", role: null, is_pinned: false, is_hidden: false, sort_index: 1 },
+        { id: "c-water", name: "Water", role: null, is_pinned: true, is_hidden: false, sort_index: 0 },
       ],
     },
   ];
 
-  it("sorts categories pinned-first then alphabetically", () => {
+  it("sorts categories by sort_index", () => {
     const groups = buildBudgetGroups({
       groups: baseGroups,
       month: MONTH,
@@ -442,8 +445,9 @@ describe("buildBudgetGroups", () => {
           name: "Inflows",
           budget_mode: "category",
           is_pinned: false,
+          sort_index: 0,
           categories: [
-            { id: "rta", name: "RTA", role: "ready_to_assign", is_pinned: false, is_hidden: false },
+            { id: "rta", name: "RTA", role: "ready_to_assign", is_pinned: false, is_hidden: false, sort_index: 0 },
           ],
         },
       ],

@@ -294,6 +294,7 @@ export type RawCategory = {
   role: "ready_to_assign" | null;
   is_pinned: boolean;
   is_hidden: boolean;
+  sort_index: number;
 };
 
 /** Raw group as returned by the `category_groups` query. */
@@ -302,13 +303,14 @@ export type RawGroup = {
   name: string;
   budget_mode: "category" | "group";
   is_pinned: boolean;
+  sort_index: number;
   categories: RawCategory[];
 };
 
 /**
  * Assemble the per-group / per-category view model shown by the budget screen
- * (and reused by the home assign popup). Categories are sorted pinned-first
- * then alphabetically; availability rolls forward through `month`.
+ * (and reused by the home assign popup). Categories are sorted by the
+ * user-defined sort_index; availability rolls forward through `month`.
  */
 export function buildBudgetGroups(params: {
   groups: RawGroup[];
@@ -336,10 +338,9 @@ export function buildBudgetGroups(params: {
   } = params;
 
   return groups.map((group) => {
-    const sortedCats = [...(group.categories ?? [])].sort((a, b) => {
-      if (a.is_pinned !== b.is_pinned) return Number(b.is_pinned) - Number(a.is_pinned);
-      return a.name.localeCompare(b.name);
-    });
+    const sortedCats = [...(group.categories ?? [])].sort(
+      (a, b) => a.sort_index - b.sort_index,
+    );
 
     const categories: BudgetCategory[] = sortedCats.map((c) => {
       const actHistory = catActivity[c.id] ?? {};

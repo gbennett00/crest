@@ -69,9 +69,11 @@ export async function loadBudgetView(
   ] = await Promise.all([
     client
       .from("category_groups")
-      .select("id, name, budget_mode, is_pinned, categories(id, name, role, is_pinned, is_hidden)")
-      .order("is_pinned", { ascending: false })
-      .order("name"),
+      .select(
+        "id, name, budget_mode, is_pinned, sort_index, categories(id, name, role, is_pinned, is_hidden, sort_index)",
+      )
+      .order("sort_index")
+      .order("sort_index", { referencedTable: "categories" }),
     client
       .from("category_monthly_activity")
       .select("category_id, month, activity_cents")

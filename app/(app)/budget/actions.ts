@@ -66,9 +66,18 @@ export async function createGroup(formData: FormData) {
     return { error: "Invalid budget mode" };
 
   const supabase = await createClient();
+  // New groups go to the end of the order.
+  const { data: last } = await supabase
+    .from("category_groups")
+    .select("sort_index")
+    .order("sort_index", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sortIndex = (last?.sort_index ?? -1) + 1;
+
   const { error } = await supabase
     .from("category_groups")
-    .insert({ name, budget_mode: budgetMode });
+    .insert({ name, budget_mode: budgetMode, sort_index: sortIndex });
 
   if (error) return { error: error.message };
   revalidatePath("/budget");
@@ -82,9 +91,51 @@ export async function createCategory(formData: FormData) {
   if (!groupId) return { error: "Group is required" };
 
   const supabase = await createClient();
+  // New categories go to the end of their group's order.
+  const { data: last } = await supabase
+    .from("categories")
+    .select("sort_index")
+    .eq("group_id", groupId)
+    .order("sort_index", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sortIndex = (last?.sort_index ?? -1) + 1;
+
   const { error } = await supabase
     .from("categories")
-    .insert({ name, group_id: groupId });
+    .insert({ name, group_id: groupId, sort_index: sortIndex });
+
+  if (error) return { error: error.message };
+  revalidatePath("/budget");
+  return { success: true };
+}
+
+export async function reorderGroups(orderedIds: string[]) {
+  if (orderedIds.length === 0) return { success: true };
+  const supabase = await createClient();
+  const { error } = await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase.from("category_groups").update({ sort_index: i }).eq("id", id),
+    ),
+  ).then((results) => ({ error: results.find((r) => r.error)?.error }));
+
+  if (error) return { error: error.message };
+  revalidatePath("/budget");
+  return { success: true };
+}
+
+export async function reorderCategories(groupId: string, orderedIds: string[]) {
+  if (orderedIds.length === 0) return { success: true };
+  const supabase = await createClient();
+  const { error } = await Promise.all(
+    orderedIds.map((id, i) =>
+      supabase
+        .from("categories")
+        .update({ sort_index: i })
+        .eq("id", id)
+        .eq("group_id", groupId),
+    ),
+  ).then((results) => ({ error: results.find((r) => r.error)?.error }));
 
   if (error) return { error: error.message };
   revalidatePath("/budget");

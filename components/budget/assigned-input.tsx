@@ -34,9 +34,10 @@ export function AssignedInput({ value, onSave, className }: AssignedInputProps) 
     return (
       <Input
         autoFocus
-        // type="text" (not "number") so "+"/"-" expressions are accepted.
+        // type="text" (not "number") so "+"/"-" expressions are accepted, but
+        // inputMode="decimal" opens the numeric keypad on mobile by default.
         type="text"
-        inputMode="text"
+        inputMode="decimal"
         value={draft}
         // Place the cursor at the end so typing continues after the prefilled
         // amount rather than overwriting it.

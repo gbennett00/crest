@@ -15,15 +15,25 @@ export function TargetButton({
   entityId,
   entityType,
   existingTarget,
+  open: openProp,
+  onOpenChange,
+  showTrigger = true,
 }: {
   entityId: string;
   entityType: "category" | "group";
   existingTarget?: { type: TargetType; amountCents: number; targetDate: string | null } | null;
+  // Controlled mode: when `open`/`onOpenChange` are supplied (e.g. opened from a
+  // row's three-dot menu), the internal trigger can be hidden with showTrigger=false.
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  showTrigger?: boolean;
 }) {
   const router = useRouter();
   const amountRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
+  const [openState, setOpenState] = useState(false);
+  const open = openProp ?? openState;
+  const setOpen = onOpenChange ?? setOpenState;
   const [type, setType] = useState<TargetType>(existingTarget?.type ?? "fill_up_to");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -66,19 +76,21 @@ export function TargetButton({
 
   return (
     <span className="relative inline-block">
-      <button
-        type="button"
-        onClick={() => setOpen(!open)}
-        className={cn(
-          "p-0.5 rounded transition-colors",
-          hasTarget
-            ? "text-primary hover:text-primary/80"
-            : "text-muted-foreground/40 hover:text-muted-foreground",
-        )}
-        title={hasTarget ? "Edit target" : "Set target"}
-      >
-        <Target size={13} />
-      </button>
+      {showTrigger && (
+        <button
+          type="button"
+          onClick={() => setOpen(!open)}
+          className={cn(
+            "p-0.5 rounded transition-colors",
+            hasTarget
+              ? "text-primary hover:text-primary/80"
+              : "text-muted-foreground/40 hover:text-muted-foreground",
+          )}
+          title={hasTarget ? "Edit target" : "Set target"}
+        >
+          <Target size={13} />
+        </button>
+      )}
 
       {open && (
         <div className="absolute left-0 bottom-7 z-50 w-64 bg-background border rounded-lg shadow-lg p-3 space-y-2.5">
