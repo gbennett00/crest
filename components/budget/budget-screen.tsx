@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -63,6 +63,23 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [reordering, setReordering] = useState(false);
+
+  // On mobile, group-budgeted groups have nothing useful in their member rows
+  // (per-category assigned/available are "—" and the Activity column is hidden),
+  // so collapse them by default. Done once after mount to avoid a hydration
+  // mismatch; users can still expand them.
+  const didInitCollapse = useRef(false);
+  useEffect(() => {
+    if (didInitCollapse.current) return;
+    didInitCollapse.current = true;
+    if (window.matchMedia("(max-width: 767px)").matches) {
+      setCollapsed(
+        new Set(
+          data.groups.filter((g) => g.budgetMode === "group").map((g) => g.id),
+        ),
+      );
+    }
+  }, [data.groups]);
 
   function navigate(month: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -471,7 +488,8 @@ function InlineName({
         }
         if (e.key === "Escape") onDone();
       }}
-      className="h-6 text-sm py-0 px-1.5"
+      // text-base on mobile (16px) prevents iOS zoom-on-focus.
+      className="h-6 text-base md:text-sm py-0 px-1.5"
     />
   );
 }
