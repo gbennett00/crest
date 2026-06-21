@@ -14,7 +14,7 @@ import { AddCategoryForm } from "./add-category-form";
 import { EditableName } from "./editable-name";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
-import { PaymentCategoryAvailable } from "./payment-category-popover";
+import { PaymentCategoryActivity } from "./payment-category-activity";
 import { Pin } from "lucide-react";
 import type {
   BudgetCategory,
@@ -264,7 +264,11 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                     )}
 
                     <span className="text-right text-muted-foreground">
-                      {cat.activityCents !== 0 ? (
+                      {cat.cardRegisterBalanceCents !== null ? (
+                        // Credit-card payment categories have no directly-allocated
+                        // transactions to link to; the activity opens a breakdown popover.
+                        <PaymentCategoryActivity cat={cat} month={data.month} />
+                      ) : cat.activityCents !== 0 ? (
                         <Link
                           href={`/transactions?category=${cat.id}&month=${data.month}`}
                           className="hover:underline"
@@ -277,11 +281,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                     </span>
 
                     {group.budgetMode === "category" ? (
-                      cat.cardRegisterBalanceCents !== null ? (
-                        <PaymentCategoryAvailable cat={cat} month={data.month} />
-                      ) : (
-                        <AvailableCell cents={cat.availableCents} />
-                      )
+                      <AvailableCell cents={cat.availableCents} />
                     ) : (
                       <span className="text-right text-muted-foreground text-xs">—</span>
                     )}
