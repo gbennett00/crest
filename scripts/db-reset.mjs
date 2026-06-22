@@ -41,6 +41,8 @@ const {
 
 // FK-safe set; TRUNCATE ... CASCADE clears them together regardless of order.
 const TABLES = [
+  "plans",
+  "plan_members",
   "category_groups",
   "categories",
   "accounts",
@@ -48,7 +50,6 @@ const TABLES = [
   "transaction_allocations",
   "monthly_budgets",
   "targets",
-  "budget_settings",
 ];
 
 const SNAPSHOT_DIR = resolve("..", "crest-snapshots"); // sibling of the repo

@@ -47,6 +47,8 @@ export type UpdateTransactionInput = {
 };
 
 export type CreateAccountInput = {
+  /** Plan that owns the account (required — accounts.plan_id is NOT NULL). */
+  planId: string;
   name: string;
   type: AccountType;
   /** Creates opening-balance txn + seeds balance_cents for manual/test accounts. */
