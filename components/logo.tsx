@@ -16,21 +16,21 @@ export function Logo({ className, size = 28 }: { className?: string; size?: numb
           <rect x="2" y="2" width="60" height="60" rx="14" />
         </clipPath>
         <linearGradient id="logo-sky" x1="0" y1="0" x2="0.85" y2="1">
-          <stop offset="0" stopColor="#67E8BF" />
-          <stop offset="0.55" stopColor="#2CD4A4" />
-          <stop offset="1" stopColor="#0D946E" />
+          <stop offset="0" stopColor="#a7f3d0" />
+          <stop offset="0.5" stopColor="#6ee7b7" />
+          <stop offset="1" stopColor="#34d399" />
         </linearGradient>
       </defs>
       <g clipPath="url(#logo-clip)">
         <rect x="2" y="2" width="60" height="60" fill="url(#logo-sky)" />
-        <path d="M2 52 L22 38 L32 44 L52 12 L62 30 L62 62 L2 62 Z" fill="#10b981" />
-        <path d="M52 12 L32 44 L46 44 Z" fill="#34d399" />
-        <path d="M2 52 L22 38 L26 52 Z" fill="#34d399" />
-        <path d="M52 12 L46 44 L62 30 Z" fill="#047857" />
-        <path d="M46 44 L62 30 L62 62 L50 62 Z" fill="#059669" />
+        <path d="M2 52 L22 38 L32 44 L52 12 L62 30 L62 62 L2 62 Z" fill="#059669" />
+        <path d="M52 12 L32 44 L46 44 Z" fill="#10b981" />
+        <path d="M2 52 L22 38 L26 52 Z" fill="#10b981" />
+        <path d="M52 12 L46 44 L62 30 Z" fill="#065f46" />
+        <path d="M46 44 L62 30 L62 62 L50 62 Z" fill="#047857" />
         <path
           d="M52 12 L58 24 L52 27 L47 22 L44 26 L48 17 Z"
-          fill="#ecfdf5"
+          fill="#ffffff"
         />
         <path
           d="M52 12 L47 45"

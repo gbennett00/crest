@@ -2,19 +2,19 @@
   <defs>
     <clipPath id="f"><rect x="2" y="2" width="60" height="60" rx="14"/></clipPath>
     <linearGradient id="sky" x1="0" y1="0" x2="0.85" y2="1">
-      <stop offset="0" stop-color="#67E8BF"/>
-      <stop offset="0.55" stop-color="#2CD4A4"/>
-      <stop offset="1" stop-color="#0D946E"/>
+      <stop offset="0" stop-color="#a7f3d0"/>
+      <stop offset="0.5" stop-color="#6ee7b7"/>
+      <stop offset="1" stop-color="#34d399"/>
     </linearGradient>
   </defs>
   <g clip-path="url(#f)">
     <rect x="2" y="2" width="60" height="60" fill="url(#sky)"/>
-    <path d="M2 52 L22 38 L32 44 L52 12 L62 30 L62 62 L2 62 Z" fill="#10b981"/>
-    <path d="M52 12 L32 44 L46 44 Z" fill="#34d399"/>
-    <path d="M2 52 L22 38 L26 52 Z" fill="#34d399"/>
-    <path d="M52 12 L46 44 L62 30 Z" fill="#047857"/>
-    <path d="M46 44 L62 30 L62 62 L50 62 Z" fill="#059669"/>
-    <path d="M52 12 L58 24 L52 27 L47 22 L44 26 L48 17 Z" fill="#ecfdf5"/>
+    <path d="M2 52 L22 38 L32 44 L52 12 L62 30 L62 62 L2 62 Z" fill="#059669"/>
+    <path d="M52 12 L32 44 L46 44 Z" fill="#10b981"/>
+    <path d="M2 52 L22 38 L26 52 Z" fill="#10b981"/>
+    <path d="M52 12 L46 44 L62 30 Z" fill="#065f46"/>
+    <path d="M46 44 L62 30 L62 62 L50 62 Z" fill="#047857"/>
+    <path d="M52 12 L58 24 L52 27 L47 22 L44 26 L48 17 Z" fill="#ffffff"/>
     <path d="M52 12 L47 45" fill="none" stroke="#065f46" stroke-opacity="0.22" stroke-width="1.2" stroke-linecap="round"/>
     <path d="M9 56 L25 50" fill="none" stroke="#a7f3d0" stroke-opacity="0.32" stroke-width="1" stroke-linecap="round"/>
     <path d="M33 55 L50 47" fill="none" stroke="#a7f3d0" stroke-opacity="0.22" stroke-width="1" stroke-linecap="round"/>
