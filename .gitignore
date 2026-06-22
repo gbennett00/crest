@@ -42,5 +42,4 @@ yarn-error.log*
 next-env.d.ts
 
 # claude local config (credentials, personal settings)
-.claude/*
-!.claude/settings.json
+.claude/
