@@ -1,15 +1,1 @@
-{
-  "hooks": {
-    "SessionStart": [
-      {
-        "matcher": "start|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "./scripts/start-local-supabase.sh"
-          }
-        ]
-      }
-    ]
-  }
-}
+{}
