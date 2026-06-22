@@ -1,13 +1,11 @@
--- Add plan ownership to the three root tables, backfill the existing single-user
--- data into one default plan, then make the columns NOT NULL — all atomic in this
--- one migration (Supabase runs each file in a transaction). A two-step nullable→
--- backfill→NOT-NULL deploy is only needed for zero-downtime on large tables.
+-- Add plan ownership to the two root tables, backfill the existing single-user
+-- data into one default plan, absorb budget_settings into plans, then make the
+-- columns NOT NULL — all atomic in this one migration (Supabase runs each file
+-- in a transaction).
 
 ALTER TABLE category_groups
   ADD COLUMN plan_id uuid REFERENCES plans (id) ON DELETE CASCADE;
 ALTER TABLE accounts
-  ADD COLUMN plan_id uuid REFERENCES plans (id) ON DELETE CASCADE;
-ALTER TABLE budget_settings
   ADD COLUMN plan_id uuid REFERENCES plans (id) ON DELETE CASCADE;
 
 -- Backfill: create one plan for the pre-existing user and assign all current rows.
@@ -15,6 +13,7 @@ DO $$
 DECLARE
   v_plan uuid;
   v_user uuid;
+  v_income bigint;
 BEGIN
   SELECT id INTO v_user FROM auth.users ORDER BY created_at LIMIT 1;
 
@@ -27,17 +26,20 @@ BEGIN
 
   UPDATE category_groups SET plan_id = v_plan WHERE plan_id IS NULL;
   UPDATE accounts        SET plan_id = v_plan WHERE plan_id IS NULL;
-  UPDATE budget_settings SET plan_id = v_plan WHERE plan_id IS NULL;
 
-  -- If there were no budget_settings yet, seed one for the default plan.
-  IF NOT EXISTS (SELECT 1 FROM budget_settings WHERE plan_id = v_plan) THEN
-    INSERT INTO budget_settings (plan_id) VALUES (v_plan);
+  -- Copy monthly_income_cents from budget_settings into the new plan row.
+  SELECT monthly_income_cents INTO v_income
+  FROM budget_settings
+  ORDER BY created_at
+  LIMIT 1;
+
+  IF v_income IS NOT NULL THEN
+    UPDATE plans SET monthly_income_cents = v_income WHERE id = v_plan;
   END IF;
 END $$;
 
 ALTER TABLE category_groups ALTER COLUMN plan_id SET NOT NULL;
 ALTER TABLE accounts        ALTER COLUMN plan_id SET NOT NULL;
-ALTER TABLE budget_settings ALTER COLUMN plan_id SET NOT NULL;
 
 CREATE INDEX category_groups_plan_id_idx ON category_groups (plan_id);
 CREATE INDEX accounts_plan_id_idx        ON accounts (plan_id);
@@ -49,6 +51,5 @@ CREATE UNIQUE INDEX categories_group_ready_to_assign_unique
   ON categories (group_id)
   WHERE role = 'ready_to_assign';
 
--- One settings row per plan.
-ALTER TABLE budget_settings
-  ADD CONSTRAINT budget_settings_plan_id_unique UNIQUE (plan_id);
+-- budget_settings is now fully absorbed into plans; drop it.
+DROP TABLE budget_settings CASCADE;

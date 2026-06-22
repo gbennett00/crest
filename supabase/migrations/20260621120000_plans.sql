@@ -3,9 +3,10 @@
 -- owning plan". Multiple users can collaborate on one plan, and a user may belong
 -- to multiple plans (the app assumes one per user for now).
 --
--- Ownership lives on three root tables (category_groups, accounts, budget_settings)
--- in the next migration; all other tables are owned transitively via their existing
--- foreign keys.
+-- Ownership lives on two root tables (category_groups, accounts) in the next
+-- migration; all other tables are owned transitively via their existing foreign
+-- keys. budget_settings is merged into plans (monthly_income_cents column) and
+-- dropped in the backfill migration.
 
 -- ---------------------------------------------------------------------------
 -- Tables
@@ -14,6 +15,7 @@
 CREATE TABLE plans (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
   name text NOT NULL,
+  monthly_income_cents bigint NOT NULL DEFAULT 0,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -75,8 +77,6 @@ BEGIN
 
   INSERT INTO categories (name, group_id, is_pinned, role)
   VALUES ('Ready to Assign', v_group_id, true, 'ready_to_assign'::category_role);
-
-  INSERT INTO budget_settings (plan_id) VALUES (v_plan_id);
 
   RETURN v_plan_id;
 END;

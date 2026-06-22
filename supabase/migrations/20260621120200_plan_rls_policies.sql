@@ -12,8 +12,6 @@ DROP POLICY "authenticated_all" ON transactions;
 DROP POLICY "authenticated_all" ON transaction_allocations;
 DROP POLICY "authenticated_all" ON monthly_budgets;
 DROP POLICY "authenticated_all" ON targets;
-DROP POLICY "authenticated_all" ON budget_settings;
-
 -- Root tables -------------------------------------------------------------
 
 CREATE POLICY "plan_access" ON category_groups
@@ -22,11 +20,6 @@ CREATE POLICY "plan_access" ON category_groups
   WITH CHECK (user_can_access_plan(plan_id));
 
 CREATE POLICY "plan_access" ON accounts
-  FOR ALL TO authenticated
-  USING (user_can_access_plan(plan_id))
-  WITH CHECK (user_can_access_plan(plan_id));
-
-CREATE POLICY "plan_access" ON budget_settings
   FOR ALL TO authenticated
   USING (user_can_access_plan(plan_id))
   WITH CHECK (user_can_access_plan(plan_id));
