@@ -29,6 +29,7 @@ pnpm vitest run path/to/foo.test.ts  # run a single test file
 ### Supabase clients
 
 Three client factories, each for a different execution context:
+
 - `lib/supabase/server.ts` — Server Components and Route Handlers (reads cookies)
 - `lib/supabase/client.ts` — Client Components (browser)
 - `lib/supabase/proxy.ts` — proxy/middleware context
@@ -39,15 +40,15 @@ Always create a new client per request; never cache the client in a module-level
 
 Pure TypeScript business logic — no direct DB calls in the core modules; operations that need Supabase are in `operations.ts`. Everything is exported through `lib/ledger/index.ts`.
 
-| File | Purpose |
-|---|---|
-| `types.ts` | Shared types (`Cents`, all input/row types) |
-| `constants.ts` | `OPENING_BALANCE_IMPORTED_ID`, `OPENING_BALANCE_PAYEE` |
-| `errors.ts` | `LedgerError` class |
-| `validation.ts` | `assertIntegerCents`, `validateAllocations`, `validateCreditAccount`, etc. |
-| `balance.ts` | `approximateAvailableCents`, `sumClearedTransactionAmounts`, etc. |
-| `reconciliation.ts` | `checkReconciliation`, `RECONCILIATION_FIX_HINT` |
-| `operations.ts` | Supabase-backed ledger ops: `createAccount`, `createTransaction`, `upsertTransaction`, `createTransfer`, `evaluateReconciliation`, etc. |
+| File                | Purpose                                                                                                                                 |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `types.ts`          | Shared types (`Cents`, all input/row types)                                                                                             |
+| `constants.ts`      | `OPENING_BALANCE_IMPORTED_ID`, `OPENING_BALANCE_PAYEE`                                                                                  |
+| `errors.ts`         | `LedgerError` class                                                                                                                     |
+| `validation.ts`     | `assertIntegerCents`, `validateAllocations`, `validateCreditAccount`, etc.                                                              |
+| `balance.ts`        | `approximateAvailableCents`, `sumClearedTransactionAmounts`, etc.                                                                       |
+| `reconciliation.ts` | `checkReconciliation`, `RECONCILIATION_FIX_HINT`                                                                                        |
+| `operations.ts`     | Supabase-backed ledger ops: `createAccount`, `createTransaction`, `upsertTransaction`, `createTransfer`, `evaluateReconciliation`, etc. |
 
 ### Database rules (enforced at DB level)
 
@@ -76,3 +77,18 @@ Pure TypeScript business logic — no direct DB calls in the core modules; opera
 ## Testing
 
 Add unit tests whenever you add or change business logic or financial calculations. Use integer cents in fixtures, never floats. Tests live next to the code they cover.
+
+## Verifying changes
+
+### Supabase setup
+
+In cloud environments (`CLAUDE_CODE_REMOTE=true`), if Supabase is not already running (check with `supabase status`), run `scripts/start-local-supabase.sh` before starting the dev server. This script starts Docker and Supabase, and writes the required env vars. Do not run this script locally — Docker is not available on the local machine.
+
+### Frontend changes
+
+Before considering a frontend change done:
+
+1. Run `pnpm dev` (backgrounded) and confirm it starts cleanly
+2. Hit the relevant route(s) on localhost to confirm the change works
+3. Check for errors in the dev server output
+4. Stop the dev server when done verifying
