@@ -54,7 +54,6 @@ const TABLES = [
   "transaction_allocations",
   "monthly_budgets",
   "targets",
-  "budget_settings",
 ];
 
 const SNAPSHOT_DIR = resolve("..", "crest-snapshots"); // sibling of the repo
