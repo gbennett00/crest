@@ -1,12 +1,16 @@
 import { Suspense } from "react";
 import { UserMenu } from "@/components/user-menu";
 import { BottomNav, Sidebar } from "@/components/nav";
+import { Logo } from "@/components/logo";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
   return (
     <div className="h-dvh flex flex-col overflow-hidden">
       <header className="sticky top-0 z-20 h-12 border-b bg-background flex items-center px-4 justify-between shrink-0">
-        <span className="font-semibold tracking-tight text-primary">Crest</span>
+        <div className="flex items-center gap-2">
+          <Logo size={24} />
+          <span className="font-semibold tracking-tight text-primary">Crest</span>
+        </div>
         <UserMenu />
       </header>
 

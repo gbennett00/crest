@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Crest mountain scene">
+  <defs>
+    <linearGradient id="sky" x1="0" y1="0" x2="0.85" y2="1">
+      <stop offset="0" stop-color="#a7f3d0"/>
+      <stop offset="0.5" stop-color="#6ee7b7"/>
+      <stop offset="1" stop-color="#34d399"/>
+    </linearGradient>
+  </defs>
+  <rect width="64" height="64" fill="url(#sky)"/>
+  <path d="M0 52 L20 38 L30 44 L50 12 L64 32 L64 64 L0 64 Z" fill="#059669"/>
+  <path d="M50 12 L30 44 L44 44 Z" fill="#10b981"/>
+  <path d="M0 52 L20 38 L24 52 Z" fill="#10b981"/>
+  <path d="M50 12 L44 44 L64 32 Z" fill="#065f46"/>
+  <path d="M44 44 L64 32 L64 64 L48 64 Z" fill="#047857"/>
+  <path d="M50 12 L56 24 L50 27 L45 22 L42 26 L46 17 Z" fill="#ffffff"/>
+  <path d="M50 12 L45 45" fill="none" stroke="#065f46" stroke-opacity="0.22" stroke-width="1.2" stroke-linecap="round"/>
+  <path d="M7 56 L23 50" fill="none" stroke="#a7f3d0" stroke-opacity="0.32" stroke-width="1" stroke-linecap="round"/>
+  <path d="M31 55 L48 47" fill="none" stroke="#a7f3d0" stroke-opacity="0.22" stroke-width="1" stroke-linecap="round"/>
+</svg>
