@@ -6,7 +6,7 @@ import { AddAccountForm } from "@/components/accounts/add-account-form";
 import { TransactionForm } from "@/components/transactions/transaction-form";
 import type { AccountData } from "@/components/accounts/account-card";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
-import { formatCents } from "@/lib/format";
+import { Money } from "@/components/money";
 import { cn } from "@/lib/utils";
 
 export default function AccountsPage() {
@@ -142,7 +142,7 @@ function AccountGroup({
             total < 0 ? "text-destructive" : "",
           )}
         >
-          {formatCents(total)}
+          <Money cents={total} />
         </span>
       </div>
       <div className="divide-y">

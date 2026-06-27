@@ -2,7 +2,8 @@
 
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
-import { formatCents, parseMoneyExpression } from "@/lib/format";
+import { useFormattedCents } from "@/components/money";
+import { parseMoneyExpression } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface AssignedInputProps {
@@ -12,6 +13,7 @@ interface AssignedInputProps {
 }
 
 export function AssignedInput({ value, onSave, className }: AssignedInputProps) {
+  const formatCents = useFormattedCents();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
 

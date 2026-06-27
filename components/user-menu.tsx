@@ -3,10 +3,12 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Laptop, LogOut, Moon, Sun, UserRound } from "lucide-react";
+import { Eye, EyeOff, Laptop, LogOut, Moon, Sun, UserRound } from "lucide-react";
+import { usePrivacyMode } from "@/lib/privacy-mode";
 import { createClient } from "@/lib/supabase/client";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
@@ -21,6 +23,7 @@ const ICON_SIZE = 15;
 export function UserMenu() {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
+  const { privacyMode, togglePrivacyMode } = usePrivacyMode();
   const [mounted, setMounted] = useState(false);
 
   // next-themes is only correct after mount; gate theme UI to avoid a hydration
@@ -60,6 +63,15 @@ export function UserMenu() {
             </DropdownMenuRadioItem>
           </DropdownMenuRadioGroup>
         )}
+        <DropdownMenuSeparator />
+        <DropdownMenuCheckboxItem
+          checked={privacyMode}
+          onCheckedChange={togglePrivacyMode}
+          className="gap-2"
+        >
+          {privacyMode ? <EyeOff size={ICON_SIZE} /> : <Eye size={ICON_SIZE} />}
+          Hide amounts
+        </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={logout} className="gap-2">
           <LogOut size={ICON_SIZE} /> Log out
