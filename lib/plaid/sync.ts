@@ -3,6 +3,7 @@ import type { AccountBase, Transaction, RemovedTransaction } from "plaid";
 
 import {
   upsertTransaction,
+  updateTransaction,
   deleteTransaction,
   syncBankClearedBalance,
   createAccount,
@@ -170,20 +171,46 @@ export async function syncItem(
     const crestAccountId = accountMap.get(txn.account_id);
     if (!crestAccountId) continue;
 
+    const input = plaidTxnToUpsertInput(txn, crestAccountId);
+    if (input.amountCents === 0) continue;
+
     if (txn.pending_transaction_id) {
       const { data: pendingRow } = await client
         .from("transactions")
-        .select("id")
+        .select("id, amount_cents, approved_at")
         .eq("account_id", crestAccountId)
         .eq("imported_id", txn.pending_transaction_id)
         .maybeSingle();
+
       if (pendingRow) {
-        await deleteTransaction(client, pendingRow.id as string);
+        const amountChanged =
+          (pendingRow.amount_cents as number) !== input.amountCents;
+
+        await updateTransaction(client, {
+          id: pendingRow.id as string,
+          amountCents: input.amountCents,
+          txnDate: input.txnDate,
+          payee: input.payee,
+          memo: input.memo ?? null,
+          clearedAt: input.clearedAt ?? null,
+          // Only strip approval if the amount changed — existing
+          // allocations won't sum correctly with a different total.
+          ...(amountChanged
+            ? { approvedAt: null, allocations: [] }
+            : {}),
+        });
+
+        // Swap imported_id from the pending transaction_id to the
+        // posted one so future syncs deduplicate correctly.
+        await client
+          .from("transactions")
+          .update({ imported_id: input.importedId })
+          .eq("id", pendingRow.id as string);
+
+        continue;
       }
     }
 
-    const input = plaidTxnToUpsertInput(txn, crestAccountId);
-    if (input.amountCents === 0) continue;
     await upsertTransaction(client, input);
   }
 
