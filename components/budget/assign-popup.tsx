@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatCents, parseMoneyExpression } from "@/lib/format";
+import { useFormattedCents } from "@/components/money";
+import { parseMoneyExpression } from "@/lib/format";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import type { BudgetData, TargetData } from "./budget-screen";
 
@@ -90,6 +91,7 @@ export function AssignPopup({
   data: BudgetData;
   onClose: () => void;
 }) {
+  const formatCents = useFormattedCents();
   const router = useRouter();
   const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -273,6 +275,7 @@ function EntryRow({
   draftAvailable: number;
   onChange: (cents: number) => void;
 }) {
+  const formatCents = useFormattedCents();
   const [inputVal, setInputVal] = useState(draft === 0 ? "" : (draft / 100).toFixed(2));
   const [focused, setFocused] = useState(false);
 

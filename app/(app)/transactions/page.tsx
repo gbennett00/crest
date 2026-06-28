@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatCents } from "@/lib/format";
+import { Money } from "@/components/money";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -116,7 +116,7 @@ async function TransactionsContent({
                   alloc.amount_cents < 0 ? "text-destructive" : "text-green-600 dark:text-green-400",
                 )}
               >
-                {formatCents(alloc.amount_cents)}
+                <Money cents={alloc.amount_cents} />
               </span>
             </Link>
           );

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatCents } from "@/lib/format";
+import { useFormattedCents } from "@/components/money";
 import { cn } from "@/lib/utils";
 
 /**
@@ -22,6 +22,7 @@ export function AccountBalanceSummary({
   clearedCents: number;
   unclearedCents: number;
 }) {
+  const formatCents = useFormattedCents();
   const [expanded, setExpanded] = useState(false);
 
   return (

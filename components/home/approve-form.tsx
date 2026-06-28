@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { Button } from "@/components/ui/button";
-import { formatCents } from "@/lib/format";
+import { useFormattedCents } from "@/components/money";
 import { approveWithCategory } from "@/app/(app)/actions";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ export function ApproveForm({
   amountCents,
   categories,
 }: ApproveFormProps) {
+  const formatCents = useFormattedCents();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(categories[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);

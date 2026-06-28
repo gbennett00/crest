@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatCents } from "@/lib/format";
+import { Money } from "@/components/money";
 import {
   sumClearedTransactionAmounts,
   sumPendingTransactionAmounts,
@@ -214,7 +214,7 @@ async function RegisterContent({
                           txn.amount_cents < 0 ? "text-destructive" : "text-green-600 dark:text-green-400",
                         )}
                       >
-                        {formatCents(txn.amount_cents)}
+                        <Money cents={txn.amount_cents} />
                       </span>
                       {/* Cleared / Reconciled indicator */}
                       {isReconciled ? (

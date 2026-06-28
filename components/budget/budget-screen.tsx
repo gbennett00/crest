@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { formatCents } from "@/lib/format";
+import { useFormattedCents } from "@/components/money";
 import { nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
 import { Input } from "@/components/ui/input";
 import { AssignedInput } from "./assigned-input";
@@ -257,6 +257,7 @@ function GroupHeaderRow({
   available: number;
   onAssignGroup: (cents: number) => void;
 }) {
+  const formatCents = useFormattedCents();
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const isGroupBudget = group.budgetMode === "group";
@@ -331,6 +332,7 @@ function CategoryRow({
   month: string;
   onAssign: (cents: number) => void;
 }) {
+  const formatCents = useFormattedCents();
   const router = useRouter();
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
@@ -499,6 +501,7 @@ function InlineName({
 // ---------------------------------------------------------------------------
 
 function RtaBanner({ cents }: { cents: number }) {
+  const formatCents = useFormattedCents();
   const overAssigned = cents < 0;
   return (
     <div
@@ -533,6 +536,7 @@ function RtaBanner({ cents }: { cents: number }) {
 }
 
 function AvailableCell({ cents }: { cents: number }) {
+  const formatCents = useFormattedCents();
   return (
     <span
       className={cn(

@@ -5,15 +5,10 @@ import { useRouter } from "next/navigation";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { formatCents } from "@/lib/format";
+import { useFormattedCents } from "@/components/money";
 import { assignCategory } from "@/app/(app)/budget/actions";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type { BudgetCategory } from "@/lib/budget/types";
-
-/** Format with an explicit + on positive amounts (matches the YNAB breakdown). */
-function formatSigned(cents: number): string {
-  return cents > 0 ? `+${formatCents(cents)}` : formatCents(cents);
-}
 
 function LineItem({
   label,
@@ -26,6 +21,8 @@ function LineItem({
   bold?: boolean;
   divider?: boolean;
 }) {
+  const formatCents = useFormattedCents();
+  const display = cents > 0 ? `+${formatCents(cents)}` : formatCents(cents);
   return (
     <div
       className={cn(
@@ -37,7 +34,7 @@ function LineItem({
         {label}
       </span>
       <span className={cn("tabular-nums", bold && "font-semibold")}>
-        {formatSigned(cents)}
+        {display}
       </span>
     </div>
   );
@@ -65,6 +62,7 @@ export function PaymentCategoryActivity({
   onOpenChange?: (open: boolean) => void;
   showTrigger?: boolean;
 }) {
+  const formatCents = useFormattedCents();
   const router = useRouter();
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;

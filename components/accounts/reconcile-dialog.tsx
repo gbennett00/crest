@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
-import { formatCents } from "@/lib/format";
+import { useFormattedCents } from "@/components/money";
 import {
   reconcileMatched,
   reconcileWithAdjustmentAction,
@@ -23,6 +23,7 @@ export function ReconcileDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const formatCents = useFormattedCents();
   const [step, setStep] = useState<Step>("confirm");
   const [actualInput, setActualInput] = useState(
     (registerClearedBalanceCents / 100).toFixed(2),

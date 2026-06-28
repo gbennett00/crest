@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 import Link from "next/link";
 import { getHomeData } from "@/lib/budget";
-import { formatCents } from "@/lib/format";
+import { Money } from "@/components/money";
 import { ApproveForm } from "@/components/home/approve-form";
 import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { HomeAssignButton } from "@/components/home/home-assign-button";
@@ -71,7 +71,7 @@ async function HomeContent() {
                   : "bg-destructive/10 text-destructive",
               )}
             >
-              {formatCents(rtaAvailableCents)}
+              <Money cents={rtaAvailableCents} />
             </span>
             <span className="flex-1 text-sm">
               {rtaAvailableCents < 0 ? "Over assigned" : "Ready to assign"}
@@ -106,7 +106,7 @@ async function HomeContent() {
                   </p>
                 </div>
                 <p className="text-sm font-semibold tabular-nums text-destructive">
-                  {formatCents(item.availableCents)}
+                  <Money cents={item.availableCents} />
                 </p>
               </div>
             ))}
@@ -147,7 +147,7 @@ async function HomeContent() {
                         txn.amountCents < 0 ? "text-destructive" : "text-green-600 dark:text-green-400",
                       )}
                     >
-                      {formatCents(txn.amountCents)}
+                      <Money cents={txn.amountCents} />
                     </p>
                   </div>
                 </div>
@@ -200,7 +200,7 @@ async function HomeContent() {
                         : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400",
                   )}
                 >
-                  {formatCents(item.availableCents)}
+                  <Money cents={item.availableCents} />
                 </span>
               </div>
             ))}

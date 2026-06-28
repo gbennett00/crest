@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { formatCents } from "@/lib/format";
+import { Money } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { ChevronRight, Link2 } from "lucide-react";
 
@@ -41,7 +41,7 @@ export function AccountCard({ account }: { account: AccountData }) {
             account.workingBalanceCents < 0 ? "text-destructive" : "",
           )}
         >
-          {formatCents(account.workingBalanceCents)}
+          <Money cents={account.workingBalanceCents} />
         </span>
         <ChevronRight size={14} className="text-muted-foreground" />
       </div>
