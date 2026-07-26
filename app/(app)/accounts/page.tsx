@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { workingBalanceCents } from "@/lib/ledger";
 import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
+import { LinkAccountButton } from "@/components/accounts/link-account-button";
 import { TransactionForm } from "@/components/transactions/transaction-form";
 import type { AccountData } from "@/components/accounts/account-card";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
@@ -88,10 +89,13 @@ async function AccountsContent() {
   if (accounts.length === 0) {
     return (
       <div className="space-y-4">
-        <AddAccountForm />
+        <div className="flex gap-2 flex-wrap">
+          <AddAccountForm />
+          <LinkAccountButton />
+        </div>
         <TransactionForm accounts={accountOptions} categories={categories} />
         <p className="text-sm text-muted-foreground py-8 text-center">
-          No accounts yet. Add one above to get started.
+          No accounts yet. Add one above or link a bank account to get started.
         </p>
       </div>
     );
@@ -99,7 +103,10 @@ async function AccountsContent() {
 
   return (
     <div className="space-y-4">
-      <AddAccountForm />
+      <div className="flex gap-2 flex-wrap">
+        <AddAccountForm />
+        <LinkAccountButton />
+      </div>
       <TransactionForm accounts={accountOptions} categories={categories} />
 
       {/* Cash accounts */}

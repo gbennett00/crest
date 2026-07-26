@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { CountryCode, Products } from "plaid";
 import { createClient } from "@/lib/supabase/server";
 import {
   createAccount,
@@ -9,6 +10,8 @@ import {
   reconcileWithRegisterBalance,
 } from "@/lib/ledger";
 import { getActivePlanId } from "@/lib/plan/active-plan";
+import { createPlaidClient } from "@/lib/plaid/client";
+import { syncItem } from "@/lib/plaid/sync";
 
 export async function createManualAccount(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
@@ -112,5 +115,144 @@ export async function reconcileWithAdjustmentAction(
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Reconciliation failed" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Plaid integration
+// ---------------------------------------------------------------------------
+
+export async function createLinkToken() {
+  const supabase = await createClient();
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const plaid = createPlaidClient();
+    const response = await plaid.linkTokenCreate({
+      client_name: "Crest",
+      language: "en",
+      country_codes: [CountryCode.Us],
+      user: { client_user_id: user.id },
+      products: [Products.Transactions],
+      transactions: { days_requested: 90 },
+      webhook: process.env.PLAID_WEBHOOK_URL || undefined,
+    });
+
+    return { linkToken: response.data.link_token };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to create link token";
+    return { error: message };
+  }
+}
+
+export async function exchangePublicToken(publicToken: string) {
+  const supabase = await createClient();
+  try {
+    const planId = await getActivePlanId(supabase);
+    const plaid = createPlaidClient();
+
+    const exchangeResponse = await plaid.itemPublicTokenExchange({
+      public_token: publicToken,
+    });
+    const { access_token, item_id } = exchangeResponse.data;
+
+    let institutionId: string | null = null;
+    let institutionName: string | null = null;
+    try {
+      const itemResponse = await plaid.itemGet({ access_token });
+      institutionId = itemResponse.data.item.institution_id ?? null;
+      if (institutionId) {
+        const instResponse = await plaid.institutionsGetById({
+          institution_id: institutionId,
+          country_codes: [CountryCode.Us],
+        });
+        institutionName = instResponse.data.institution.name;
+      }
+    } catch {
+      // Non-critical — institution name is cosmetic
+    }
+
+    const { error: insertError } = await supabase.from("plaid_items").insert({
+      plan_id: planId,
+      plaid_item_id: item_id,
+      access_token,
+      institution_id: institutionId,
+      institution_name: institutionName,
+      status: "good",
+    });
+    if (insertError) return { error: insertError.message };
+
+    const { data: itemRow } = await supabase
+      .from("plaid_items")
+      .select("*")
+      .eq("plaid_item_id", item_id)
+      .single();
+
+    if (itemRow) {
+      await syncItem(supabase, itemRow as never);
+    }
+
+    revalidatePath("/accounts");
+    return { success: true, itemId: item_id };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to exchange token";
+    return { error: message };
+  }
+}
+
+export async function syncLinkedItem(plaidItemId: string) {
+  const supabase = await createClient();
+  try {
+    const { data: itemRow, error } = await supabase
+      .from("plaid_items")
+      .select("*")
+      .eq("plaid_item_id", plaidItemId)
+      .single();
+
+    if (error || !itemRow) return { error: "Item not found" };
+
+    const result = await syncItem(supabase, itemRow as never);
+    revalidatePath("/accounts");
+    return { success: true, ...result };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Sync failed";
+    return { error: message };
+  }
+}
+
+export async function unlinkItem(plaidItemId: string) {
+  const supabase = await createClient();
+  try {
+    const { data: itemRow, error } = await supabase
+      .from("plaid_items")
+      .select("access_token")
+      .eq("plaid_item_id", plaidItemId)
+      .single();
+
+    if (error || !itemRow) return { error: "Item not found" };
+
+    const plaid = createPlaidClient();
+    await plaid.itemRemove({
+      access_token: (itemRow as { access_token: string }).access_token,
+    });
+
+    await supabase
+      .from("accounts")
+      .update({ is_linked: false, plaid_item_id: null, plaid_account_id: null })
+      .eq("plaid_item_id", plaidItemId);
+
+    await supabase
+      .from("plaid_items")
+      .delete()
+      .eq("plaid_item_id", plaidItemId);
+
+    revalidatePath("/accounts");
+    return { success: true };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to unlink";
+    return { error: message };
   }
 }
