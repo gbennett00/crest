@@ -507,6 +507,7 @@ export async function createTransfer(
     p_payee: input.payee ?? "Transfer",
     p_memo: input.memo ?? null,
     p_cleared_at: input.clearedAt ?? null,
+    p_imported_id: input.importedId ?? null,
   });
 
   if (error) {
@@ -521,6 +522,7 @@ export async function createTransfer(
   return {
     outflowTransactionId: row.outflow_transaction_id as string,
     inflowTransactionId: row.inflow_transaction_id as string,
+    created: (row.created as boolean | undefined) ?? true,
   };
 }
 

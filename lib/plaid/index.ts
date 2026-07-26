@@ -5,4 +5,9 @@ export {
   plaidAccountTypeToCrest,
   plaidTxnToUpsertInput,
 } from "./mapping";
-export { syncItem } from "./sync";
+export {
+  attachExistingAccountToPlaid,
+  getPlaidAccountsForItem,
+  getUnlinkedAccounts,
+  syncItem,
+} from "./sync";

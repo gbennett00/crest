@@ -82,6 +82,8 @@ export type CreateTransferInput = {
   payee?: string;
   memo?: string | null;
   clearedAt?: string | null;
+  /** Dedupe key for re-runnable imports: replays with the same id return the existing pair. */
+  importedId?: string | null;
 };
 
 export type TransactionAmountLine = {
