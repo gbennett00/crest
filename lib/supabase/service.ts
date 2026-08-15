@@ -10,5 +10,10 @@ export function createServiceClient() {
     );
   }
 
-  return createSupabaseClient(url, serviceRoleKey);
+  return createSupabaseClient(url, serviceRoleKey, {
+    auth: {
+      persistSession: false,
+      autoRefreshToken: false,
+    },
+  });
 }
