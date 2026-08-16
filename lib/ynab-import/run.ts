@@ -11,8 +11,18 @@ import {
   upsertTransaction,
 } from "@/lib/ledger";
 import type { AccountType, TransactionAllocationInput } from "@/lib/ledger/types";
+import { mapWithConcurrency } from "./concurrency";
 import { isCreditCardPaymentCategory, isReadyToAssignCategory } from "./mapping";
 import type { ParsedTransaction, ParsedTransfer, PlanParseResult, RegisterParseResult } from "./types";
+
+/**
+ * How many ledger calls (transaction/transfer/opening-balance/assignment writes)
+ * run concurrently. Each call is a handful of independent HTTP round trips to
+ * PostgREST/RPC, so processing them one at a time is what made large imports slow.
+ * 20 is a conservative default; bump it if your Supabase project's connection
+ * pool comfortably handles more.
+ */
+const CONCURRENCY = 20;
 
 export type AccountResolution =
   | { csvName: string; action: "skip" }
@@ -200,9 +210,9 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
   let transactionsCreated = 0;
   let transactionsUpdated = 0;
 
-  for (const t of input.register.transactions) {
+  await mapWithConcurrency(input.register.transactions, CONCURRENCY, async (t) => {
     const account = accountMap.get(t.account);
-    if (!account) continue; // account was skipped
+    if (!account) return; // account was skipped
 
     const allocations: TransactionAllocationInput[] = [];
     let failed = false;
@@ -217,7 +227,7 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
       }
       allocations.push({ categoryId, amountCents: a.amountCents });
     }
-    if (failed) continue;
+    if (failed) return;
 
     const now = new Date().toISOString();
     try {
@@ -237,13 +247,13 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
     } catch (e) {
       errors.push(`Transaction ${t.account}/${t.date}/"${t.payee}": ${e instanceof Error ? e.message : String(e)}`);
     }
-  }
+  });
 
   let transfersCreated = 0;
-  for (const tr of input.register.transfers) {
+  await mapWithConcurrency(input.register.transfers, CONCURRENCY, async (tr) => {
     const from = accountMap.get(tr.fromAccount);
     const to = accountMap.get(tr.toAccount);
-    if (!from || !to) continue; // one side was skipped
+    if (!from || !to) return; // one side was skipped
 
     try {
       const result = await createTransfer(client, {
@@ -260,14 +270,15 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
         `Transfer ${tr.fromAccount} -> ${tr.toAccount} on ${tr.date}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
-  }
+  });
 
   let openingBalancesCreated = 0;
-  for (const ob of input.register.openingBalances) {
-    if (!ob.onBudget) continue; // off-budget (tracking) accounts are skipped entirely
-    if (ob.amountCents === 0) continue; // a $0 starting balance is a no-op, nothing to record
+  const onBudgetOpeningBalances = input.register.openingBalances.filter(
+    (ob) => ob.onBudget && ob.amountCents !== 0, // off-budget accounts skipped; a $0 balance is a no-op
+  );
+  await mapWithConcurrency(onBudgetOpeningBalances, CONCURRENCY, async (ob) => {
     const account = accountMap.get(ob.account);
-    if (!account) continue;
+    if (!account) return;
 
     try {
       await createOpeningBalance(client, {
@@ -279,17 +290,17 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
     } catch (e) {
       errors.push(`Opening balance for ${ob.account}: ${e instanceof Error ? e.message : String(e)}`);
     }
-  }
+  });
 
   let assignmentsWritten = 0;
-  for (const a of input.plan.assignments) {
+  await mapWithConcurrency(input.plan.assignments, CONCURRENCY, async (a) => {
     const categoryId = a.isCreditCardPayment
       ? (accountMap.get(a.category)?.paymentCategoryId ?? null)
       : resolveCategoryId(a.categoryGroup, a.category);
 
     if (!categoryId) {
       errors.push(`Could not resolve assignment category "${a.categoryGroup}: ${a.category}" for ${a.month}`);
-      continue;
+      return;
     }
 
     try {
@@ -300,7 +311,7 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
         `Assignment ${a.categoryGroup}/${a.category}/${a.month}: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
-  }
+  });
 
   return {
     accountsCreated,
