@@ -47,10 +47,13 @@ export async function updateSession(request: NextRequest) {
   const { data } = await supabase.auth.getClaims();
   const user = data?.claims;
 
-  // Redirect unauthenticated users to login for all non-auth routes
+  // Redirect unauthenticated users to login for all non-auth routes. The invite
+  // landing page (/invite/...) is public so an invitee can read who invited them
+  // and to which plan before signing in.
   if (
     !user &&
     !request.nextUrl.pathname.startsWith("/auth") &&
+    !request.nextUrl.pathname.startsWith("/invite") &&
     !request.nextUrl.pathname.startsWith("/api/")
   ) {
     const url = request.nextUrl.clone();
@@ -58,14 +61,17 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url);
   }
 
-  // Redirect already-authenticated users away from login/sign-up
+  // Redirect already-authenticated users away from login/sign-up, honoring a
+  // safe same-origin `next` (e.g. returning to an invite they were accepting).
   if (
     user &&
     (request.nextUrl.pathname === "/auth/login" ||
       request.nextUrl.pathname === "/auth/sign-up")
   ) {
     const url = request.nextUrl.clone();
-    url.pathname = "/";
+    const next = request.nextUrl.searchParams.get("next");
+    url.pathname = next && next.startsWith("/") ? next : "/";
+    url.search = "";
     return NextResponse.redirect(url);
   }
 

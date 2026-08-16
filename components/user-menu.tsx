@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Bell, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, UserRound } from "lucide-react";
+import { Bell, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
 import { usePrivacyMode } from "@/lib/privacy-mode";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -120,6 +121,12 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
+        <DropdownMenuItem asChild className="gap-2 pl-8">
+          <Link href="/members">
+            <Users size={ICON_SIZE} /> Members
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         {mounted && (
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="gap-2 pl-8">
