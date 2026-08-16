@@ -33,6 +33,8 @@ export {
 export {
   applyReconciliation,
   buildReconciliationCheck,
+  bulkUpsertCategoryBudgets,
+  bulkUpsertTransactions,
   createAccount,
   createOpeningBalance,
   createTransaction,
@@ -62,6 +64,7 @@ export type {
   AccountBalanceSummary,
   AccountType,
   AllocationRow,
+  BulkUpsertTransactionResult,
   Cents,
   CreateAccountInput,
   CreateOpeningBalanceInput,

@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  bulkUpsertCategoryBudgets,
+  bulkUpsertTransactions,
   createAccount,
   createTransaction,
   deleteTransactionWithCounterpart,
@@ -598,5 +600,125 @@ describe("createAccount", () => {
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({ plan_id: "plan-1", name: "Checking", type: "checking" }),
     );
+  });
+});
+
+describe("bulkUpsertTransactions", () => {
+  function makeBulkMock(resultRows: { idx: number; transaction_id: string; created: boolean }[]) {
+    const rpc = vi.fn().mockResolvedValue({ data: resultRows, error: null });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+    return { client, rpc };
+  }
+
+  it("returns [] without calling the RPC for an empty input", async () => {
+    const { client, rpc } = makeBulkMock([]);
+    await expect(bulkUpsertTransactions(client, [])).resolves.toEqual([]);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("sends one row per input, snake_cased, and maps results back by index", async () => {
+    const { client, rpc } = makeBulkMock([
+      { idx: 0, transaction_id: "txn-a", created: true },
+      { idx: 1, transaction_id: "txn-b", created: false },
+    ]);
+
+    const result = await bulkUpsertTransactions(client, [
+      {
+        accountId: "acc-1",
+        amountCents: -5000,
+        txnDate: "2026-01-15",
+        payee: "Coffee",
+        importedId: "csv:aaa",
+        approvedAt: "2026-01-15T00:00:00Z",
+        clearedAt: "2026-01-15T00:00:00Z",
+        allocations: [{ categoryId: "cat-1", amountCents: -5000 }],
+      },
+      {
+        accountId: "acc-2",
+        amountCents: 1000,
+        txnDate: "2026-01-16",
+        importedId: "csv:bbb",
+      },
+    ]);
+
+    expect(rpc).toHaveBeenCalledWith("ledger_bulk_upsert_transactions", {
+      p_rows: [
+        expect.objectContaining({
+          idx: 0,
+          account_id: "acc-1",
+          amount_cents: -5000,
+          imported_id: "csv:aaa",
+          allocations: [{ category_id: "cat-1", amount_cents: -5000 }],
+        }),
+        expect.objectContaining({
+          idx: 1,
+          account_id: "acc-2",
+          amount_cents: 1000,
+          imported_id: "csv:bbb",
+          allocations: [],
+        }),
+      ],
+    });
+    expect(result).toEqual([
+      { index: 0, transactionId: "txn-a", created: true },
+      { index: 1, transactionId: "txn-b", created: false },
+    ]);
+  });
+
+  it("rejects before calling the RPC when an approved row has mismatched allocations", async () => {
+    const { client, rpc } = makeBulkMock([]);
+    await expect(
+      bulkUpsertTransactions(client, [
+        {
+          accountId: "acc-1",
+          amountCents: -5000,
+          txnDate: "2026-01-15",
+          importedId: "csv:aaa",
+          approvedAt: "2026-01-15T00:00:00Z",
+          allocations: [{ categoryId: "cat-1", amountCents: -4000 }],
+        },
+      ]),
+    ).rejects.toMatchObject({ code: "split_sum_mismatch" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the RPC's row-identifying error on db failure", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: "ledger_bulk_upsert_transactions: row 3 (imported_id csv:xyz) allocations do not sum to amount_cents" },
+    });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+
+    await expect(
+      bulkUpsertTransactions(client, [
+        { accountId: "acc-1", amountCents: -100, txnDate: "2026-01-15", importedId: "csv:xyz" },
+      ]),
+    ).rejects.toMatchObject({ message: expect.stringContaining("row 3 (imported_id csv:xyz)") });
+  });
+});
+
+describe("bulkUpsertCategoryBudgets", () => {
+  it("resolves without calling the RPC for an empty input", async () => {
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+    await bulkUpsertCategoryBudgets(client, []);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("sends one snake_cased row per input", async () => {
+    const rpc = vi.fn().mockResolvedValue({ error: null });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+
+    await bulkUpsertCategoryBudgets(client, [
+      { categoryId: "cat-1", month: "2026-01-01", assignedCents: 5000 },
+      { categoryId: "cat-2", month: "2026-02-01", assignedCents: -1000 },
+    ]);
+
+    expect(rpc).toHaveBeenCalledWith("ledger_bulk_upsert_category_budgets", {
+      p_rows: [
+        { month: "2026-01-01", category_id: "cat-1", assigned_cents: 5000 },
+        { month: "2026-02-01", category_id: "cat-2", assigned_cents: -1000 },
+      ],
+    });
   });
 });

@@ -23,6 +23,7 @@ import type {
   AccountBalanceSummary,
   AccountType,
   AllocationRow,
+  BulkUpsertTransactionResult,
   Cents,
   CreateAccountInput,
   CreateOpeningBalanceInput,
@@ -226,6 +227,56 @@ export async function upsertTransaction(
     created: true as const,
     transaction: mapTransactionRow(row),
   };
+}
+
+/**
+ * Bulk variant of upsertTransaction: one round trip for the whole batch via
+ * ledger_bulk_upsert_transactions, instead of one round trip per row. Intended
+ * for large imports (see lib/ynab-import) — behaves the same as calling
+ * upsertTransaction once per input (dedupe by (account_id, imported_id),
+ * replace allocations, defer approval until allocations are in place), but the
+ * whole batch fails together on a bad row rather than skipping it; the thrown
+ * error names which input row (by index and imported_id) caused it so the
+ * caller can identify and fix/retry it.
+ */
+export async function bulkUpsertTransactions(
+  client: SupabaseClient,
+  inputs: UpsertTransactionInput[],
+): Promise<BulkUpsertTransactionResult[]> {
+  if (inputs.length === 0) return [];
+
+  for (const input of inputs) {
+    assertNonZeroAmount(input.amountCents);
+    assertTxnDate(input.txnDate);
+    validateAllocations(input.amountCents, input.allocations, input.approvedAt ?? null);
+  }
+
+  const payload = inputs.map((input, idx) => ({
+    idx,
+    account_id: input.accountId,
+    amount_cents: input.amountCents,
+    txn_date: input.txnDate,
+    payee: input.payee ?? "",
+    memo: input.memo ?? null,
+    imported_id: input.importedId,
+    cleared_at: input.clearedAt ?? null,
+    approved_at: input.approvedAt ?? null,
+    allocations: (input.allocations ?? []).map((a) => ({
+      category_id: a.categoryId,
+      amount_cents: a.amountCents,
+    })),
+  }));
+
+  const { data, error } = await client.rpc("ledger_bulk_upsert_transactions", {
+    p_rows: payload,
+  });
+  if (error) throw new LedgerError("db_error", error.message);
+
+  return (data as { idx: number; transaction_id: string; created: boolean }[]).map((row) => ({
+    index: row.idx,
+    transactionId: row.transaction_id,
+    created: row.created,
+  }));
 }
 
 export async function createTransaction(
@@ -1003,6 +1054,38 @@ export async function upsertCategoryBudget(
     });
     if (error) throw new LedgerError("db_error", error.message);
   }
+}
+
+/**
+ * Bulk variant of upsertCategoryBudget: one round trip for the whole batch via
+ * ledger_bulk_upsert_category_budgets, instead of one round trip per row.
+ * monthly_budgets has no deferred-trigger complexity, so this is a plain
+ * set-based upsert — the only reason it's a SQL function rather than a native
+ * PostgREST bulk .upsert() is that monthly_budgets_month_category_unique is a
+ * partial index (WHERE category_id IS NOT NULL), which PostgREST's upsert
+ * helper can't target directly.
+ */
+export async function bulkUpsertCategoryBudgets(
+  client: SupabaseClient,
+  inputs: UpsertCategoryBudgetInput[],
+): Promise<void> {
+  if (inputs.length === 0) return;
+
+  for (const input of inputs) {
+    assertBudgetMonth(input.month);
+    assertIntegerCents(input.assignedCents, "assignedCents");
+  }
+
+  const payload = inputs.map((input) => ({
+    month: input.month,
+    category_id: input.categoryId,
+    assigned_cents: input.assignedCents,
+  }));
+
+  const { error } = await client.rpc("ledger_bulk_upsert_category_budgets", {
+    p_rows: payload,
+  });
+  if (error) throw new LedgerError("db_error", error.message);
 }
 
 /** Create or update the assigned amount for a group in a budget month (group-mode pools). */
