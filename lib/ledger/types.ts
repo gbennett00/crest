@@ -21,6 +21,17 @@ export type UpsertTransactionInput = {
   allocations?: TransactionAllocationInput[];
 };
 
+/**
+ * Result of one row from bulkUpsertTransactions, keyed by its position in the
+ * input array (not the DB id) so callers can map failures/successes back to
+ * their own source data (e.g. a CSV row).
+ */
+export type BulkUpsertTransactionResult = {
+  index: number;
+  transactionId: string;
+  created: boolean;
+};
+
 export type CreateTransactionInput = {
   accountId: string;
   amountCents: Cents;
