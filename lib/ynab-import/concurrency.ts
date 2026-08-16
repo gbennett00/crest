@@ -1,3 +1,12 @@
+/** Splits `items` into consecutive groups of at most `size`. */
+export function chunk<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
 /** Runs `fn` over `items` with at most `limit` in flight at once, preserving input order in the result. */
 export async function mapWithConcurrency<T, R>(
   items: T[],

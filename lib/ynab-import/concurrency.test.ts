@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
 
-import { mapWithConcurrency } from "./concurrency";
+import { chunk, mapWithConcurrency } from "./concurrency";
+
+describe("chunk", () => {
+  it("splits into groups of the given size, with a smaller final group", () => {
+    expect(chunk([1, 2, 3, 4, 5], 2)).toEqual([[1, 2], [3, 4], [5]]);
+  });
+
+  it("returns one group when size exceeds the item count", () => {
+    expect(chunk([1, 2], 10)).toEqual([[1, 2]]);
+  });
+
+  it("returns an empty array for an empty input", () => {
+    expect(chunk([], 10)).toEqual([]);
+  });
+});
 
 describe("mapWithConcurrency", () => {
   it("returns results in input order regardless of completion order", async () => {

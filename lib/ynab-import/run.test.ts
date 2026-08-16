@@ -21,7 +21,10 @@ function emptyPlan(overrides: Partial<PlanParseResult> = {}): PlanParseResult {
 
 /**
  * Minimal in-memory Supabase-like double: table-backed insert/select/update/single
- * chains sufficient for runImport's account/category resolution + ledger calls.
+ * chains for account/category resolution and the still-single-row opening-balance
+ * path, plus RPC handlers for the bulk transaction/assignment writes runImport
+ * now uses (ledger_bulk_upsert_transactions, ledger_bulk_upsert_category_budgets)
+ * and the still-used ledger_replace_allocations (single-row opening balances).
  */
 function makeClient() {
   let idCounter = 0;
@@ -34,8 +37,26 @@ function makeClient() {
   const readyToAssignCategoryId = "cat-rta";
   categories.set(readyToAssignCategoryId, { id: readyToAssignCategoryId, name: "Ready to Assign", group_id: "grp-system" });
 
-  const transactions = new Map<string, { id: string; account_id: string; imported_id: string | null; amount_cents: number; approved_at: string | null }>();
+  type TxnRow = {
+    id: string;
+    account_id: string;
+    imported_id: string | null;
+    amount_cents: number;
+    approved_at: string | null;
+    txn_date?: unknown;
+    payee?: unknown;
+    memo?: unknown;
+    transfer_account_id?: unknown;
+    cleared_at?: unknown;
+    reconciled_at?: unknown;
+    created_at?: unknown;
+  };
+  const transactions = new Map<string, TxnRow>();
   const fullRows = new Map<string, Record<string, unknown>>();
+
+  function findTxnByAccountImportedId(accountId: string, importedId: string | null) {
+    return [...transactions.values()].find((t) => t.account_id === accountId && t.imported_id === importedId);
+  }
 
   function tableHandlers(table: string) {
     if (table === "accounts") {
@@ -95,35 +116,13 @@ function makeClient() {
         },
       };
     }
-    if (table === "monthly_budgets") {
-      return {
-        select: () => ({
-          eq: () => ({
-            eq: () => ({
-              maybeSingle: async () => ({ data: null, error: null }),
-            }),
-          }),
-        }),
-        insert: (payload: Record<string, unknown>) => {
-          monthlyBudgets.push({
-            id: nextId("mb"),
-            month: payload.month as string,
-            category_id: payload.category_id as string,
-            assigned_cents: payload.assigned_cents as number,
-          });
-          return Promise.resolve({ error: null });
-        },
-      };
-    }
     if (table === "transactions") {
       return {
         select: () => ({
           eq: (_c1: string, accountId: string) => ({
             eq: (_c2: string, importedId: string) => ({
               maybeSingle: async () => {
-                const found = [...transactions.values()].find(
-                  (t) => t.account_id === accountId && t.imported_id === importedId,
-                );
+                const found = findTxnByAccountImportedId(accountId, importedId);
                 return { data: found ? { id: found.id, amount_cents: found.amount_cents } : null, error: null };
               },
             }),
@@ -131,13 +130,14 @@ function makeClient() {
         }),
         insert: (payload: Record<string, unknown>) => {
           const id = nextId("txn");
-          const row = {
+          const row: TxnRow = {
             id,
             account_id: payload.account_id as string,
             imported_id: (payload.imported_id as string) ?? null,
             amount_cents: payload.amount_cents as number,
             approved_at: (payload.approved_at as string) ?? null,
           };
+          transactions.set(id, row);
           const full = { ...row, txn_date: payload.txn_date, payee: payload.payee, memo: payload.memo, transfer_account_id: payload.transfer_account_id ?? null, cleared_at: payload.cleared_at ?? null, reconciled_at: null, created_at: "2026-01-01T00:00:00Z" };
           fullRows.set(id, full);
           return { select: () => ({ single: async () => ({ data: full, error: null }) }) };
@@ -164,13 +164,55 @@ function makeClient() {
 
   const client = {
     from: (table: string) => tableHandlers(table),
-    rpc: vi.fn((fn: string) => {
-      if (fn === "ledger_replace_allocations") return Promise.resolve({ error: null });
+    rpc: vi.fn(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === "ledger_replace_allocations") return { data: null, error: null };
+
+      if (fn === "ledger_bulk_upsert_transactions") {
+        const rows = (args?.p_rows ?? []) as {
+          idx: number;
+          account_id: string;
+          amount_cents: number;
+          txn_date: string;
+          payee: string;
+          memo: string | null;
+          imported_id: string;
+          cleared_at: string | null;
+          approved_at: string | null;
+        }[];
+
+        const result = rows.map((row) => {
+          const existing = findTxnByAccountImportedId(row.account_id, row.imported_id);
+          const id = existing?.id ?? nextId("txn");
+          transactions.set(id, {
+            id,
+            account_id: row.account_id,
+            imported_id: row.imported_id,
+            amount_cents: row.amount_cents,
+            approved_at: row.approved_at,
+            txn_date: row.txn_date,
+            payee: row.payee,
+            memo: row.memo,
+            cleared_at: row.cleared_at,
+          });
+          return { idx: row.idx, transaction_id: id, created: !existing };
+        });
+
+        return { data: result, error: null };
+      }
+
+      if (fn === "ledger_bulk_upsert_category_budgets") {
+        const rows = (args?.p_rows ?? []) as { month: string; category_id: string; assigned_cents: number }[];
+        for (const row of rows) {
+          monthlyBudgets.push({ id: nextId("mb"), month: row.month, category_id: row.category_id, assigned_cents: row.assigned_cents });
+        }
+        return { data: null, error: null };
+      }
+
       throw new Error(`unexpected rpc in test double: ${fn}`);
     }),
   } as unknown as SupabaseClient;
 
-  return { client, accounts, categoryGroups, categories, monthlyBudgets };
+  return { client, accounts, categoryGroups, categories, monthlyBudgets, transactions };
 }
 
 describe("runImport", () => {
@@ -206,6 +248,100 @@ describe("runImport", () => {
     expect(summary.errors).toEqual([]);
     expect([...accounts.values()]).toHaveLength(1);
     expect([...categories.values()]).toHaveLength(2); // Dining + system RTA seed
+  });
+
+  it("bulk-writes multiple transactions in one batch and reports created vs. updated on re-run", async () => {
+    const { client, accounts } = makeClient();
+
+    const register = emptyRegister({
+      transactions: [
+        {
+          account: "Checking",
+          date: "2026-01-15",
+          payee: "Coffee Shop",
+          memo: "",
+          amountCents: -450,
+          cleared: true,
+          allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
+          rowIndex: 0,
+        },
+        {
+          account: "Checking",
+          date: "2026-01-16",
+          payee: "Grocery Store",
+          memo: "",
+          amountCents: -2000,
+          cleared: true,
+          allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -2000 }],
+          rowIndex: 1,
+        },
+      ],
+    });
+    const importArgs = {
+      register,
+      plan: emptyPlan(),
+      planId: "plan-1",
+      accountResolutions: [{ csvName: "Checking", action: "create" as const, type: "checking" as const }],
+      categoryResolutions: [{ categoryGroup: "General", category: "Dining", action: "create" as const }],
+    };
+
+    const first = await runImport(client, importArgs);
+    expect(first.transactionsCreated).toBe(2);
+    expect(first.transactionsUpdated).toBe(0);
+    expect(first.errors).toEqual([]);
+
+    const createdAccountId = [...accounts.values()][0].id;
+
+    // Re-running against the same account with the same (deterministic) imported_id
+    // hashes should update in place, not duplicate.
+    const second = await runImport(client, {
+      ...importArgs,
+      accountResolutions: [{ csvName: "Checking", action: "existing", accountId: createdAccountId }],
+    });
+    expect(second.transactionsCreated).toBe(0);
+    expect(second.transactionsUpdated).toBe(2);
+  });
+
+  it("reports a batch-level error naming the failed rows when the bulk RPC rejects, without crediting any as written", async () => {
+    const { client } = makeClient();
+    const rpcMock = client.rpc as unknown as ReturnType<typeof vi.fn>;
+    const original = rpcMock.getMockImplementation()!;
+    rpcMock.mockImplementation(async (fn: string, args?: Record<string, unknown>) => {
+      if (fn === "ledger_bulk_upsert_transactions") {
+        return { data: null, error: { message: "row 0 (imported_id csv:aaa) allocations do not sum to amount_cents" } };
+      }
+      return original(fn, args);
+    });
+
+    const register = emptyRegister({
+      transactions: [
+        {
+          account: "Checking",
+          date: "2026-01-15",
+          payee: "Coffee Shop",
+          memo: "",
+          amountCents: -450,
+          cleared: true,
+          allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
+          rowIndex: 0,
+        },
+      ],
+    });
+
+    const summary = await runImport(client, {
+      register,
+      plan: emptyPlan(),
+      planId: "plan-1",
+      accountResolutions: [{ csvName: "Checking", action: "create", type: "checking" }],
+      categoryResolutions: [{ categoryGroup: "General", category: "Dining", action: "create" }],
+    });
+
+    expect(summary.transactionsCreated).toBe(0);
+    expect(summary.transactionsUpdated).toBe(0);
+    expect(summary.errors).toHaveLength(1);
+    expect(summary.errors[0]).toMatch(/Batch of 1 transactions failed, none were written/);
+    expect(summary.errors[0]).toMatch(/Checking\/2026-01-15\/"Coffee Shop"/);
+    expect(summary.errors[0]).toMatch(/row 0 \(imported_id csv:aaa\)/);
   });
 
   it("skips a zero-amount on-budget opening balance without erroring", async () => {
@@ -272,6 +408,29 @@ describe("runImport", () => {
 
     expect(summary.assignmentsWritten).toBe(1);
     expect(summary.errors).toEqual([]);
+  });
+
+  it("bulk-writes multiple assignments in one batch", async () => {
+    const { client, monthlyBudgets } = makeClient();
+
+    const plan = emptyPlan({
+      assignments: [
+        { month: "2026-01-01", categoryGroup: "General", category: "Dining", isCreditCardPayment: false, assignedCents: 5000 },
+        { month: "2026-02-01", categoryGroup: "General", category: "Dining", isCreditCardPayment: false, assignedCents: 6000 },
+      ],
+    });
+
+    const summary = await runImport(client, {
+      register: emptyRegister(),
+      plan,
+      planId: "plan-1",
+      accountResolutions: [],
+      categoryResolutions: [{ categoryGroup: "General", category: "Dining", action: "create" }],
+    });
+
+    expect(summary.assignmentsWritten).toBe(2);
+    expect(summary.errors).toEqual([]);
+    expect(monthlyBudgets).toHaveLength(2);
   });
 
   it("records an error and skips the transaction when a category can't be resolved", async () => {

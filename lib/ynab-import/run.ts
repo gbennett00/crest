@@ -2,27 +2,51 @@ import { createHash } from "node:crypto";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  bulkUpsertCategoryBudgets,
+  bulkUpsertTransactions,
   createAccount,
   createOpeningBalance,
   createTransfer,
   getAccount,
   getReadyToAssignCategoryId,
-  upsertCategoryBudget,
-  upsertTransaction,
 } from "@/lib/ledger";
-import type { AccountType, TransactionAllocationInput } from "@/lib/ledger/types";
-import { mapWithConcurrency } from "./concurrency";
+import type {
+  AccountType,
+  TransactionAllocationInput,
+  UpsertCategoryBudgetInput,
+  UpsertTransactionInput,
+} from "@/lib/ledger/types";
+import { chunk, mapWithConcurrency } from "./concurrency";
 import { isCreditCardPaymentCategory, isReadyToAssignCategory } from "./mapping";
 import type { ParsedTransaction, ParsedTransfer, PlanParseResult, RegisterParseResult } from "./types";
 
 /**
- * How many ledger calls (transaction/transfer/opening-balance/assignment writes)
- * run concurrently. Each call is a handful of independent HTTP round trips to
- * PostgREST/RPC, so processing them one at a time is what made large imports slow.
- * 20 is a conservative default; bump it if your Supabase project's connection
- * pool comfortably handles more.
+ * How many transfer/opening-balance writes run concurrently. Those still go
+ * through the single-row RPCs (createTransfer/createOpeningBalance) — there
+ * are typically only a handful of each, so it wasn't worth building bulk
+ * variants for them (see the transactions/assignments batching below instead).
  */
 const CONCURRENCY = 20;
+
+/**
+ * Transactions and assignments go through bulkUpsertTransactions/
+ * bulkUpsertCategoryBudgets — one HTTP round trip per BATCH_SIZE rows instead
+ * of per row, which is what actually cuts down the number of requests for a
+ * large import (concurrency alone just runs more single-row requests at once).
+ * BATCH_CONCURRENCY batches run at once on top of that. Both are tunable if
+ * your Supabase project's connection pool comfortably handles more.
+ */
+const BATCH_SIZE = 50;
+const BATCH_CONCURRENCY = 5;
+/** How many rows to name in a batch-failure error before truncating. */
+const MAX_ROWS_NAMED_IN_ERROR = 10;
+
+function describeBatchFailure(label: string, batch: { label: string }[], e: unknown): string {
+  const message = e instanceof Error ? e.message : String(e);
+  const shown = batch.slice(0, MAX_ROWS_NAMED_IN_ERROR).map((p) => p.label);
+  const suffix = batch.length > MAX_ROWS_NAMED_IN_ERROR ? ` (+${batch.length - MAX_ROWS_NAMED_IN_ERROR} more)` : "";
+  return `Batch of ${batch.length} ${label} failed, none were written: ${message}. Rows: ${shown.join(", ")}${suffix}`;
+}
 
 export type AccountResolution =
   | { csvName: string; action: "skip" }
@@ -210,28 +234,28 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
   let transactionsCreated = 0;
   let transactionsUpdated = 0;
 
-  await mapWithConcurrency(input.register.transactions, CONCURRENCY, async (t) => {
+  const preparedTransactions: { input: UpsertTransactionInput; label: string }[] = [];
+  for (const t of input.register.transactions) {
     const account = accountMap.get(t.account);
-    if (!account) return; // account was skipped
+    if (!account) continue; // account was skipped
 
+    const label = `${t.account}/${t.date}/"${t.payee}"`;
     const allocations: TransactionAllocationInput[] = [];
     let failed = false;
     for (const a of t.allocations) {
       const categoryId = resolveCategoryId(a.categoryGroup, a.category);
       if (!categoryId) {
-        errors.push(
-          `Skipped transaction ${t.account}/${t.date}/"${t.payee}": could not resolve category "${a.categoryGroup}: ${a.category}"`,
-        );
+        errors.push(`Skipped transaction ${label}: could not resolve category "${a.categoryGroup}: ${a.category}"`);
         failed = true;
         break;
       }
       allocations.push({ categoryId, amountCents: a.amountCents });
     }
-    if (failed) return;
+    if (failed) continue;
 
     const now = new Date().toISOString();
-    try {
-      const result = await upsertTransaction(client, {
+    preparedTransactions.push({
+      input: {
         accountId: account.accountId,
         amountCents: t.amountCents,
         txnDate: t.date,
@@ -241,11 +265,23 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
         clearedAt: t.cleared ? now : null,
         approvedAt: allocations.length > 0 ? now : null,
         allocations: allocations.length > 0 ? allocations : undefined,
-      });
-      if (result.created) transactionsCreated += 1;
-      else transactionsUpdated += 1;
+      },
+      label,
+    });
+  }
+
+  await mapWithConcurrency(chunk(preparedTransactions, BATCH_SIZE), BATCH_CONCURRENCY, async (batch) => {
+    try {
+      const results = await bulkUpsertTransactions(
+        client,
+        batch.map((p) => p.input),
+      );
+      for (const r of results) {
+        if (r.created) transactionsCreated += 1;
+        else transactionsUpdated += 1;
+      }
     } catch (e) {
-      errors.push(`Transaction ${t.account}/${t.date}/"${t.payee}": ${e instanceof Error ? e.message : String(e)}`);
+      errors.push(describeBatchFailure("transactions", batch, e));
     }
   });
 
@@ -293,23 +329,33 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
   });
 
   let assignmentsWritten = 0;
-  await mapWithConcurrency(input.plan.assignments, CONCURRENCY, async (a) => {
+
+  const preparedAssignments: { input: UpsertCategoryBudgetInput; label: string }[] = [];
+  for (const a of input.plan.assignments) {
     const categoryId = a.isCreditCardPayment
       ? (accountMap.get(a.category)?.paymentCategoryId ?? null)
       : resolveCategoryId(a.categoryGroup, a.category);
 
     if (!categoryId) {
       errors.push(`Could not resolve assignment category "${a.categoryGroup}: ${a.category}" for ${a.month}`);
-      return;
+      continue;
     }
 
+    preparedAssignments.push({
+      input: { categoryId, month: a.month, assignedCents: a.assignedCents },
+      label: `${a.categoryGroup}/${a.category}/${a.month}`,
+    });
+  }
+
+  await mapWithConcurrency(chunk(preparedAssignments, BATCH_SIZE), BATCH_CONCURRENCY, async (batch) => {
     try {
-      await upsertCategoryBudget(client, { categoryId, month: a.month, assignedCents: a.assignedCents });
-      assignmentsWritten += 1;
-    } catch (e) {
-      errors.push(
-        `Assignment ${a.categoryGroup}/${a.category}/${a.month}: ${e instanceof Error ? e.message : String(e)}`,
+      await bulkUpsertCategoryBudgets(
+        client,
+        batch.map((p) => p.input),
       );
+      assignmentsWritten += batch.length;
+    } catch (e) {
+      errors.push(describeBatchFailure("assignments", batch, e));
     }
   });
 
