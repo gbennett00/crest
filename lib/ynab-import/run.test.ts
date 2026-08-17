@@ -252,7 +252,7 @@ describe("runImport", () => {
           amountCents: -450,
           cleared: true,
           allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
-          rowIndex: 0,
+          dedupeIndex: 0,
         },
       ],
     });
@@ -286,7 +286,7 @@ describe("runImport", () => {
           amountCents: -450,
           cleared: true,
           allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
-          rowIndex: 0,
+          dedupeIndex: 0,
         },
         {
           account: "Checking",
@@ -296,7 +296,7 @@ describe("runImport", () => {
           amountCents: -2000,
           cleared: true,
           allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -2000 }],
-          rowIndex: 1,
+          dedupeIndex: 0,
         },
       ],
     });
@@ -338,7 +338,7 @@ describe("runImport", () => {
           amountCents: -2000,
           cleared: true,
           allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -2000 }],
-          rowIndex: 0,
+          dedupeIndex: 0,
         },
       ],
     });
@@ -397,7 +397,7 @@ describe("runImport", () => {
           amountCents: -450,
           cleared: true,
           allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
-          rowIndex: 0,
+          dedupeIndex: 0,
         },
       ],
     });
@@ -520,7 +520,7 @@ describe("runImport", () => {
           amountCents: -450,
           cleared: true,
           allocations: [{ categoryGroup: "Unmapped", category: "Nope", amountCents: -450 }],
-          rowIndex: 0,
+          dedupeIndex: 0,
         },
       ],
     });

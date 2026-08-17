@@ -133,7 +133,7 @@ export function parseRegisterCsv(
       date: c.date,
       amountCents: Math.abs(c.amountCents),
       cleared: outflowRow.cleared && inflowRow.cleared,
-      rowIndex: Math.min(c.rowIndex, match.rowIndex),
+      dedupeIndex: 0, // assigned below, scoped across the final transfers list
     });
   }
 
@@ -201,7 +201,7 @@ export function parseRegisterCsv(
               category: g.category,
               amountCents: g.amountCents,
             })),
-          rowIndex: row.rowIndex,
+          dedupeIndex: 0, // assigned below, scoped across the final transactions list
         });
         i = j;
         continue;
@@ -223,9 +223,29 @@ export function parseRegisterCsv(
         row.category === ""
           ? []
           : [{ categoryGroup: row.categoryGroup, category: row.category, amountCents: row.amountCents }],
-      rowIndex: row.rowIndex,
+      dedupeIndex: 0, // assigned below, scoped across the final transactions list
     });
     i += 1;
+  }
+
+  // Assign each transaction/transfer a dedupe occurrence index scoped to its
+  // natural key (see ParsedTransaction.dedupeIndex), in file order. Doing
+  // this over the final lists — not raw CSV row position — keeps the
+  // imported_id hash stable across re-exports that insert unrelated rows
+  // elsewhere in the file.
+  const txnDedupeCounts = new Map<string, number>();
+  for (const t of transactions) {
+    const key = `${t.account}|${t.date}|${t.payee}|${t.amountCents}|${t.memo}`;
+    const count = txnDedupeCounts.get(key) ?? 0;
+    t.dedupeIndex = count;
+    txnDedupeCounts.set(key, count + 1);
+  }
+  const transferDedupeCounts = new Map<string, number>();
+  for (const t of transfers) {
+    const key = `${t.fromAccount}|${t.toAccount}|${t.date}|${t.amountCents}`;
+    const count = transferDedupeCounts.get(key) ?? 0;
+    t.dedupeIndex = count;
+    transferDedupeCounts.set(key, count + 1);
   }
 
   return {

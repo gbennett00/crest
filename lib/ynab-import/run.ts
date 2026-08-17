@@ -81,12 +81,12 @@ export type ImportSummary = {
 type ResolvedAccount = { accountId: string; paymentCategoryId: string | null };
 
 function hashTransaction(t: ParsedTransaction): string {
-  const payload = `${t.account}|${t.date}|${t.payee}|${t.amountCents}|${t.memo}|${t.rowIndex}`;
+  const payload = `${t.account}|${t.date}|${t.payee}|${t.amountCents}|${t.memo}|${t.dedupeIndex}`;
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
 }
 
 function hashTransfer(t: ParsedTransfer): string {
-  const payload = `${t.fromAccount}|${t.toAccount}|${t.date}|${t.amountCents}|${t.rowIndex}`;
+  const payload = `${t.fromAccount}|${t.toAccount}|${t.date}|${t.amountCents}|${t.dedupeIndex}`;
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
 }
 

@@ -13,8 +13,15 @@ export type ParsedTransaction = {
   cleared: boolean;
   /** Empty means uncategorized in YNAB — lands as a pending (unapproved) import. */
   allocations: ParsedAllocation[];
-  /** Stable ordinal within the source file, used to derive the imported_id hash. */
-  rowIndex: number;
+  /**
+   * Occurrence index among transactions sharing the same
+   * account/date/payee/amount/memo, used (with those fields) to derive the
+   * imported_id hash. Unlike a raw CSV row index, this stays stable when a
+   * later export inserts unrelated rows elsewhere in the file — it only
+   * shifts if a genuinely new duplicate of the exact same transaction is
+   * inserted ahead of it.
+   */
+  dedupeIndex: number;
 };
 
 export type ParsedOpeningBalance = {
@@ -32,7 +39,8 @@ export type ParsedTransfer = {
   /** Positive magnitude. */
   amountCents: number;
   cleared: boolean;
-  rowIndex: number;
+  /** Occurrence index among transfers sharing the same accounts/date/amount — see ParsedTransaction.dedupeIndex. */
+  dedupeIndex: number;
 };
 
 export type RegisterParseResult = {
