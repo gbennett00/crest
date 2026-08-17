@@ -10,6 +10,7 @@ function emptyRegister(overrides: Partial<RegisterParseResult> = {}): RegisterPa
     openingBalances: [],
     transfers: [],
     offBudgetAccounts: [],
+    futureRowsSkipped: 0,
     warnings: [],
     ...overrides,
   };

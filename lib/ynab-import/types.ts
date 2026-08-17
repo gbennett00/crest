@@ -41,6 +41,8 @@ export type RegisterParseResult = {
   transfers: ParsedTransfer[];
   /** Accounts whose Starting Balance row has no category — likely YNAB Tracking accounts. */
   offBudgetAccounts: string[];
+  /** Rows dated after the cutoff (default: today) — YNAB scheduled/future transactions, excluded from import. */
+  futureRowsSkipped: number;
   warnings: string[];
 };
 

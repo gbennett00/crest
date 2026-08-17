@@ -147,6 +147,13 @@ export function YnabImportWizard() {
             {preview.counts.openingBalances} opening balances, {preview.counts.assignments} monthly
             assignments found.
           </p>
+          {preview.counts.futureRowsSkipped > 0 && (
+            <p>
+              {preview.counts.futureRowsSkipped} row
+              {preview.counts.futureRowsSkipped === 1 ? "" : "s"} dated after today (scheduled in
+              YNAB) will be skipped — Crest reflects your balance as of today.
+            </p>
+          )}
           {preview.warnings.length > 0 && (
             <ul className="text-amber-600 dark:text-amber-500 list-disc pl-4">
               {preview.warnings.map((w, i) => (

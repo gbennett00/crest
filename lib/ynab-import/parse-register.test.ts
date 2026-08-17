@@ -9,6 +9,52 @@ function csv(...rows: string[]): string {
   return [HEADER, ...rows].join("\r\n");
 }
 
+describe("parseRegisterCsv — future-dated rows", () => {
+  it("excludes a transaction dated after the cutoff and counts it as skipped", () => {
+    const result = parseRegisterCsv(
+      csv('"Checking","","01/20/2026","Future Charge","General: Dining","General","Dining","",$5.00,$0.00,"Uncleared"'),
+      { today: "2026-01-15" },
+    );
+    expect(result.transactions).toHaveLength(0);
+    expect(result.futureRowsSkipped).toBe(1);
+  });
+
+  it("includes a transaction dated exactly on the cutoff", () => {
+    const result = parseRegisterCsv(
+      csv('"Checking","","01/15/2026","Today","General: Dining","General","Dining","",$5.00,$0.00,"Uncleared"'),
+      { today: "2026-01-15" },
+    );
+    expect(result.transactions).toHaveLength(1);
+    expect(result.futureRowsSkipped).toBe(0);
+  });
+
+  it("excludes a future split group and a future transfer pair as whole units", () => {
+    const result = parseRegisterCsv(
+      csv(
+        '"Crew","","02/01/2026","Venmo","Bills: Rent","Bills","Rent","Split (1/2) ",$1450.00,$0.00,"Cleared"',
+        '"Crew","","02/01/2026","Venmo","Bills: TV","Bills","TV","Split (2/2) ",$50.00,$0.00,"Cleared"',
+        '"Crew","","02/01/2026","Transfer : BoA","","","","",$100.00,$0.00,"Cleared"',
+        '"BoA","","02/01/2026","Transfer : Crew","","","","",$0.00,$100.00,"Cleared"',
+      ),
+      { today: "2026-01-15" },
+    );
+    expect(result.transactions).toHaveLength(0);
+    expect(result.transfers).toHaveLength(0);
+    expect(result.warnings).toEqual([]);
+    expect(result.futureRowsSkipped).toBe(4);
+  });
+
+  it("defaults the cutoff to the real current date when not provided", () => {
+    const yesterday = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+    const [y, m, d] = yesterday.split("-");
+    const result = parseRegisterCsv(
+      csv(`"Checking","","${m}/${d}/${y}","Past","General: Dining","General","Dining","",$5.00,$0.00,"Uncleared"`),
+    );
+    expect(result.transactions).toHaveLength(1);
+    expect(result.futureRowsSkipped).toBe(0);
+  });
+});
+
 describe("parseRegisterCsv", () => {
   it("strips a UTF-8 BOM before parsing the header", () => {
     const withBom = "﻿" + csv(

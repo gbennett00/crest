@@ -27,6 +27,7 @@ export type ImportPreview = {
     transfers: number;
     openingBalances: number;
     assignments: number;
+    futureRowsSkipped: number;
   };
   warnings: string[];
 };
@@ -84,6 +85,7 @@ export async function previewImport(
           transfers: register.transfers.length,
           openingBalances: register.openingBalances.filter((b) => b.onBudget).length,
           assignments: plan.assignments.length,
+          futureRowsSkipped: register.futureRowsSkipped,
         },
         warnings: register.warnings,
       },

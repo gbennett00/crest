@@ -30,10 +30,20 @@ function columnIndex(header: string[], name: string): number {
   return idx;
 }
 
-export function parseRegisterCsv(csvText: string): RegisterParseResult {
+export function parseRegisterCsv(
+  csvText: string,
+  options?: { today?: string },
+): RegisterParseResult {
   const rows = parseCsv(csvText);
   if (rows.length === 0) {
-    return { transactions: [], openingBalances: [], transfers: [], offBudgetAccounts: [], warnings: [] };
+    return {
+      transactions: [],
+      openingBalances: [],
+      transfers: [],
+      offBudgetAccounts: [],
+      futureRowsSkipped: 0,
+      warnings: [],
+    };
   }
 
   const header = rows[0].map((h) => h.trim());
@@ -49,7 +59,7 @@ export function parseRegisterCsv(csvText: string): RegisterParseResult {
     cleared: columnIndex(header, "Cleared"),
   };
 
-  const raw: RawRow[] = rows.slice(1).map((r, i) => ({
+  const allRaw: RawRow[] = rows.slice(1).map((r, i) => ({
     account: r[idx.account]?.trim() ?? "",
     date: parseUsDate(r[idx.date] ?? ""),
     payee: r[idx.payee]?.trim() ?? "",
@@ -61,6 +71,13 @@ export function parseRegisterCsv(csvText: string): RegisterParseResult {
     cleared: r[idx.cleared]?.trim() === "Cleared" || r[idx.cleared]?.trim() === "Reconciled",
     rowIndex: i,
   }));
+
+  // YYYY-MM-DD strings compare correctly lexicographically. Excluded uniformly
+  // here (before split/transfer/opening-balance handling) so a future-dated
+  // split group or transfer pair is dropped as a whole, not partially.
+  const cutoffDate = options?.today ?? new Date().toISOString().slice(0, 10);
+  const raw = allRaw.filter((r) => r.date <= cutoffDate);
+  const futureRowsSkipped = allRaw.length - raw.length;
 
   const warnings: string[] = [];
 
@@ -216,6 +233,7 @@ export function parseRegisterCsv(csvText: string): RegisterParseResult {
     openingBalances,
     transfers,
     offBudgetAccounts: [...offBudgetAccounts],
+    futureRowsSkipped,
     warnings,
   };
 }
