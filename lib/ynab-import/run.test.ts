@@ -51,6 +51,7 @@ function makeClient() {
     cleared_at?: unknown;
     reconciled_at?: unknown;
     created_at?: unknown;
+    allocations?: { category_id: string; amount_cents: number }[];
   };
   const transactions = new Map<string, TxnRow>();
   const fullRows = new Map<string, Record<string, unknown>>();
@@ -179,11 +180,26 @@ function makeClient() {
           imported_id: string;
           cleared_at: string | null;
           approved_at: string | null;
+          allocations: { category_id: string; amount_cents: number }[];
         }[];
 
+        // Mirrors ledger_bulk_upsert_transactions's real semantics: a brand-new
+        // row is written in full, but an existing row only refreshes cosmetic
+        // fields (payee/memo/cleared_at) — amount, date, approval and
+        // allocations are set once at creation and never touched again, so a
+        // re-import can't revert a categorization or edit made in the app.
         const result = rows.map((row) => {
           const existing = findTxnByAccountImportedId(row.account_id, row.imported_id);
-          const id = existing?.id ?? nextId("txn");
+          if (existing) {
+            transactions.set(existing.id, {
+              ...existing,
+              payee: row.payee,
+              memo: row.memo,
+              cleared_at: row.cleared_at,
+            });
+            return { idx: row.idx, transaction_id: existing.id, created: false };
+          }
+          const id = nextId("txn");
           transactions.set(id, {
             id,
             account_id: row.account_id,
@@ -194,16 +210,22 @@ function makeClient() {
             payee: row.payee,
             memo: row.memo,
             cleared_at: row.cleared_at,
+            allocations: row.allocations,
           });
-          return { idx: row.idx, transaction_id: id, created: !existing };
+          return { idx: row.idx, transaction_id: id, created: true };
         });
 
         return { data: result, error: null };
       }
 
       if (fn === "ledger_bulk_upsert_category_budgets") {
+        // Mirrors the real RPC's ON CONFLICT DO NOTHING: an existing
+        // (month, category_id) row is left as-is, so a manual edit made in
+        // the Budget page survives a re-import.
         const rows = (args?.p_rows ?? []) as { month: string; category_id: string; assigned_cents: number }[];
         for (const row of rows) {
+          const exists = monthlyBudgets.some((b) => b.month === row.month && b.category_id === row.category_id);
+          if (exists) continue;
           monthlyBudgets.push({ id: nextId("mb"), month: row.month, category_id: row.category_id, assigned_cents: row.assigned_cents });
         }
         return { data: null, error: null };
@@ -301,6 +323,57 @@ describe("runImport", () => {
     });
     expect(second.transactionsCreated).toBe(0);
     expect(second.transactionsUpdated).toBe(2);
+  });
+
+  it("does not revert a manual recategorization or assignment edit when the import is re-run", async () => {
+    const { client, accounts, transactions, categories, monthlyBudgets } = makeClient();
+
+    const register = emptyRegister({
+      transactions: [
+        {
+          account: "Checking",
+          date: "2026-01-15",
+          payee: "Store",
+          memo: "",
+          amountCents: -2000,
+          cleared: true,
+          allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -2000 }],
+          rowIndex: 0,
+        },
+      ],
+    });
+    const plan = emptyPlan({
+      assignments: [
+        { month: "2026-01-01", categoryGroup: "General", category: "Dining", isCreditCardPayment: false, assignedCents: 5000 },
+      ],
+    });
+    const importArgs = {
+      register,
+      plan,
+      planId: "plan-1",
+      accountResolutions: [{ csvName: "Checking", action: "create" as const, type: "checking" as const }],
+      categoryResolutions: [{ categoryGroup: "General", category: "Dining", action: "create" as const }],
+    };
+
+    await runImport(client, importArgs);
+
+    const [txn] = [...transactions.values()];
+    const groceriesId = "cat-groceries-manual";
+    categories.set(groceriesId, { id: groceriesId, name: "Groceries", group_id: "grp-general" });
+    // Simulate the user recategorizing in the app and editing the assignment.
+    transactions.set(txn.id, { ...txn, allocations: [{ category_id: groceriesId, amount_cents: -2000 }] });
+    monthlyBudgets[0].assigned_cents = 7500;
+
+    const createdAccountId = [...accounts.values()][0].id;
+    const second = await runImport(client, {
+      ...importArgs,
+      accountResolutions: [{ csvName: "Checking", action: "existing", accountId: createdAccountId }],
+    });
+
+    expect(second.transactionsUpdated).toBe(1);
+    const updatedTxn = transactions.get(txn.id)!;
+    expect(updatedTxn.allocations).toEqual([{ category_id: groceriesId, amount_cents: -2000 }]);
+    expect(monthlyBudgets[0].assigned_cents).toBe(7500);
   });
 
   it("reports a batch-level error naming the failed rows when the bulk RPC rejects, without crediting any as written", async () => {

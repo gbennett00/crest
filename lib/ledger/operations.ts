@@ -232,12 +232,15 @@ export async function upsertTransaction(
 /**
  * Bulk variant of upsertTransaction: one round trip for the whole batch via
  * ledger_bulk_upsert_transactions, instead of one round trip per row. Intended
- * for large imports (see lib/ynab-import) — behaves the same as calling
- * upsertTransaction once per input (dedupe by (account_id, imported_id),
- * replace allocations, defer approval until allocations are in place), but the
- * whole batch fails together on a bad row rather than skipping it; the thrown
- * error names which input row (by index and imported_id) caused it so the
- * caller can identify and fix/retry it.
+ * for large imports (see lib/ynab-import) — dedupes by (account_id,
+ * imported_id). Unlike upsertTransaction, an existing row is *not*
+ * overwritten wholesale: only cosmetic fields (payee, memo, cleared_at)
+ * refresh on a re-run, while amount_cents, txn_date, allocations and
+ * approved_at are set once at creation and left alone afterward, so
+ * re-importing never reverts a categorization or assignment the user has
+ * since changed in the app. The whole batch fails together on a bad row
+ * rather than skipping it; the thrown error names which input row (by index
+ * and imported_id) caused it so the caller can identify and fix/retry it.
  */
 export async function bulkUpsertTransactions(
   client: SupabaseClient,
@@ -1060,12 +1063,13 @@ export async function upsertCategoryBudget(
 
 /**
  * Bulk variant of upsertCategoryBudget: one round trip for the whole batch via
- * ledger_bulk_upsert_category_budgets, instead of one round trip per row.
- * monthly_budgets has no deferred-trigger complexity, so this is a plain
- * set-based upsert — the only reason it's a SQL function rather than a native
- * PostgREST bulk .upsert() is that monthly_budgets_month_category_unique is a
- * partial index (WHERE category_id IS NOT NULL), which PostgREST's upsert
- * helper can't target directly.
+ * ledger_bulk_upsert_category_budgets, instead of one round trip per row. It's
+ * a SQL function rather than a native PostgREST bulk .upsert() because
+ * monthly_budgets_month_category_unique is a partial index (WHERE
+ * category_id IS NOT NULL), which PostgREST's upsert helper can't target
+ * directly. On conflict this is a no-op (not an overwrite): an assignment the
+ * user has since edited in the Budget page is left alone on a re-import
+ * rather than being reverted to the CSV's value.
  */
 export async function bulkUpsertCategoryBudgets(
   client: SupabaseClient,
