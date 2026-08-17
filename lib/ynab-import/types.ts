@@ -15,11 +15,13 @@ export type ParsedTransaction = {
   allocations: ParsedAllocation[];
   /**
    * Occurrence index among transactions sharing the same
-   * account/date/payee/amount/memo, used (with those fields) to derive the
-   * imported_id hash. Unlike a raw CSV row index, this stays stable when a
-   * later export inserts unrelated rows elsewhere in the file — it only
-   * shifts if a genuinely new duplicate of the exact same transaction is
-   * inserted ahead of it.
+   * account/date/payee/amount (memo is deliberately excluded, so editing a
+   * memo and re-exporting updates the existing row rather than creating a
+   * duplicate), used (with those fields) to derive the imported_id hash.
+   * Unlike a raw CSV row index, this stays stable when a later export
+   * inserts unrelated rows elsewhere in the file — it only shifts if a
+   * genuinely new duplicate of the exact same transaction is inserted ahead
+   * of it.
    */
   dedupeIndex: number;
 };

@@ -81,7 +81,9 @@ export type ImportSummary = {
 type ResolvedAccount = { accountId: string; paymentCategoryId: string | null };
 
 function hashTransaction(t: ParsedTransaction): string {
-  const payload = `${t.account}|${t.date}|${t.payee}|${t.amountCents}|${t.memo}|${t.dedupeIndex}`;
+  // memo is deliberately excluded so editing a transaction's memo in YNAB and
+  // re-exporting updates the existing row instead of creating a duplicate.
+  const payload = `${t.account}|${t.date}|${t.payee}|${t.amountCents}|${t.dedupeIndex}`;
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
 }
 

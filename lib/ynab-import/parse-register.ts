@@ -235,7 +235,9 @@ export function parseRegisterCsv(
   // elsewhere in the file.
   const txnDedupeCounts = new Map<string, number>();
   for (const t of transactions) {
-    const key = `${t.account}|${t.date}|${t.payee}|${t.amountCents}|${t.memo}`;
+    // memo is deliberately excluded — editing a memo on an existing
+    // transaction (in YNAB, then re-exporting) shouldn't create a duplicate.
+    const key = `${t.account}|${t.date}|${t.payee}|${t.amountCents}`;
     const count = txnDedupeCounts.get(key) ?? 0;
     t.dedupeIndex = count;
     txnDedupeCounts.set(key, count + 1);
