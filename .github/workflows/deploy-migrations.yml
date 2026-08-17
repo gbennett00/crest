@@ -32,13 +32,3 @@ jobs:
 
       - run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
       - run: supabase db push
-
-      # PostgREST caches the schema and doesn't reliably pick up function
-      # signature changes from `db push` right away — new/changed RPCs can
-      # 404 against production for a while after a migration deploys without
-      # this. NOTIFY is idempotent and safe to send even when nothing changed.
-      - name: Reload PostgREST schema cache
-        run: |
-          PGPASSWORD="$SUPABASE_DB_PASSWORD" psql \
-            "postgresql://postgres:${SUPABASE_DB_PASSWORD}@db.${SUPABASE_PROJECT_ID}.supabase.co:5432/postgres" \
-            -c "NOTIFY pgrst, 'reload schema';"
