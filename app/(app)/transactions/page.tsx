@@ -96,7 +96,7 @@ async function TransactionsContent({
           const currentUrl = `/transactions?category=${categoryId ?? ""}&month=${monthFilter ?? ""}`;
           const editHref = `/transactions/${txn.id}?back=${encodeURIComponent(currentUrl)}`;
           return (
-            <Link key={`${txn.id}-${i}`} href={editHref} prefetch={false} className="px-4 py-3 border-b flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors">
+            <Link key={`${txn.id}-${i}`} href={editHref} className="px-4 py-3 border-b flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {!isApproved && (

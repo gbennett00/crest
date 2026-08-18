@@ -189,10 +189,6 @@ async function RegisterContent({
                   <Link
                     key={txn.id}
                     href={editHref}
-                    // Registers can render up to 200 rows; prefetching an RSC
-                    // payload for every edit page as rows scroll into view floods
-                    // the network with transaction requests. Load on click instead.
-                    prefetch={false}
                     className="px-4 py-3 border-b flex items-start justify-between gap-3 hover:bg-muted/30 transition-colors"
                   >
                     <div className="min-w-0 flex-1">
