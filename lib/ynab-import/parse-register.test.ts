@@ -113,6 +113,56 @@ describe("parseRegisterCsv", () => {
     expect(result.transactions[0].allocations).toEqual([]);
   });
 
+  it("assigns dedupeIndex 0 to every transaction with a distinct natural key, regardless of CSV row position", () => {
+    const result = parseRegisterCsv(
+      csv(
+        '"Checking","","01/15/2026","Coffee Shop","General: Dining","General","Dining","",$4.50,$0.00,"Cleared"',
+        '"Checking","","01/16/2026","Grocery Store","General: Dining","General","Dining","",$20.00,$0.00,"Cleared"',
+      ),
+    );
+    expect(result.transactions.map((t) => t.dedupeIndex)).toEqual([0, 0]);
+  });
+
+  it("keeps an existing transaction's dedupeIndex stable when a new unrelated transaction is inserted earlier in a re-export", () => {
+    // Simulates re-exporting after adding a new, unrelated transaction: the
+    // original export only had the Coffee Shop row; the new export has an
+    // extra row inserted ahead of it. The Coffee Shop row's dedupeIndex (and
+    // therefore its imported_id hash) must not change, or a re-import will
+    // treat it as brand new instead of matching the existing row.
+    const originalExport = parseRegisterCsv(
+      csv('"Checking","","01/15/2026","Coffee Shop","General: Dining","General","Dining","",$4.50,$0.00,"Cleared"'),
+    );
+    const reExport = parseRegisterCsv(
+      csv(
+        '"Checking","","01/10/2026","New Charge","General: Dining","General","Dining","",$9.00,$0.00,"Cleared"',
+        '"Checking","","01/15/2026","Coffee Shop","General: Dining","General","Dining","",$4.50,$0.00,"Cleared"',
+      ),
+    );
+    const originalCoffee = originalExport.transactions.find((t) => t.payee === "Coffee Shop")!;
+    const reExportCoffee = reExport.transactions.find((t) => t.payee === "Coffee Shop")!;
+    expect(reExportCoffee.dedupeIndex).toBe(originalCoffee.dedupeIndex);
+  });
+
+  it("assigns increasing dedupeIndex to genuine duplicate transactions sharing the same account/date/payee/amount", () => {
+    const result = parseRegisterCsv(
+      csv(
+        '"Checking","","01/15/2026","Coffee Shop","General: Dining","General","Dining","",$4.50,$0.00,"Cleared"',
+        '"Checking","","01/15/2026","Coffee Shop","General: Dining","General","Dining","",$4.50,$0.00,"Cleared"',
+      ),
+    );
+    expect(result.transactions.map((t) => t.dedupeIndex)).toEqual([0, 1]);
+  });
+
+  it("does not factor memo into dedupeIndex, so editing a memo and re-exporting matches the existing transaction", () => {
+    const originalExport = parseRegisterCsv(
+      csv('"Checking","","01/15/2026","Coffee Shop","General: Dining","General","Dining","",$4.50,$0.00,"Cleared"'),
+    );
+    const reExportWithEditedMemo = parseRegisterCsv(
+      csv('"Checking","","01/15/2026","Coffee Shop","General: Dining","General","Dining","Latte",$4.50,$0.00,"Cleared"'),
+    );
+    expect(reExportWithEditedMemo.transactions[0].dedupeIndex).toBe(originalExport.transactions[0].dedupeIndex);
+  });
+
   it("groups Split (i/N) rows into one transaction with multiple allocations, without merging an adjacent non-split row sharing the same account/date/payee", () => {
     const result = parseRegisterCsv(
       csv(
