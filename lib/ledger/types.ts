@@ -94,8 +94,18 @@ export type TransactionAmountLine = {
 export type ReconciliationCheckInput = {
   /** Last bank-reported cleared balance (accounts.balance_cents, Plaid current). */
   bankClearedBalanceCents: Cents;
-  /** All register lines; reconcile uses cleared only (incl. opening-balance txn). */
-  transactions: TransactionAmountLine[];
+  /** Register cleared balance (sum of cleared lines, incl. opening-balance txn). */
+  registerClearedBalanceCents: Cents;
+};
+
+/**
+ * Per-account balance sums, aggregated in Postgres by the `account_balances`
+ * view. Mirrors sumCleared / sumPending / workingBalanceCents in ./balance.
+ */
+export type AccountBalance = {
+  clearedCents: Cents;
+  unclearedCents: Cents;
+  workingCents: Cents;
 };
 
 export type ReconciliationCheckResult =

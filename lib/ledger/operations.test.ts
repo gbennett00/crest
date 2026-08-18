@@ -384,6 +384,24 @@ function makeReconcileMock(initial: {
           error: null,
         };
       }
+      if (table === "account_balances") {
+        // Mirror the account_balances view: cleared/uncleared/working sums.
+        const cleared = state.transactions
+          .filter((t) => t.cleared_at !== null)
+          .reduce((s, t) => s + t.amount_cents, 0);
+        const uncleared = state.transactions
+          .filter((t) => t.cleared_at === null)
+          .reduce((s, t) => s + t.amount_cents, 0);
+        return {
+          data: {
+            account_id: "acc-1",
+            cleared_cents: cleared,
+            uncleared_cents: uncleared,
+            working_cents: cleared + uncleared,
+          },
+          error: null,
+        };
+      }
       if (table === "accounts") {
         if (op === "update") {
           state.balanceCents = payload!.balance_cents as number;
