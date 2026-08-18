@@ -19,6 +19,7 @@ import { AssignPopup } from "./assign-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
 import { RowMenu } from "./row-menu";
 import { BudgetToolbar } from "./budget-toolbar";
+import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type {
@@ -36,17 +37,6 @@ export type { BudgetCategory, BudgetData, BudgetGroup, TargetData };
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
-
-function formatMonth(month: string): string {
-  const y = +month.slice(0, 4);
-  const m = +month.slice(5, 7);
-  return `${MONTH_NAMES[m - 1]} ${y}`;
-}
 
 // Activity is the 3rd column and is hidden on small screens (hidden md:block on
 // each activity cell removes it from the grid entirely there).
@@ -129,7 +119,12 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
         >
           <ChevronLeft size={18} />
         </button>
-        <span className="font-semibold text-sm">{formatMonth(data.month)}</span>
+        <MonthPicker
+          month={data.month}
+          minMonth={data.minMonth}
+          maxMonth={data.maxMonth}
+          onSelect={navigate}
+        />
         <div className="flex items-center">
           <button
             onClick={() => navigate(nextBudgetMonth(data.month))}
