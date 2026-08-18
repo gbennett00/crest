@@ -11,7 +11,12 @@ import {
 } from "@/lib/ledger";
 import { getActivePlanId } from "@/lib/plan/active-plan";
 import { createPlaidClient } from "@/lib/plaid/client";
-import { syncItem } from "@/lib/plaid/sync";
+import {
+  attachExistingAccountToPlaid,
+  getPlaidAccountsForItem,
+  getUnlinkedAccounts,
+  syncItem,
+} from "@/lib/plaid/sync";
 
 export async function createManualAccount(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
@@ -185,20 +190,64 @@ export async function exchangePublicToken(publicToken: string) {
     });
     if (insertError) return { error: insertError.message };
 
-    const { data: itemRow } = await supabase
-      .from("plaid_items")
-      .select("*")
-      .eq("plaid_item_id", item_id)
-      .single();
+    // Don't sync yet — first let the caller decide, per detected bank account,
+    // whether to attach it to an existing (e.g. YNAB-imported) Crest account or
+    // create a new one. Without this step, an account already populated by the
+    // CSV importer would get a disconnected duplicate here instead of being
+    // extended forward. See completeAccountLinking.
+    const [plaidAccounts, unlinkedAccounts] = await Promise.all([
+      getPlaidAccountsForItem(access_token),
+      getUnlinkedAccounts(supabase, planId),
+    ]);
 
-    if (itemRow) {
-      await syncItem(supabase, itemRow as never);
-    }
-
-    revalidatePath("/accounts");
-    return { success: true, itemId: item_id };
+    return {
+      success: true,
+      itemId: item_id,
+      plaidAccounts: plaidAccounts.map((a) => ({
+        id: a.account_id,
+        name: a.name ?? a.official_name ?? "Linked Account",
+      })),
+      unlinkedAccounts,
+    };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to exchange token";
+    return { error: message };
+  }
+}
+
+/**
+ * Finishes linking after the user maps each Plaid-detected account to either an
+ * existing Crest account (attach) or "create new", then runs the first sync.
+ */
+export async function completeAccountLinking(
+  plaidItemId: string,
+  mappings: { plaidAccountId: string; existingAccountId: string | null }[],
+) {
+  const supabase = await createClient();
+  try {
+    for (const m of mappings) {
+      if (m.existingAccountId) {
+        await attachExistingAccountToPlaid(
+          supabase,
+          m.existingAccountId,
+          plaidItemId,
+          m.plaidAccountId,
+        );
+      }
+    }
+
+    const { data: itemRow, error } = await supabase
+      .from("plaid_items")
+      .select("*")
+      .eq("plaid_item_id", plaidItemId)
+      .single();
+    if (error || !itemRow) return { error: "Item not found" };
+
+    const result = await syncItem(supabase, itemRow as never);
+    revalidatePath("/accounts");
+    return { success: true, ...result };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to complete linking";
     return { error: message };
   }
 }

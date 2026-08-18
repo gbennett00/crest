@@ -31,6 +31,61 @@ type SyncResult = {
   accountsCreated: number;
 };
 
+/**
+ * Crest accounts in this plan not yet attached to any Plaid account — candidates
+ * for the user to link an incoming Plaid Item's accounts onto, instead of always
+ * creating a new (duplicate) account per bank account.
+ */
+export async function getUnlinkedAccounts(
+  client: SupabaseClient,
+  planId: string,
+): Promise<{ id: string; name: string; type: AccountType }[]> {
+  const { data, error } = await client
+    .from("accounts")
+    .select("id, name, type")
+    .eq("plan_id", planId)
+    .eq("is_active", true)
+    .is("plaid_account_id", null);
+
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    name: row.name as string,
+    type: row.type as AccountType,
+  }));
+}
+
+/** Metadata for the accounts on a just-exchanged Plaid Item, before any sync has run. */
+export async function getPlaidAccountsForItem(accessToken: string): Promise<AccountBase[]> {
+  const plaid = createPlaidClient();
+  const response = await plaid.accountsGet({ access_token: accessToken });
+  return response.data.accounts;
+}
+
+/**
+ * Attaches an existing Crest account to a Plaid account instead of letting
+ * ensureAccountExists create a new one. Call before syncItem — resolveAccountMap
+ * will then find this account already linked and syncItem will extend its
+ * history forward rather than starting a disconnected duplicate.
+ */
+export async function attachExistingAccountToPlaid(
+  client: SupabaseClient,
+  accountId: string,
+  plaidItemId: string,
+  plaidAccountId: string,
+): Promise<void> {
+  const { error } = await client
+    .from("accounts")
+    .update({
+      plaid_item_id: plaidItemId,
+      plaid_account_id: plaidAccountId,
+      is_linked: true,
+    })
+    .eq("id", accountId);
+
+  if (error) throw new Error(error.message);
+}
+
 async function resolveAccountMap(
   client: SupabaseClient,
   plaidItemId: string,

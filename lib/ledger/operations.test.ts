@@ -6,6 +6,7 @@ import {
   bulkUpsertTransactions,
   createAccount,
   createTransaction,
+  createTransfer,
   deleteTransactionWithCounterpart,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
@@ -599,6 +600,50 @@ describe("createAccount", () => {
 
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({ plan_id: "plan-1", name: "Checking", type: "checking" }),
+    );
+  });
+});
+
+describe("createTransfer", () => {
+  function makeTransferMock() {
+    const rpc = vi.fn().mockResolvedValue({
+      data: { outflow_transaction_id: "out-1", inflow_transaction_id: "in-1" },
+      error: null,
+    });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+    return { client, rpc };
+  }
+
+  it("passes importedId through as p_imported_id for re-run idempotency", async () => {
+    const { client, rpc } = makeTransferMock();
+
+    await createTransfer(client, {
+      fromAccountId: "acc-1",
+      toAccountId: "acc-2",
+      amountCents: 5000,
+      txnDate: "2026-01-15",
+      importedId: "csv:abc123",
+    });
+
+    expect(rpc).toHaveBeenCalledWith(
+      "ledger_create_transfer",
+      expect.objectContaining({ p_imported_id: "csv:abc123" }),
+    );
+  });
+
+  it("defaults p_imported_id to null when not provided", async () => {
+    const { client, rpc } = makeTransferMock();
+
+    await createTransfer(client, {
+      fromAccountId: "acc-1",
+      toAccountId: "acc-2",
+      amountCents: 5000,
+      txnDate: "2026-01-15",
+    });
+
+    expect(rpc).toHaveBeenCalledWith(
+      "ledger_create_transfer",
+      expect.objectContaining({ p_imported_id: null }),
     );
   });
 });
