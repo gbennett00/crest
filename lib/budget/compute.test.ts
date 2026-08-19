@@ -63,6 +63,17 @@ describe("computeReadyToAssign", () => {
       }),
     ).toBe(-50_00);
   });
+
+  it("subtracts prior-month cash overspending (YNAB cash-overspend rule)", () => {
+    expect(
+      computeReadyToAssign({
+        rtaActivityCents: 500_00,
+        creditCardOpeningBalanceCents: 0,
+        totalSpendingAssignedCents: 300_00,
+        priorCashOverspendCents: 134_37,
+      }),
+    ).toBe(500_00 - 300_00 - 134_37);
+  });
 });
 
 describe("computePaymentCategoryActivity", () => {
@@ -402,7 +413,7 @@ describe("buildBudgetGroups", () => {
   ];
 
   it("sorts categories by sort_index", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: baseGroups,
       month: MONTH,
       catActivity: {},
@@ -418,7 +429,7 @@ describe("buildBudgetGroups", () => {
   });
 
   it("rolls assigned + activity forward into available", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: baseGroups,
       month: MONTH,
       catActivity: { "c-rent": { "2026-06-01": -100_00 } },
@@ -438,7 +449,7 @@ describe("buildBudgetGroups", () => {
   });
 
   it("never reports a spendable available for the RTA row", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: [
         {
           id: "g-in",
@@ -465,7 +476,7 @@ describe("buildBudgetGroups", () => {
   });
 
   it("attaches the card register balance to payment categories", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: baseGroups,
       month: MONTH,
       catActivity: {},
@@ -479,5 +490,47 @@ describe("buildBudgetGroups", () => {
     });
     const rent = groups[0].categories.find((c) => c.id === "c-rent")!;
     expect(rent.cardRegisterBalanceCents).toBe(-250_00);
+  });
+
+  it("resets a cash-overspent category next month and reports the RTA charge", () => {
+    // Water overspent $134.37 in May (no assignment). Viewing June, it should
+    // read $0 (reset) and the overspend surfaces as priorCashOverspendCents.
+    const { groups, priorCashOverspendCents } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH, // 2026-06-01
+      catActivity: { "c-water": { "2026-05-01": -134_37 } },
+      catAssigned: {},
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+    });
+    const water = groups[0].categories.find((c) => c.id === "c-water")!;
+    expect(water.availableCents).toBe(0);
+    expect(priorCashOverspendCents).toBe(134_37);
+    // The category-budgeted group subtotal is the sum of its members.
+    expect(groups[0].groupAvailableCents).toBe(0);
+  });
+
+  it("carries uncovered credit overspending forward without charging RTA", () => {
+    // Water: $50 assigned, $70 credit purchase in May → $20 uncovered credit.
+    const { groups, priorCashOverspendCents } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH, // 2026-06-01
+      catActivity: { "c-water": { "2026-05-01": -70_00 } },
+      catAssigned: { "c-water": { "2026-05-01": 50_00 } },
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+      creditOutflowByUnit: { "c:c-water": { "2026-05-01": 70_00 } },
+    });
+    const water = groups[0].categories.find((c) => c.id === "c-water")!;
+    expect(water.availableCents).toBe(-20_00); // credit debt still rolling
+    expect(priorCashOverspendCents).toBe(0);
   });
 });

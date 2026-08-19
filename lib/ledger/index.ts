@@ -15,6 +15,7 @@ export {
   assertBudgetMonth,
   computeAvailable,
   computeAvailableThrough,
+  computeAvailableWithOverspend,
   currentBudgetMonth,
   nextBudgetMonth,
   previousBudgetMonth,
