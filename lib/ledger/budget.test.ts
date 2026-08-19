@@ -5,6 +5,7 @@ import {
   assertBudgetMonth,
   computeAvailable,
   computeAvailableThrough,
+  computeAvailableWithOverspend,
   nextBudgetMonth,
   previousBudgetMonth,
 } from "./budget";
@@ -129,5 +130,73 @@ describe("computeAvailableThrough", () => {
         { "2026-01-01": 50000 },
       ),
     ).toBe(50000);
+  });
+});
+
+describe("computeAvailableWithOverspend", () => {
+  it("matches computeAvailableThrough when nothing goes negative", () => {
+    // Jan +500, Feb -200 → 300, Mar +100 -50 → 350; never crosses zero.
+    const activity = { "2026-02-01": -20000, "2026-03-01": -5000 };
+    const assigned = { "2026-01-01": 50000, "2026-03-01": 10000 };
+    const res = computeAvailableWithOverspend("2026-03-01", activity, assigned);
+    expect(res.availableCents).toBe(35000);
+    expect(res.cashOverspentBeforeCents).toBe(0);
+  });
+
+  it("shows a cash overspend in its own month but does not carry it forward", () => {
+    // Feb: spend $134.37 with no assignment → -134.37 in February…
+    const activity = { "2026-02-01": -13437 };
+    const feb = computeAvailableWithOverspend("2026-02-01", activity, {});
+    expect(feb.availableCents).toBe(-13437);
+    expect(feb.cashOverspentBeforeCents).toBe(0); // charged next month, not this one
+
+    // …but March resets to $0 (the overspend was charged to March's RTA).
+    const mar = computeAvailableWithOverspend("2026-03-01", activity, {});
+    expect(mar.availableCents).toBe(0);
+    expect(mar.cashOverspentBeforeCents).toBe(13437);
+  });
+
+  it("keeps charging cumulative cash overspend in every later month", () => {
+    const activity = { "2026-02-01": -13437 };
+    const sep = computeAvailableWithOverspend("2026-09-01", activity, {});
+    expect(sep.availableCents).toBe(0);
+    expect(sep.cashOverspentBeforeCents).toBe(13437);
+  });
+
+  it("lets a later inflow to a reset category sit as positive available", () => {
+    // Feb overspend resets; Sep reimbursement (+134.37) lands as available.
+    const activity = { "2026-02-01": -13437, "2026-09-01": 13437 };
+    const sep = computeAvailableWithOverspend("2026-09-01", activity, {});
+    expect(sep.availableCents).toBe(13437);
+    // The Feb cash overspend still hit an earlier month's RTA and stays charged.
+    expect(sep.cashOverspentBeforeCents).toBe(13437);
+  });
+
+  it("carries uncovered credit overspending forward instead of resetting it", () => {
+    // Assigned $50, a $70 credit-card purchase (all of it in creditOutflow).
+    // Funded $50; the $20 uncovered is credit debt that must keep rolling.
+    const activity = { "2026-02-01": -7000 };
+    const assigned = { "2026-02-01": 5000 };
+    const outflow = { "2026-02-01": 7000 };
+    const feb = computeAvailableWithOverspend("2026-02-01", activity, assigned, outflow);
+    expect(feb.availableCents).toBe(-2000);
+
+    const mar = computeAvailableWithOverspend("2026-03-01", activity, assigned, outflow);
+    expect(mar.availableCents).toBe(-2000); // still -20, not reset
+    expect(mar.cashOverspentBeforeCents).toBe(0); // credit debt never hits RTA
+  });
+
+  it("splits a mixed cash+credit overspend: cash resets, credit carries", () => {
+    // Assigned $50; $60 cash spend + $30 credit purchase in Feb.
+    // Cash overspends by $10; the whole $30 credit is uncovered.
+    const activity = { "2026-02-01": -9000 }; // -60 cash + -30 credit
+    const assigned = { "2026-02-01": 5000 };
+    const outflow = { "2026-02-01": 3000 };
+    const feb = computeAvailableWithOverspend("2026-02-01", activity, assigned, outflow);
+    expect(feb.availableCents).toBe(-4000); // -40 shown in February
+
+    const mar = computeAvailableWithOverspend("2026-03-01", activity, assigned, outflow);
+    expect(mar.availableCents).toBe(-3000); // only the $30 credit debt carries
+    expect(mar.cashOverspentBeforeCents).toBe(1000); // the $10 cash hit RTA
   });
 });
