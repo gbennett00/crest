@@ -71,11 +71,27 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
     }
   }, [data.groups]);
 
-  function navigate(month: string) {
+  function monthHref(month: string) {
     const params = new URLSearchParams(searchParams.toString());
     params.set("month", month);
-    router.push(`/budget?${params.toString()}`);
+    return `/budget?${params.toString()}`;
   }
+
+  function navigate(month: string) {
+    router.push(monthHref(month));
+  }
+
+  // Warm the Router Cache for the neighbouring months so stepping to the
+  // previous/next month renders from cache instead of a fresh ~1s server load.
+  // Bounded by [minMonth, maxMonth] so we never prefetch an out-of-range month.
+  const prevMonth = previousBudgetMonth(data.month);
+  const nextMonth = nextBudgetMonth(data.month);
+  useEffect(() => {
+    if (prevMonth >= data.minMonth) router.prefetch(monthHref(prevMonth));
+    if (nextMonth <= data.maxMonth) router.prefetch(monthHref(nextMonth));
+    // monthHref reads live searchParams; prevMonth/nextMonth capture the month.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [router, prevMonth, nextMonth, data.minMonth, data.maxMonth]);
 
   function toggle(groupId: string) {
     setCollapsed((prev) => {

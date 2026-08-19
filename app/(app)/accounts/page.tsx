@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { workingBalanceCents } from "@/lib/ledger";
+import { loadAccountBalances } from "@/lib/ledger";
 import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
 import { LinkAccountButton } from "@/components/accounts/link-account-button";
@@ -24,33 +24,21 @@ export default function AccountsPage() {
 async function AccountsContent() {
   const supabase = await createClient();
 
-  const [accountsRes, txnsRes, categoriesRes] = await Promise.all([
+  const [accountsRes, balances, categoriesRes] = await Promise.all([
     supabase
       .from("accounts")
       .select("*")
       .eq("is_active", true)
       .order("name"),
-    supabase
-      .from("transactions")
-      .select("account_id, amount_cents, cleared_at"),
+    // Per-account balances aggregated in Postgres (account_balances view)
+    // instead of fetching every transaction in the app to sum in JS.
+    loadAccountBalances(supabase),
     supabase
       .from("categories")
       .select("id, name, group_id, role, is_hidden, category_groups!group_id(name)")
       .eq("is_hidden", false)
       .order("name"),
   ]);
-
-  // Group transaction amount lines by account
-  const txnsByAccount: Record<
-    string,
-    { amountCents: number; clearedAt: string | null }[]
-  > = {};
-  for (const row of txnsRes.data ?? []) {
-    (txnsByAccount[row.account_id as string] ??= []).push({
-      amountCents: row.amount_cents as number,
-      clearedAt: row.cleared_at as string | null,
-    });
-  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const categories: CategoryOption[] = (categoriesRes.data ?? []).map((c: any) => ({
@@ -68,16 +56,13 @@ async function AccountsContent() {
     name: a.name as string,
   }));
 
-  const accounts: AccountData[] = (accountsRes.data ?? []).map((acc) => {
-    const lines = txnsByAccount[acc.id as string] ?? [];
-    return {
-      id: acc.id as string,
-      name: acc.name as string,
-      type: acc.type as "checking" | "savings" | "credit",
-      workingBalanceCents: workingBalanceCents(lines),
-      isLinked: acc.is_linked as boolean,
-    };
-  });
+  const accounts: AccountData[] = (accountsRes.data ?? []).map((acc) => ({
+    id: acc.id as string,
+    name: acc.name as string,
+    type: acc.type as "checking" | "savings" | "credit",
+    workingBalanceCents: balances.get(acc.id as string)?.workingCents ?? 0,
+    isLinked: acc.is_linked as boolean,
+  }));
 
   // Group accounts by type
   const cashAccounts = accounts.filter((a) => a.type === "checking" || a.type === "savings");

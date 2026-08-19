@@ -2,11 +2,6 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { LedgerError } from "./errors";
 import {
-  approximateAvailableCents,
-  sumClearedTransactionAmounts,
-  sumPendingTransactionAmounts,
-} from "./balance";
-import {
   assertBudgetMonth,
   computeAvailableThrough,
 } from "./budget";
@@ -20,6 +15,7 @@ import {
   checkReconciliation,
 } from "./reconciliation";
 import type {
+  AccountBalance,
   AccountBalanceSummary,
   AccountType,
   AllocationRow,
@@ -32,7 +28,6 @@ import type {
   ReconciliationCheckInput,
   ReconciliationCheckResult,
   TransactionAllocationInput,
-  TransactionAmountLine,
   TransactionRow,
   UpdateTransactionInput,
   UpsertCategoryBudgetInput,
@@ -724,41 +719,82 @@ export async function listAccounts(client: SupabaseClient) {
   return (data ?? []).map((row) => mapAccountRow(row));
 }
 
-async function loadTransactionAmountLines(
+const ZERO_ACCOUNT_BALANCE: AccountBalance = {
+  clearedCents: 0,
+  unclearedCents: 0,
+  workingCents: 0,
+};
+
+function mapAccountBalanceRow(row: {
+  cleared_cents: number;
+  uncleared_cents: number;
+  working_cents: number;
+}): AccountBalance {
+  return {
+    clearedCents: row.cleared_cents,
+    unclearedCents: row.uncleared_cents,
+    workingCents: row.working_cents,
+  };
+}
+
+/**
+ * One account's cleared/uncleared/working sums, aggregated in Postgres by the
+ * `account_balances` view. An account with no transactions has no view row, so
+ * we fall back to zeros. Immune to the PostgREST max_rows cap that would
+ * truncate a raw row fetch.
+ */
+export async function loadAccountBalance(
   client: SupabaseClient,
   accountId: string,
-): Promise<TransactionAmountLine[]> {
+): Promise<AccountBalance> {
   const { data, error } = await client
-    .from("transactions")
-    .select("amount_cents, cleared_at")
-    .eq("account_id", accountId);
+    .from("account_balances")
+    .select("cleared_cents, uncleared_cents, working_cents")
+    .eq("account_id", accountId)
+    .maybeSingle();
 
   if (error) {
     throw new LedgerError("db_error", error.message);
   }
 
-  return (data ?? []).map((row) => ({
-    amountCents: row.amount_cents as number,
-    clearedAt: row.cleared_at as string | null,
-  }));
+  return data ? mapAccountBalanceRow(data) : ZERO_ACCOUNT_BALANCE;
+}
+
+/** Every account's balance sums, keyed by account id (accounts with no
+ * transactions are simply absent). One aggregated query for the whole app. */
+export async function loadAccountBalances(
+  client: SupabaseClient,
+): Promise<Map<string, AccountBalance>> {
+  const { data, error } = await client
+    .from("account_balances")
+    .select("account_id, cleared_cents, uncleared_cents, working_cents");
+
+  if (error) {
+    throw new LedgerError("db_error", error.message);
+  }
+
+  const map = new Map<string, AccountBalance>();
+  for (const row of data ?? []) {
+    map.set(row.account_id as string, mapAccountBalanceRow(row));
+  }
+  return map;
 }
 
 export async function getAccountBalanceSummary(
   client: SupabaseClient,
   accountId: string,
 ): Promise<AccountBalanceSummary> {
-  const account = await getAccount(client, accountId);
-  const transactions = await loadTransactionAmountLines(client, accountId);
-  const pendingActivityCents = sumPendingTransactionAmounts(transactions);
+  const [account, balance] = await Promise.all([
+    getAccount(client, accountId),
+    loadAccountBalance(client, accountId),
+  ]);
 
   return {
     bankClearedBalanceCents: account.balanceCents,
-    registerClearedBalanceCents: sumClearedTransactionAmounts(transactions),
-    pendingActivityCents,
-    approximateAvailableCents: approximateAvailableCents(
-      account.balanceCents,
-      transactions,
-    ),
+    registerClearedBalanceCents: balance.clearedCents,
+    pendingActivityCents: balance.unclearedCents,
+    // Approximate spendable balance: last bank cleared balance + pending activity.
+    approximateAvailableCents: account.balanceCents + balance.unclearedCents,
   };
 }
 
@@ -766,12 +802,14 @@ export async function buildReconciliationCheck(
   client: SupabaseClient,
   accountId: string,
 ): Promise<ReconciliationCheckInput> {
-  const account = await getAccount(client, accountId);
-  const transactions = await loadTransactionAmountLines(client, accountId);
+  const [account, balance] = await Promise.all([
+    getAccount(client, accountId),
+    loadAccountBalance(client, accountId),
+  ]);
 
   return {
     bankClearedBalanceCents: account.balanceCents,
-    transactions,
+    registerClearedBalanceCents: balance.clearedCents,
   };
 }
 
@@ -825,14 +863,16 @@ export async function reconcileWithRegisterBalance(
   client: SupabaseClient,
   accountId: string,
 ) {
-  const transactions = await loadTransactionAmountLines(client, accountId);
-  const registerCleared = sumClearedTransactionAmounts(transactions);
+  const { clearedCents: registerCleared } = await loadAccountBalance(
+    client,
+    accountId,
+  );
 
   await syncBankClearedBalance(client, accountId, registerCleared);
 
   return applyReconciliation(client, accountId, {
     bankClearedBalanceCents: registerCleared,
-    transactions,
+    registerClearedBalanceCents: registerCleared,
   });
 }
 
@@ -849,8 +889,10 @@ export async function reconcileWithAdjustment(
 ) {
   assertIntegerCents(actualClearedCents, "actualClearedCents");
 
-  const transactions = await loadTransactionAmountLines(client, accountId);
-  const registerCleared = sumClearedTransactionAmounts(transactions);
+  const { clearedCents: registerCleared } = await loadAccountBalance(
+    client,
+    accountId,
+  );
   const differenceCents = actualClearedCents - registerCleared;
 
   if (differenceCents !== 0) {
