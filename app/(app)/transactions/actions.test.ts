@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import type { UpdateTransactionInput } from "@/lib/ledger";
 
 // --- Module mocks -----------------------------------------------------------
 // next/cache: revalidatePath is a no-op in the test environment.
@@ -21,7 +22,8 @@ vi.mock("@/lib/supabase/server", () => ({
 // Ledger: keep the real LedgerError, spy on the write path. The spy is created
 // via vi.hoisted so it exists before the hoisted vi.mock factory runs.
 const { updateTransaction } = vi.hoisted(() => ({
-  updateTransaction: vi.fn(async () => ({})),
+  updateTransaction:
+    vi.fn<(client: unknown, input: UpdateTransactionInput) => Promise<unknown>>(),
 }));
 vi.mock("@/lib/ledger", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/ledger")>();

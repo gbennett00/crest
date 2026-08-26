@@ -13,6 +13,7 @@ function cat(partial: Partial<BudgetCategory> & { id: string; name: string }): B
     availableCents: 0,
     target: null,
     cardRegisterBalanceCents: null,
+    cardActivityBreakdown: null,
     ...partial,
   };
 }
