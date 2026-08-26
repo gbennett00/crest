@@ -4,12 +4,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   bulkUpsertCategoryBudgets,
   bulkUpsertTransactions,
+  closeAccount,
   createAccount,
   createTransaction,
   createTransfer,
   deleteTransactionWithCounterpart,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
+  reopenAccount,
   updateTransaction,
   upsertTransaction,
 } from "./operations";
@@ -367,6 +369,7 @@ function makeReconcileMock(initial: {
   const state = {
     transactions: [...initial.transactions],
     balanceCents: initial.balanceCents,
+    isActive: true,
   };
   const readyToAssignId =
     initial.readyToAssignId === undefined ? "rta-1" : initial.readyToAssignId;
@@ -385,8 +388,11 @@ function makeReconcileMock(initial: {
         };
       }
       if (table === "accounts") {
-        if (op === "update") {
+        if (op === "update" && payload!.balance_cents !== undefined) {
           state.balanceCents = payload!.balance_cents as number;
+        }
+        if (op === "update" && payload!.is_active !== undefined) {
+          state.isActive = payload!.is_active as boolean;
         }
         return {
           data: {
@@ -396,7 +402,7 @@ function makeReconcileMock(initial: {
             balance_cents: state.balanceCents,
             payment_category_id: null,
             is_linked: false,
-            is_active: true,
+            is_active: state.isActive,
             created_at: "2026-01-01T00:00:00Z",
           },
           error: null,
@@ -559,6 +565,69 @@ describe("reconcileWithAdjustment", () => {
     expect(result.reconciledAt).toBeDefined();
     expect(inserted).toHaveLength(0);
     expect(state.balanceCents).toBe(10_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closeAccount / reopenAccount
+// ---------------------------------------------------------------------------
+
+describe("closeAccount", () => {
+  it("closes an account whose register is all cleared with a zero balance", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [
+        { amount_cents: 10_000, cleared_at: "2026-05-01T00:00:00Z" },
+        { amount_cents: -10_000, cleared_at: "2026-05-01T00:00:00Z" },
+      ],
+      balanceCents: 0,
+    });
+
+    const account = await closeAccount(client, "acc-1");
+
+    expect(state.isActive).toBe(false);
+    expect(account.isActive).toBe(false);
+  });
+
+  it("refuses to close when an uncleared transaction remains", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [
+        { amount_cents: 10_000, cleared_at: "2026-05-01T00:00:00Z" },
+        { amount_cents: -10_000, cleared_at: null },
+      ],
+      balanceCents: 0,
+    });
+
+    await expect(closeAccount(client, "acc-1")).rejects.toMatchObject({
+      code: "account_not_closeable",
+    });
+    expect(state.isActive).toBe(true);
+  });
+
+  it("refuses to close when the working balance is non-zero", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [{ amount_cents: 5000, cleared_at: "2026-05-01T00:00:00Z" }],
+      balanceCents: 5000,
+    });
+
+    await expect(closeAccount(client, "acc-1")).rejects.toMatchObject({
+      code: "account_not_closeable",
+    });
+    expect(state.isActive).toBe(true);
+  });
+});
+
+describe("reopenAccount", () => {
+  it("marks a closed account active again", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [],
+      balanceCents: 0,
+    });
+    state.isActive = false;
+
+    const account = await reopenAccount(client, "acc-1");
+
+    expect(state.isActive).toBe(true);
+    expect(account.isActive).toBe(true);
   });
 });
 

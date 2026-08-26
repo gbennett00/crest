@@ -3,6 +3,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { Money } from "@/components/money";
 import {
+  evaluateAccountClosure,
   sumClearedTransactionAmounts,
   sumPendingTransactionAmounts,
   workingBalanceCents,
@@ -40,7 +41,7 @@ async function RegisterContent({
 
   const [accountRes, txnsRes, allTxnAmountsRes, categoriesRes, accountsRes] =
     await Promise.all([
-      supabase.from("accounts").select("id, name, type, is_linked").eq("id", id).single(),
+      supabase.from("accounts").select("id, name, type, is_linked, is_active").eq("id", id).single(),
       supabase
         .from("transactions")
         .select(
@@ -86,6 +87,14 @@ async function RegisterContent({
   const registerClearedBalanceCents = sumClearedTransactionAmounts(allLines);
   const unclearedCents = sumPendingTransactionAmounts(allLines);
   const workingCents = workingBalanceCents(allLines);
+
+  // Eligibility for closing the account: all cleared + zero working balance.
+  const closure = evaluateAccountClosure(allLines);
+  const closeBlockReason = !closure.allCleared
+    ? "All transactions must be cleared"
+    : closure.workingBalanceCents !== 0
+      ? "Working balance must be zero"
+      : undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let txns = (txnsRes.data ?? []) as any[];
@@ -149,6 +158,9 @@ async function RegisterContent({
         accountName={categoryName ? `${categoryName} — ${account.name}` : (account.name as string)}
         registerClearedBalanceCents={registerClearedBalanceCents}
         backHref="/accounts"
+        isActive={account.is_active as boolean}
+        canClose={closure.eligible}
+        closeBlockReason={closeBlockReason}
       />
 
       {/* Balance summary */}

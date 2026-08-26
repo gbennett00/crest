@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   approximateAvailableCents,
+  evaluateAccountClosure,
   sumClearedTransactionAmounts,
   sumPendingTransactionAmounts,
   sumTransactionAmounts,
@@ -68,5 +69,47 @@ describe("approximateAvailableCents", () => {
         line(-5000, true),
       ]),
     ).toBe(2500);
+  });
+});
+
+describe("evaluateAccountClosure", () => {
+  it("is eligible when all lines are cleared and the working balance is zero", () => {
+    const result = evaluateAccountClosure([
+      line(10_000, true),
+      line(-10_000, true),
+    ]);
+    expect(result).toEqual({
+      eligible: true,
+      allCleared: true,
+      workingBalanceCents: 0,
+    });
+  });
+
+  it("treats an empty register as eligible", () => {
+    expect(evaluateAccountClosure([])).toEqual({
+      eligible: true,
+      allCleared: true,
+      workingBalanceCents: 0,
+    });
+  });
+
+  it("is ineligible when an uncleared line remains", () => {
+    const result = evaluateAccountClosure([
+      line(10_000, true),
+      line(-10_000, false),
+    ]);
+    expect(result.eligible).toBe(false);
+    expect(result.allCleared).toBe(false);
+    expect(result.workingBalanceCents).toBe(0);
+  });
+
+  it("is ineligible when the working balance is non-zero", () => {
+    const result = evaluateAccountClosure([
+      line(10_000, true),
+      line(-2500, true),
+    ]);
+    expect(result.eligible).toBe(false);
+    expect(result.allCleared).toBe(true);
+    expect(result.workingBalanceCents).toBe(7500);
   });
 });

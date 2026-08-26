@@ -6,6 +6,7 @@ export {
 } from "./constants";
 export {
   approximateAvailableCents,
+  evaluateAccountClosure,
   sumClearedTransactionAmounts,
   sumPendingTransactionAmounts,
   sumTransactionAmounts,
@@ -35,6 +36,7 @@ export {
   buildReconciliationCheck,
   bulkUpsertCategoryBudgets,
   bulkUpsertTransactions,
+  closeAccount,
   createAccount,
   createOpeningBalance,
   createTransaction,
@@ -54,6 +56,7 @@ export {
   listAccounts,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
+  reopenAccount,
   syncBankClearedBalance,
   updateTransaction,
   upsertCategoryBudget,

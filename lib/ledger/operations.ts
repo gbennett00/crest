@@ -3,6 +3,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { LedgerError } from "./errors";
 import {
   approximateAvailableCents,
+  evaluateAccountClosure,
   sumClearedTransactionAmounts,
   sumPendingTransactionAmounts,
 } from "./balance";
@@ -722,6 +723,63 @@ export async function listAccounts(client: SupabaseClient) {
   }
 
   return (data ?? []).map((row) => mapAccountRow(row));
+}
+
+/**
+ * Close an account by marking it inactive. Only permitted once the register is
+ * fully settled: every transaction cleared and a zero working balance (see
+ * `evaluateAccountClosure`). The eligibility check is re-run here against live
+ * data so a stale client view can never force a close. A closed account is
+ * hidden from pickers and totals but its history stays fully readable.
+ */
+export async function closeAccount(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const transactions = await loadTransactionAmountLines(client, accountId);
+  const eligibility = evaluateAccountClosure(transactions);
+
+  if (!eligibility.eligible) {
+    const reason = !eligibility.allCleared
+      ? "all transactions must be cleared"
+      : `working balance must be zero (currently ${eligibility.workingBalanceCents} cents)`;
+    throw new LedgerError(
+      "account_not_closeable",
+      `Account cannot be closed: ${reason}.`,
+    );
+  }
+
+  const { data, error } = await client
+    .from("accounts")
+    .update({ is_active: false })
+    .eq("id", accountId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new LedgerError("db_error", error?.message ?? "failed to close account");
+  }
+
+  return mapAccountRow(data);
+}
+
+/** Reopen a previously closed account by marking it active again. */
+export async function reopenAccount(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const { data, error } = await client
+    .from("accounts")
+    .update({ is_active: true })
+    .eq("id", accountId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new LedgerError("db_error", error?.message ?? "failed to reopen account");
+  }
+
+  return mapAccountRow(data);
 }
 
 async function loadTransactionAmountLines(

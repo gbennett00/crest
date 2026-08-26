@@ -37,6 +37,30 @@ export function sumClearedTransactionAmounts(
 }
 
 /**
+ * Whether an account is eligible to be closed, and why not if it isn't.
+ *
+ * Closing an account is only safe once its register is fully settled: every
+ * transaction must be cleared (no uncleared/pending lines lingering) and the
+ * working balance must be exactly zero (no money left to move out). This keeps
+ * balance math and reconciliation honest — a closed account contributes nothing.
+ */
+export function evaluateAccountClosure(
+  transactions: TransactionAmountLine[],
+): {
+  eligible: boolean;
+  allCleared: boolean;
+  workingBalanceCents: Cents;
+} {
+  const allCleared = transactions.every((t) => t.clearedAt !== null);
+  const working = workingBalanceCents(transactions);
+  return {
+    eligible: allCleared && working === 0,
+    allCleared,
+    workingBalanceCents: working,
+  };
+}
+
+/**
  * Helpful approximate spendable balance: last bank cleared balance plus
  * pending (uncleared) activity in the Crest register.
  */

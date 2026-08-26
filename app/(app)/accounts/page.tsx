@@ -4,6 +4,7 @@ import { workingBalanceCents } from "@/lib/ledger";
 import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
 import { LinkAccountButton } from "@/components/accounts/link-account-button";
+import { ClosedAccountsSection } from "@/components/accounts/closed-accounts-section";
 import { TransactionForm } from "@/components/transactions/transaction-form";
 import type { AccountData } from "@/components/accounts/account-card";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
@@ -28,7 +29,6 @@ async function AccountsContent() {
     supabase
       .from("accounts")
       .select("*")
-      .eq("is_active", true)
       .order("name"),
     supabase
       .from("transactions")
@@ -63,10 +63,13 @@ async function AccountsContent() {
     return 0;
   });
 
-  const accountOptions = (accountsRes.data ?? []).map((a) => ({
-    id: a.id as string,
-    name: a.name as string,
-  }));
+  // Only active accounts can receive new transactions.
+  const accountOptions = (accountsRes.data ?? [])
+    .filter((a) => a.is_active)
+    .map((a) => ({
+      id: a.id as string,
+      name: a.name as string,
+    }));
 
   const accounts: AccountData[] = (accountsRes.data ?? []).map((acc) => {
     const lines = txnsByAccount[acc.id as string] ?? [];
@@ -76,12 +79,16 @@ async function AccountsContent() {
       type: acc.type as "checking" | "savings" | "credit",
       workingBalanceCents: workingBalanceCents(lines),
       isLinked: acc.is_linked as boolean,
+      isActive: acc.is_active as boolean,
     };
   });
 
-  // Group accounts by type
-  const cashAccounts = accounts.filter((a) => a.type === "checking" || a.type === "savings");
-  const creditAccounts = accounts.filter((a) => a.type === "credit");
+  const activeAccounts = accounts.filter((a) => a.isActive);
+  const closedAccounts = accounts.filter((a) => !a.isActive);
+
+  // Group active accounts by type; closed accounts get their own section.
+  const cashAccounts = activeAccounts.filter((a) => a.type === "checking" || a.type === "savings");
+  const creditAccounts = activeAccounts.filter((a) => a.type === "credit");
 
   const cashTotal = cashAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
   const creditTotal = creditAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
@@ -126,6 +133,9 @@ async function AccountsContent() {
           accounts={creditAccounts}
         />
       )}
+
+      {/* Closed accounts (collapsed, at the very bottom) */}
+      <ClosedAccountsSection accounts={closedAccounts} />
     </div>
   );
 }
