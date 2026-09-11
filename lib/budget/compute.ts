@@ -5,11 +5,12 @@
 // both the budget and home screens, and lets it be unit-tested with plain
 // integer-cents fixtures.
 
-import { computeAvailableThrough } from "@/lib/ledger";
+import { computeAvailableThrough, computeAvailableWithOverspend } from "@/lib/ledger";
 import type {
   BudgetCategory,
   BudgetGroup,
   PaymentCategoryBreakdown,
+  RtaBreakdown,
   TargetData,
 } from "./types";
 
@@ -135,6 +136,14 @@ export function computePaymentCategoryActivity(params: {
 }): {
   paymentActivity: MonthlyCents;
   breakdown: Record<string, PaymentCategoryBreakdown>;
+  /**
+   * Per funding unit, per month, the magnitude (>= 0) of credit-card outflow.
+   * Keys are `c:${categoryId}` for category-budgeted units and `g:${groupId}`
+   * for group-budgeted units. Fed to `computeAvailableWithOverspend` so a unit's
+   * uncovered credit spending rolls forward as debt while cash overspending is
+   * floored and charged to Ready to Assign.
+   */
+  creditOutflowByUnit: MonthlyCents;
 } {
   const { throughMonth, catActivity, catAssigned, creditTxns } = params;
   const grpActivity = params.grpActivity ?? {};
@@ -168,8 +177,16 @@ export function computePaymentCategoryActivity(params: {
     const pay = txn.paymentCategoryId;
 
     if (txn.isTransfer) {
-      // A payment to the card (transfer inflow) drains the payment envelope.
-      if (txn.amountCents > 0) add(paymentsByPay, pay, txn.month, txn.amountCents);
+      // Any transfer changes the card's balance, so it changes the payment
+      // obligation. An inflow (payment to the card) reduces debt and drains the
+      // payment envelope; an outflow (money moved off the card — withdrawing a
+      // credit balance, or a cash advance to another account) increases debt
+      // and fills it. The signed amount captures both: a positive `payments`
+      // value drains, a negative one fills. Dropping the outflow leg (as this
+      // once did) strands the envelope negative — e.g. a refund followed by
+      // transferring that credit balance out nets to $0 owed but left the
+      // payment category at -(refund).
+      add(paymentsByPay, pay, txn.month, txn.amountCents);
       continue;
     }
 
@@ -208,7 +225,15 @@ export function computePaymentCategoryActivity(params: {
     for (const month of Object.keys(outflowByUnit[unitId])) {
       const out = outflowByUnit[unitId][month];
       if (out <= 0) continue;
-      const availThrough = computeAvailableThrough(month, activity, assigned);
+      // Pre-purchase balance uses the cash-overspend-floored available, so a
+      // prior cash overspend that reset the unit to $0 doesn't eat into what
+      // this month's credit purchase can be funded from.
+      const { availableCents: availThrough } = computeAvailableWithOverspend(
+        month,
+        activity,
+        assigned,
+        outflowByUnit[unitId],
+      );
       const funded = Math.max(0, Math.min(out, availThrough + out));
       if (funded === 0) continue;
       for (const [payCat, amt] of distributeProportionally(
@@ -262,29 +287,71 @@ export function computePaymentCategoryActivity(params: {
     };
   }
 
-  return { paymentActivity, breakdown };
+  return { paymentActivity, breakdown, creditOutflowByUnit: outflowByUnit };
 }
 
 /**
- * Ready to Assign — the global pool of assignable cash.
+ * Ready to Assign — the global pool of assignable cash — and the YNAB-style
+ * decomposition shown in the breakdown popover. `totalCents` is the authoritative
+ * RTA value; the lines are guaranteed to sum to it.
  *
- * RTA = inflows through the viewed month − credit-card opening balances − total
- * spending assignments (any month). Credit-card opening balances are
- * categorized to RTA (matching YNAB's register) but represent pre-existing
- * debt, not assignable cash; they are negative, so subtracting them backs the
- * debt out of the pool. The debt instead surfaces as an underfunded payment
- * category. See docs/budgeting-app-architecture.md.
+ * Inputs are the same figures the RTA pool is built from, bucketed by when they
+ * land relative to the viewed month. All inflow inputs must already be net of
+ * credit-card opening balances in the same bucket: those balances are
+ * categorized to RTA (matching YNAB's register) but represent pre-existing debt,
+ * so netting them out keeps the "leftover"/"inflow" lines to real assignable
+ * cash (the debt surfaces instead as an underfunded payment category).
+ *
+ * Two YNAB behaviors shape the result:
+ *
+ *  - **Cash overspending** carries only the *previous* month's overspend as its
+ *    own line; overspend charged earlier is folded into `leftoverFromPrior` (the
+ *    carried-over balance already absorbed it). `previousMonthCashOverspendCents`
+ *    and `earlierCashOverspendCents` are the two halves.
+ *  - **Future assignments** reduce this month's pool only down to $0: the
+ *    committed-ahead total is capped at the cash available before future
+ *    assignments, because any excess is funded by income arriving in those future
+ *    months, not by money on hand now. So future over-assignment never drags the
+ *    viewed month negative — only over-assigning *this* month (or uncovered cash
+ *    overspending) can. See docs/budgeting-app-architecture.md.
+ *
+ * The same rules apply on every viewed month: assignments in all later months
+ * feed `assignedFutureRawCents`, so RTA reads the same global figure on
+ * historical, current, and future months alike (matching YNAB).
  */
-export function computeReadyToAssign(input: {
-  rtaActivityCents: number;
-  creditCardOpeningBalanceCents: number;
-  totalSpendingAssignedCents: number;
-}): number {
-  return (
-    input.rtaActivityCents -
-    input.creditCardOpeningBalanceCents -
-    input.totalSpendingAssignedCents
+export function computeRtaBreakdown(input: {
+  inflowPriorCents: number;
+  inflowThisMonthCents: number;
+  assignedPriorCents: number;
+  assignedThisMonthCents: number;
+  assignedFutureRawCents: number;
+  previousMonthCashOverspendCents: number;
+  earlierCashOverspendCents: number;
+}): RtaBreakdown {
+  const leftoverFromPriorCents =
+    input.inflowPriorCents - input.assignedPriorCents - input.earlierCashOverspendCents;
+
+  // Money on hand before honoring commitments to future months. Future
+  // assignments draw from this down to $0; the rest is future income's job.
+  const availableBeforeFuture =
+    leftoverFromPriorCents +
+    input.inflowThisMonthCents -
+    input.assignedThisMonthCents -
+    input.previousMonthCashOverspendCents;
+  const assignedFutureCents = Math.min(
+    input.assignedFutureRawCents,
+    Math.max(0, availableBeforeFuture),
   );
+
+  return {
+    leftoverFromPriorCents,
+    inflowThisMonthCents: input.inflowThisMonthCents,
+    assignedThisMonthCents: input.assignedThisMonthCents,
+    previousMonthCashOverspendCents: input.previousMonthCashOverspendCents,
+    assignedFutureCents,
+    futureCoveredByFutureIncomeCents: input.assignedFutureRawCents - assignedFutureCents,
+    totalCents: availableBeforeFuture - assignedFutureCents,
+  };
 }
 
 /** Raw category as returned by the `category_groups → categories` join. */
@@ -311,6 +378,17 @@ export type RawGroup = {
  * Assemble the per-group / per-category view model shown by the budget screen
  * (and reused by the home assign popup). Categories are sorted by the
  * user-defined sort_index; availability rolls forward through `month`.
+ *
+ * Availability follows YNAB's cash-overspending rule (see
+ * `computeAvailableWithOverspend`): the **funding unit** — a category in a
+ * category-budgeted group, or the whole group in a group-budgeted group — resets
+ * an overspent cash balance to $0 at each month boundary and the overspend is
+ * charged to Ready to Assign, while uncovered credit-card debt keeps rolling.
+ * The summed cash overspend (`priorCashOverspendCents`) is returned so the
+ * caller can subtract it in `computeReadyToAssign`. Non-unit rows — categories
+ * inside a group-budgeted group, and the subtotal row of a category-budgeted
+ * group — are not funding units: the members roll forward raw, and the group
+ * subtotal is the sum of its members so it always matches what's on screen.
  */
 export function buildBudgetGroups(params: {
   groups: RawGroup[];
@@ -323,7 +401,13 @@ export function buildBudgetGroups(params: {
   grpTargets: Record<string, TargetData>;
   cardRegisterBalance: Map<string, number>;
   cardBreakdown: Record<string, PaymentCategoryBreakdown>;
-}): BudgetGroup[] {
+  /** Per-unit credit outflow (keys `c:${categoryId}` / `g:${groupId}`). */
+  creditOutflowByUnit?: MonthlyCents;
+}): {
+  groups: BudgetGroup[];
+  priorCashOverspendCents: number;
+  previousMonthCashOverspendCents: number;
+} {
   const {
     groups,
     month,
@@ -336,8 +420,13 @@ export function buildBudgetGroups(params: {
     cardRegisterBalance,
     cardBreakdown,
   } = params;
+  const creditOutflowByUnit = params.creditOutflowByUnit ?? {};
 
-  return groups.map((group) => {
+  let priorCashOverspendCents = 0;
+  let previousMonthCashOverspendCents = 0;
+
+  const builtGroups = groups.map((group) => {
+    const groupBudgeted = group.budget_mode === "group";
     const sortedCats = [...(group.categories ?? [])].sort(
       (a, b) => a.sort_index - b.sort_index,
     );
@@ -345,12 +434,27 @@ export function buildBudgetGroups(params: {
     const categories: BudgetCategory[] = sortedCats.map((c) => {
       const actHistory = catActivity[c.id] ?? {};
       const asnHistory = catAssigned[c.id] ?? {};
-      // RTA available is computed globally (computeReadyToAssign), never as a
-      // budget row; show 0 here so it can't render as a spendable envelope.
-      const availableCents =
-        c.role === "ready_to_assign"
-          ? 0
-          : computeAvailableThrough(month, actHistory, asnHistory);
+      let availableCents: number;
+      if (c.role === "ready_to_assign") {
+        // RTA available is computed globally (computeRtaBreakdown), never as a
+        // budget row; show 0 here so it can't render as a spendable envelope.
+        availableCents = 0;
+      } else if (groupBudgeted) {
+        // Categories inside a group-budgeted group are not funding units — funds
+        // live on the group — so they roll forward raw, and only the group is
+        // floored / charged below.
+        availableCents = computeAvailableThrough(month, actHistory, asnHistory);
+      } else {
+        const res = computeAvailableWithOverspend(
+          month,
+          actHistory,
+          asnHistory,
+          creditOutflowByUnit[`c:${c.id}`] ?? {},
+        );
+        availableCents = res.availableCents;
+        priorCashOverspendCents += res.cashOverspentBeforeCents;
+        previousMonthCashOverspendCents += res.cashOverspentPreviousMonthCents;
+      }
       return {
         id: c.id,
         name: c.name,
@@ -366,6 +470,23 @@ export function buildBudgetGroups(params: {
       };
     });
 
+    let groupAvailableCents: number;
+    if (groupBudgeted) {
+      const res = computeAvailableWithOverspend(
+        month,
+        grpActivity[group.id] ?? {},
+        grpAssigned[group.id] ?? {},
+        creditOutflowByUnit[`g:${group.id}`] ?? {},
+      );
+      groupAvailableCents = res.availableCents;
+      priorCashOverspendCents += res.cashOverspentBeforeCents;
+      previousMonthCashOverspendCents += res.cashOverspentPreviousMonthCents;
+    } else {
+      // A category-budgeted group is only a subtotal; sum its members (each
+      // already floored) so the row always matches what's shown beneath it.
+      groupAvailableCents = categories.reduce((sum, c) => sum + c.availableCents, 0);
+    }
+
     return {
       id: group.id,
       name: group.name,
@@ -374,14 +495,12 @@ export function buildBudgetGroups(params: {
       categories,
       groupAssignedCents: grpAssigned[group.id]?.[month] ?? 0,
       groupActivityCents: grpActivity[group.id]?.[month] ?? 0,
-      groupAvailableCents: computeAvailableThrough(
-        month,
-        grpActivity[group.id] ?? {},
-        grpAssigned[group.id] ?? {},
-      ),
+      groupAvailableCents,
       target: grpTargets[group.id] ?? null,
     };
   });
+
+  return { groups: builtGroups, priorCashOverspendCents, previousMonthCashOverspendCents };
 }
 
 /** Find the Ready-to-Assign category id within already-fetched group data. */
