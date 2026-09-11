@@ -108,13 +108,22 @@ export function computeAvailableThrough(
  *    boundaries strictly before `throughMonth`, i.e. cash overspending that has
  *    already been deducted from Ready to Assign by the time you view
  *    `throughMonth`.
+ *  - `cashOverspentPreviousMonthCents` — the portion of the above charged at the
+ *    single boundary from the *previous* month into `throughMonth` (i.e. cash
+ *    overspending that happened in the previous month). YNAB shows this as its
+ *    own breakdown line and folds everything older into the carried-over
+ *    balance. Always <= `cashOverspentBeforeCents`.
  */
 export function computeAvailableWithOverspend(
   throughMonth: string,
   activityByMonth: Record<string, Cents>,
   assignedByMonth: Record<string, Cents>,
   creditOutflowByMonth: Record<string, Cents> = {},
-): { availableCents: Cents; cashOverspentBeforeCents: Cents } {
+): {
+  availableCents: Cents;
+  cashOverspentBeforeCents: Cents;
+  cashOverspentPreviousMonthCents: Cents;
+} {
   assertBudgetMonth(throughMonth);
 
   const candidates = [
@@ -124,7 +133,11 @@ export function computeAvailableWithOverspend(
   ].filter((m) => m <= throughMonth);
 
   if (candidates.length === 0) {
-    return { availableCents: 0, cashOverspentBeforeCents: 0 };
+    return {
+      availableCents: 0,
+      cashOverspentBeforeCents: 0,
+      cashOverspentPreviousMonthCents: 0,
+    };
   }
 
   const earliest = candidates.reduce((a, b) => (a < b ? a : b));
@@ -132,6 +145,7 @@ export function computeAvailableWithOverspend(
   let carry = 0; // floored available carried in (>= 0 surplus, or < 0 credit debt)
   let creditDebt = 0; // outstanding uncovered credit-card debt (>= 0)
   let cashOverspentBefore = 0;
+  let cashOverspentPreviousMonth = 0;
   let raw = 0;
   let current = earliest;
   while (current <= throughMonth) {
@@ -147,11 +161,19 @@ export function computeAvailableWithOverspend(
 
     // Keep the credit-debt portion of a negative; floor the cash portion to 0.
     const carryNext = Math.max(raw, -debtFloor);
-    cashOverspentBefore += carryNext - raw; // >= 0 (carryNext >= raw)
+    const charge = carryNext - raw; // >= 0 (carryNext >= raw): this month's cash overspend
+    cashOverspentBefore += charge;
+    // The charge at the boundary flowing into `throughMonth` is the previous
+    // month's overspend (`current` is `throughMonth`'s previous month here).
+    if (nextBudgetMonth(current) === throughMonth) cashOverspentPreviousMonth = charge;
     creditDebt = Math.max(0, -carryNext); // a negative carry is, by construction, all credit debt
     carry = carryNext;
     current = nextBudgetMonth(current);
   }
 
-  return { availableCents: raw, cashOverspentBeforeCents: cashOverspentBefore };
+  return {
+    availableCents: raw,
+    cashOverspentBeforeCents: cashOverspentBefore,
+    cashOverspentPreviousMonthCents: cashOverspentPreviousMonth,
+  };
 }

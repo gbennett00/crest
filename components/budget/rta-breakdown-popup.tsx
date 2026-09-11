@@ -61,14 +61,14 @@ export function RtaBreakdownPopup({
       show: b.assignedThisMonthCents !== 0,
     },
     {
+      label: `Cash overspending in ${formatMonth(prevMonth)}`,
+      cents: -b.previousMonthCashOverspendCents,
+      show: b.previousMonthCashOverspendCents !== 0,
+    },
+    {
       label: "Assigned in future months",
       cents: -b.assignedFutureCents,
       show: b.assignedFutureCents !== 0,
-    },
-    {
-      label: "Cash overspending from prior months",
-      cents: -b.priorCashOverspendCents,
-      show: b.priorCashOverspendCents !== 0,
     },
   ].filter((l) => l.show);
 
@@ -133,6 +133,13 @@ export function RtaBreakdownPopup({
                 ? "Nice work — every dollar has a job."
                 : "This is money that hasn't been assigned to a category yet."}
           </p>
+          {b.futureCoveredByFutureIncomeCents > 0 && (
+            <p className="text-xs text-muted-foreground mt-2">
+              A further {formatCents(b.futureCoveredByFutureIncomeCents)} is assigned
+              in future months beyond the cash on hand now — that part is covered
+              by income arriving in those months, so it isn&apos;t subtracted here.
+            </p>
+          )}
         </div>
       </div>
     </div>

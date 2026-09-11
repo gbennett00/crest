@@ -55,23 +55,32 @@ export type BudgetGroup = {
 // YNAB-style decomposition of Ready to Assign for the viewed month. The lines
 // sum to `totalCents`, which equals `BudgetData.rtaAvailableCents`:
 //   total = leftoverFromPrior + inflowThisMonth
-//           − assignedThisMonth − assignedFuture − priorCashOverspend
+//           − assignedThisMonth − previousMonthCashOverspend − assignedFuture
 // Inflow figures are net of any credit-card opening balances dated in that
 // bucket (opening balances are categorized to RTA but backed out of the pool),
 // so they read as real assignable inflow rather than register movement.
 export type RtaBreakdown = {
-  // Assignable cash that rolled in from before the viewed month
-  // (prior inflows − prior assignments). May be negative.
+  // Assignable cash that rolled in from before the viewed month: prior inflows
+  // − prior assignments − cash overspending charged before the previous month
+  // (YNAB folds older overspend into this carried-over balance). May be negative.
   leftoverFromPriorCents: number;
   // RTA inflows during the viewed month (net of this month's CC opening).
   inflowThisMonthCents: number;
   // Spending assignments made in the viewed month (magnitude, >= 0).
   assignedThisMonthCents: number;
-  // Spending assignments committed to months after the viewed one (>= 0).
-  // Always 0 for a historical snapshot view.
+  // Cash overspending that happened in the *previous* month, charged to this
+  // month's pool (magnitude, >= 0). Older overspend is folded into leftover.
+  previousMonthCashOverspendCents: number;
+  // Spending committed to months after the viewed one, counted against the pool
+  // (magnitude, >= 0). Capped at the cash available before future assignments,
+  // so future over-assignment funded by future income never drives this month
+  // negative (matches YNAB). Always 0 for a historical snapshot view.
   assignedFutureCents: number;
-  // Cash overspending charged to the pool at prior month boundaries (>= 0).
-  priorCashOverspendCents: number;
+  // Future assignments beyond the cap above, assumed funded by income arriving
+  // in those future months (>= 0). Not subtracted from this month; surfaced so
+  // the popover can explain why `assignedFutureCents` is less than what was
+  // actually assigned ahead.
+  futureCoveredByFutureIncomeCents: number;
   // Equals rtaAvailableCents.
   totalCents: number;
 };

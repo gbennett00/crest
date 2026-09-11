@@ -12,7 +12,6 @@ import {
   buildBudgetGroups,
   buildHistory,
   computePaymentCategoryActivity,
-  computeReadyToAssign,
   computeRtaBreakdown,
   findReadyToAssignId,
   type CreditTxn,
@@ -213,35 +212,27 @@ export async function loadBudgetView(
 
   const { catTargets, grpTargets } = buildTargets(targetsRes.data);
 
-  const { groups: budgetGroups, priorCashOverspendCents } = buildBudgetGroups({
-    groups,
-    month,
-    catActivity,
-    catAssigned,
-    grpActivity,
-    grpAssigned,
-    catTargets,
-    grpTargets,
-    cardRegisterBalance,
-    cardBreakdown,
-    creditOutflowByUnit,
-  });
+  const { groups: budgetGroups, priorCashOverspendCents, previousMonthCashOverspendCents } =
+    buildBudgetGroups({
+      groups,
+      month,
+      catActivity,
+      catAssigned,
+      grpActivity,
+      grpAssigned,
+      catTargets,
+      grpTargets,
+      cardRegisterBalance,
+      cardBreakdown,
+      creditOutflowByUnit,
+    });
 
-  // Ready to Assign is reduced by cash overspending charged in prior months
-  // (YNAB's cash-overspend rule), computed alongside the floored availables.
-  const rtaAvailableCents = computeReadyToAssign({
-    rtaActivityCents: sumCents(rtaActivityRes.data, "activity_cents"),
-    creditCardOpeningBalanceCents: sumCents(ccOpeningRes.data, "amount_cents"),
-    totalSpendingAssignedCents:
-      sumCents(allCatBudgetsRes.data, "assigned_cents") +
-      sumCents(allGrpBudgetsRes.data, "assigned_cents"),
-    priorCashOverspendCents,
-  });
-
-  // Bucket the same RTA inputs by when they land, so the breakdown popover can
-  // show how the pool was built up. Inflow buckets are netted against the CC
-  // opening balances in the same bucket (they're categorized to RTA but backed
-  // out of the pool), matching the RTA total above.
+  // Ready to Assign and its YNAB-style breakdown. Bucket each RTA input by when
+  // it lands relative to the viewed month; inflow buckets are netted against the
+  // CC opening balances in the same bucket (categorized to RTA but backed out of
+  // the pool). `computeRtaBreakdown` applies YNAB's rules — cash overspending
+  // older than the previous month folds into leftover, and future assignments
+  // are capped at cash on hand — and is the source of truth for the RTA total.
   const rtaInflow = bucketCents(rtaActivityRes.data, "activity_cents", "month", month);
   const ccOpening = bucketCents(ccOpeningRes.data, "amount_cents", "txn_date", month);
   const catAssignedByBucket = bucketCents(allCatBudgetsRes.data, "assigned_cents", "month", month);
@@ -251,15 +242,16 @@ export async function loadBudgetView(
     inflowThisMonthCents: rtaInflow.current - ccOpening.current,
     assignedPriorCents: catAssignedByBucket.prior + grpAssignedByBucket.prior,
     assignedThisMonthCents: catAssignedByBucket.current + grpAssignedByBucket.current,
-    assignedFutureCents: catAssignedByBucket.future + grpAssignedByBucket.future,
-    priorCashOverspendCents,
+    assignedFutureRawCents: catAssignedByBucket.future + grpAssignedByBucket.future,
+    previousMonthCashOverspendCents,
+    earlierCashOverspendCents: priorCashOverspendCents - previousMonthCashOverspendCents,
   });
 
   return {
     month,
     minMonth,
     maxMonth,
-    rtaAvailableCents,
+    rtaAvailableCents: rtaBreakdown.totalCents,
     rtaBreakdown,
     groups: budgetGroups,
   };
@@ -387,13 +379,6 @@ function toHistoryRows(
     month: row.month as string,
     cents: row[centsKey] as number,
   }));
-}
-
-function sumCents(rows: unknown[] | null, centsKey: string): number {
-  return ((rows ?? []) as Record<string, unknown>[]).reduce(
-    (sum, row) => sum + (row[centsKey] as number),
-    0,
-  );
 }
 
 /**

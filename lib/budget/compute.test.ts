@@ -4,7 +4,6 @@ import {
   buildBudgetGroups,
   buildHistory,
   computePaymentCategoryActivity,
-  computeReadyToAssign,
   computeRtaBreakdown,
   findReadyToAssignId,
   paymentShortfallCents,
@@ -32,59 +31,15 @@ describe("buildHistory", () => {
   });
 });
 
-describe("computeReadyToAssign", () => {
-  it("subtracts spending assignments from inflows", () => {
-    expect(
-      computeReadyToAssign({
-        rtaActivityCents: 500_00,
-        creditCardOpeningBalanceCents: 0,
-        totalSpendingAssignedCents: 300_00,
-      }),
-    ).toBe(200_00);
-  });
-
-  it("backs out negative credit-card opening balances so debt is not assignable cash", () => {
-    // A card opened with -100.00 of debt is categorized to RTA as -10000, but
-    // must not reduce assignable cash. Subtracting the (negative) opening adds it back.
-    expect(
-      computeReadyToAssign({
-        rtaActivityCents: 500_00 - 100_00, // inflow plus the -100 opening line
-        creditCardOpeningBalanceCents: -100_00,
-        totalSpendingAssignedCents: 0,
-      }),
-    ).toBe(500_00);
-  });
-
-  it("can go negative when over-assigned", () => {
-    expect(
-      computeReadyToAssign({
-        rtaActivityCents: 100_00,
-        creditCardOpeningBalanceCents: 0,
-        totalSpendingAssignedCents: 150_00,
-      }),
-    ).toBe(-50_00);
-  });
-
-  it("subtracts prior-month cash overspending (YNAB cash-overspend rule)", () => {
-    expect(
-      computeReadyToAssign({
-        rtaActivityCents: 500_00,
-        creditCardOpeningBalanceCents: 0,
-        totalSpendingAssignedCents: 300_00,
-        priorCashOverspendCents: 134_37,
-      }),
-    ).toBe(500_00 - 300_00 - 134_37);
-  });
-});
-
 describe("computeRtaBreakdown", () => {
   const base = {
     inflowPriorCents: 0,
     inflowThisMonthCents: 0,
     assignedPriorCents: 0,
     assignedThisMonthCents: 0,
-    assignedFutureCents: 0,
-    priorCashOverspendCents: 0,
+    assignedFutureRawCents: 0,
+    previousMonthCashOverspendCents: 0,
+    earlierCashOverspendCents: 0,
   };
 
   it("folds prior inflow and prior assignment into a single leftover line", () => {
@@ -103,37 +58,73 @@ describe("computeRtaBreakdown", () => {
     expect(b.totalCents).toBe(-40_00);
   });
 
-  it("sums all lines back to the RTA total", () => {
+  it("over-assigning the current month drives the total negative", () => {
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowThisMonthCents: 100_00,
+      assignedThisMonthCents: 150_00,
+    });
+    expect(b.totalCents).toBe(-50_00);
+  });
+
+  it("folds older cash overspend into leftover; carries the previous month's as its own line", () => {
+    // Reported August case: the $134.37 overspend was in February (older than
+    // July), so it belongs in leftover, not its own line. No July overspend.
+    const b = computeRtaBreakdown({
+      inflowPriorCents: 5_622_44,
+      inflowThisMonthCents: 5_695_37,
+      assignedPriorCents: 0,
+      assignedThisMonthCents: 5_546_54,
+      assignedFutureRawCents: 5_646_43,
+      previousMonthCashOverspendCents: 0,
+      earlierCashOverspendCents: 134_37,
+    });
+    expect(b.leftoverFromPriorCents).toBe(5_622_44 - 134_37); // 5_488_07, matches YNAB
+    expect(b.previousMonthCashOverspendCents).toBe(0);
+  });
+
+  it("caps future assignments at cash on hand so future over-assignment floors at $0", () => {
+    // Reported August case: $5,646.43 assigned ahead but only $5,636.90 on hand;
+    // the extra $9.53 is funded by future income, so the pool is $0, not -$9.53.
     const b = computeRtaBreakdown({
       inflowPriorCents: 5_488_07,
       inflowThisMonthCents: 5_695_37,
       assignedPriorCents: 0,
       assignedThisMonthCents: 5_546_54,
-      assignedFutureCents: 5_636_90,
-      priorCashOverspendCents: 0,
+      assignedFutureRawCents: 5_646_43,
+      previousMonthCashOverspendCents: 0,
+      earlierCashOverspendCents: 0,
     });
-    // Mirrors the reported case: a future assignment not offset by its
-    // (future-dated, uncounted) inflow drives the pool negative.
-    expect(b.totalCents).toBe(
-      b.leftoverFromPriorCents +
-        b.inflowThisMonthCents -
-        b.assignedThisMonthCents -
-        b.assignedFutureCents -
-        b.priorCashOverspendCents,
-    );
-    expect(b.totalCents).toBe(5_488_07 + 5_695_37 - 5_546_54 - 5_636_90);
+    expect(b.assignedFutureCents).toBe(5_636_90); // capped at available
+    expect(b.futureCoveredByFutureIncomeCents).toBe(9_53);
+    expect(b.totalCents).toBe(0);
   });
 
-  it("subtracts prior cash overspending from the total", () => {
+  it("does not cap future assignments that fit within cash on hand", () => {
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowThisMonthCents: 1_000_00,
+      assignedFutureRawCents: 300_00,
+    });
+    expect(b.assignedFutureCents).toBe(300_00);
+    expect(b.futureCoveredByFutureIncomeCents).toBe(0);
+    expect(b.totalCents).toBe(700_00);
+  });
+
+  it("does not let future assignments deepen a current-month over-assignment", () => {
+    // Already -$50 this month; future assignments contribute nothing (funded by
+    // future income), so the total stays -$50, not more negative.
     const b = computeRtaBreakdown({
       ...base,
       inflowThisMonthCents: 100_00,
-      priorCashOverspendCents: 9_53,
+      assignedThisMonthCents: 150_00,
+      assignedFutureRawCents: 400_00,
     });
-    expect(b.totalCents).toBe(100_00 - 9_53);
+    expect(b.assignedFutureCents).toBe(0);
+    expect(b.totalCents).toBe(-50_00);
   });
 
-  it("passes assignedFuture straight through (0 for snapshot views)", () => {
+  it("keeps assignedFuture at 0 for a snapshot view (no future assignments)", () => {
     const b = computeRtaBreakdown({ ...base, inflowThisMonthCents: 100_00 });
     expect(b.assignedFutureCents).toBe(0);
     expect(b.totalCents).toBe(100_00);
