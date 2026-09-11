@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { usePlaidLink } from "react-plaid-link";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import {
   completeAccountLinking,
@@ -11,7 +12,12 @@ import {
 } from "@/app/(app)/accounts/actions";
 import { Link2 } from "lucide-react";
 
-type PlaidAccountOption = { id: string; name: string };
+type PlaidAccountOption = {
+  id: string;
+  name: string;
+  mask: string | null;
+  subtype: string | null;
+};
 type UnlinkedAccountOption = { id: string; name: string; type: string };
 
 type PendingLink = {
@@ -127,41 +133,6 @@ export function LinkAccountButton() {
     });
   }
 
-  if (pendingLink) {
-    return (
-      <div className="border rounded-lg p-4 space-y-3 w-full max-w-md">
-        <h3 className="font-semibold text-sm">Link detected accounts</h3>
-        <p className="text-xs text-muted-foreground">
-          If one of these was already imported from YNAB, attach it to that existing account so
-          history isn&apos;t duplicated — overlapping transactions from the last ~90 days are
-          matched to your imported ones automatically. Otherwise leave it as &quot;Create new&quot;.
-          Suggested matches are pre-selected below.
-        </p>
-        {pendingLink.plaidAccounts.map((a) => (
-          <div key={a.id} className="flex items-center gap-2">
-            <span className="text-sm flex-1 min-w-0 truncate">{a.name}</span>
-            <select
-              className={selectClass()}
-              value={mapping[a.id] ?? ""}
-              onChange={(e) => setMapping((prev) => ({ ...prev, [a.id]: e.target.value }))}
-            >
-              <option value="">Create new</option>
-              {pendingLink.unlinkedAccounts.map((existing) => (
-                <option key={existing.id} value={existing.id}>
-                  Attach to &quot;{existing.name}&quot;
-                </option>
-              ))}
-            </select>
-          </div>
-        ))}
-        {error && <p className="text-xs text-destructive">{error}</p>}
-        <Button onClick={handleFinishLinking} disabled={isPending} className="w-full h-9">
-          {isPending ? "Linking…" : "Finish Linking"}
-        </Button>
-      </div>
-    );
-  }
-
   return (
     <div>
       <Button
@@ -172,9 +143,75 @@ export function LinkAccountButton() {
         disabled={!ready || isPending}
       >
         <Link2 size={14} />
-        {isPending ? "Linking…" : "Link Bank Account"}
+        {isPending && !pendingLink ? "Linking…" : "Link Bank Account"}
       </Button>
-      {error && <p className="text-xs text-destructive mt-1">{error}</p>}
+      {error && !pendingLink && (
+        <p className="text-xs text-destructive mt-1">{error}</p>
+      )}
+
+      <Modal
+        open={!!pendingLink}
+        onClose={() => {
+          if (isPending) return;
+          setPendingLink(null);
+          setError(null);
+        }}
+        title="Link detected accounts"
+      >
+        {pendingLink && (
+          <div className="space-y-4">
+            <p className="text-xs text-muted-foreground">
+              Choose what to do with each account your bank reported. If one was already
+              imported from YNAB, attach it to that existing account so history isn&apos;t
+              duplicated — overlapping transactions from the last ~90 days are matched to your
+              imported ones automatically. Suggested matches are pre-selected.
+            </p>
+
+            <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
+              {pendingLink.plaidAccounts.map((a) => (
+                <div key={a.id} className="space-y-1.5">
+                  <div className="flex items-baseline gap-2 min-w-0">
+                    <span className="text-sm font-medium truncate">{a.name}</span>
+                    {a.mask && (
+                      <span className="text-xs text-muted-foreground tabular-nums shrink-0">
+                        ••{a.mask}
+                      </span>
+                    )}
+                    {a.subtype && (
+                      <span className="text-xs text-muted-foreground capitalize shrink-0">
+                        {a.subtype}
+                      </span>
+                    )}
+                  </div>
+                  <select
+                    className={selectClass()}
+                    value={mapping[a.id] ?? ""}
+                    onChange={(e) =>
+                      setMapping((prev) => ({ ...prev, [a.id]: e.target.value }))
+                    }
+                  >
+                    <option value="">Create new account</option>
+                    {pendingLink.unlinkedAccounts.map((existing) => (
+                      <option key={existing.id} value={existing.id}>
+                        Attach to “{existing.name}”
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              ))}
+            </div>
+
+            {error && <p className="text-xs text-destructive">{error}</p>}
+            <Button
+              onClick={handleFinishLinking}
+              disabled={isPending}
+              className="w-full h-9"
+            >
+              {isPending ? "Linking…" : "Finish Linking"}
+            </Button>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }

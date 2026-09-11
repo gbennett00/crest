@@ -206,6 +206,8 @@ export async function exchangePublicToken(publicToken: string) {
       plaidAccounts: plaidAccounts.map((a) => ({
         id: a.account_id,
         name: a.name ?? a.official_name ?? "Linked Account",
+        mask: a.mask ?? null,
+        subtype: (a.subtype as string | null) ?? null,
       })),
       unlinkedAccounts,
     };
