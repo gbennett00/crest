@@ -5,6 +5,7 @@ import {
   buildHistory,
   computePaymentCategoryActivity,
   computeReadyToAssign,
+  computeRtaBreakdown,
   findReadyToAssignId,
   paymentShortfallCents,
   type CreditTxn,
@@ -73,6 +74,69 @@ describe("computeReadyToAssign", () => {
         priorCashOverspendCents: 134_37,
       }),
     ).toBe(500_00 - 300_00 - 134_37);
+  });
+});
+
+describe("computeRtaBreakdown", () => {
+  const base = {
+    inflowPriorCents: 0,
+    inflowThisMonthCents: 0,
+    assignedPriorCents: 0,
+    assignedThisMonthCents: 0,
+    assignedFutureCents: 0,
+    priorCashOverspendCents: 0,
+  };
+
+  it("folds prior inflow and prior assignment into a single leftover line", () => {
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowPriorCents: 500_00,
+      assignedPriorCents: 320_00,
+    });
+    expect(b.leftoverFromPriorCents).toBe(180_00);
+    expect(b.totalCents).toBe(180_00);
+  });
+
+  it("leftover goes negative when prior assignments exceed prior inflow", () => {
+    const b = computeRtaBreakdown({ ...base, assignedPriorCents: 40_00 });
+    expect(b.leftoverFromPriorCents).toBe(-40_00);
+    expect(b.totalCents).toBe(-40_00);
+  });
+
+  it("sums all lines back to the RTA total", () => {
+    const b = computeRtaBreakdown({
+      inflowPriorCents: 5_488_07,
+      inflowThisMonthCents: 5_695_37,
+      assignedPriorCents: 0,
+      assignedThisMonthCents: 5_546_54,
+      assignedFutureCents: 5_636_90,
+      priorCashOverspendCents: 0,
+    });
+    // Mirrors the reported case: a future assignment not offset by its
+    // (future-dated, uncounted) inflow drives the pool negative.
+    expect(b.totalCents).toBe(
+      b.leftoverFromPriorCents +
+        b.inflowThisMonthCents -
+        b.assignedThisMonthCents -
+        b.assignedFutureCents -
+        b.priorCashOverspendCents,
+    );
+    expect(b.totalCents).toBe(5_488_07 + 5_695_37 - 5_546_54 - 5_636_90);
+  });
+
+  it("subtracts prior cash overspending from the total", () => {
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowThisMonthCents: 100_00,
+      priorCashOverspendCents: 9_53,
+    });
+    expect(b.totalCents).toBe(100_00 - 9_53);
+  });
+
+  it("passes assignedFuture straight through (0 for snapshot views)", () => {
+    const b = computeRtaBreakdown({ ...base, inflowThisMonthCents: 100_00 });
+    expect(b.assignedFutureCents).toBe(0);
+    expect(b.totalCents).toBe(100_00);
   });
 });
 

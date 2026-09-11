@@ -10,6 +10,7 @@ import type {
   BudgetCategory,
   BudgetGroup,
   PaymentCategoryBreakdown,
+  RtaBreakdown,
   TargetData,
 } from "./types";
 
@@ -318,6 +319,45 @@ export function computeReadyToAssign(input: {
     input.totalSpendingAssignedCents -
     (input.priorCashOverspendCents ?? 0)
   );
+}
+
+/**
+ * Decompose Ready to Assign into the YNAB-style lines shown in the breakdown
+ * popover. Bucket the same inputs `computeReadyToAssign` sums, split by when
+ * they land relative to the viewed month, and the lines are guaranteed to sum
+ * back to the RTA total.
+ *
+ * All inflow inputs must already be net of credit-card opening balances in the
+ * same bucket, so the "leftover" and "inflow" lines reflect real assignable
+ * cash (the opening balances are categorized to RTA but backed out of the pool
+ * — see `computeReadyToAssign`).
+ *
+ * `assignedFutureCents` is 0 for a historical snapshot view, where later
+ * assignments are excluded from the RTA total to begin with.
+ */
+export function computeRtaBreakdown(input: {
+  inflowPriorCents: number;
+  inflowThisMonthCents: number;
+  assignedPriorCents: number;
+  assignedThisMonthCents: number;
+  assignedFutureCents: number;
+  priorCashOverspendCents: number;
+}): RtaBreakdown {
+  const leftoverFromPriorCents = input.inflowPriorCents - input.assignedPriorCents;
+  const totalCents =
+    leftoverFromPriorCents +
+    input.inflowThisMonthCents -
+    input.assignedThisMonthCents -
+    input.assignedFutureCents -
+    input.priorCashOverspendCents;
+  return {
+    leftoverFromPriorCents,
+    inflowThisMonthCents: input.inflowThisMonthCents,
+    assignedThisMonthCents: input.assignedThisMonthCents,
+    assignedFutureCents: input.assignedFutureCents,
+    priorCashOverspendCents: input.priorCashOverspendCents,
+    totalCents,
+  };
 }
 
 /** Raw category as returned by the `category_groups → categories` join. */

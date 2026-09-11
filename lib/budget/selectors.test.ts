@@ -36,6 +36,14 @@ function data(groups: BudgetGroup[]): BudgetData {
     minMonth: "2026-06-01",
     maxMonth: "2026-07-01",
     rtaAvailableCents: 0,
+    rtaBreakdown: {
+      leftoverFromPriorCents: 0,
+      inflowThisMonthCents: 0,
+      assignedThisMonthCents: 0,
+      assignedFutureCents: 0,
+      priorCashOverspendCents: 0,
+      totalCents: 0,
+    },
     groups,
   };
 }

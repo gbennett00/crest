@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
@@ -16,6 +16,7 @@ import {
 } from "@/app/(app)/budget/actions";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
+import { RtaBreakdownPopup } from "./rta-breakdown-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
 import { RowMenu } from "./row-menu";
 import { BudgetToolbar } from "./budget-toolbar";
@@ -52,6 +53,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
   const [, startTransition] = useTransition();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [reordering, setReordering] = useState(false);
 
   // On mobile, group-budgeted groups have nothing useful in their member rows
@@ -108,6 +110,9 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
       {assignOpen && (
         <AssignPopup data={data} onClose={() => setAssignOpen(false)} />
       )}
+      {breakdownOpen && (
+        <RtaBreakdownPopup data={data} onClose={() => setBreakdownOpen(false)} />
+      )}
 
       {/* Month navigation — sticky directly under the global header. */}
       <div className="sticky top-0 z-10 bg-background border-b flex items-center justify-between px-2 h-11 shrink-0">
@@ -146,11 +151,14 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
         <BudgetReorder groups={displayGroups} />
       ) : (
         <>
-          {/* Ready to Assign banner — clickable to open assign popup. */}
+          {/* Ready to Assign banner — the amount opens the assign popup; the
+              info button opens the read-only breakdown. */}
           {showRta && (
-            <button className="text-left w-full" onClick={() => setAssignOpen(true)}>
-              <RtaBanner cents={data.rtaAvailableCents} />
-            </button>
+            <RtaBanner
+              cents={data.rtaAvailableCents}
+              onAssign={() => setAssignOpen(true)}
+              onBreakdown={() => setBreakdownOpen(true)}
+            />
           )}
 
           {/* Column headers */}
@@ -495,19 +503,30 @@ function InlineName({
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function RtaBanner({ cents }: { cents: number }) {
+function RtaBanner({
+  cents,
+  onAssign,
+  onBreakdown,
+}: {
+  cents: number;
+  onAssign: () => void;
+  onBreakdown: () => void;
+}) {
   const formatCents = useFormattedCents();
   const overAssigned = cents < 0;
   return (
     <div
       className={cn(
-        "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity",
+        "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between",
         overAssigned
           ? "bg-destructive/10 border border-destructive/30"
           : "bg-primary/10 border border-primary/30",
       )}
     >
-      <div>
+      <button
+        className="text-left flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
+        onClick={onAssign}
+      >
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Ready to Assign
         </p>
@@ -519,12 +538,21 @@ function RtaBanner({ cents }: { cents: number }) {
         >
           {formatCents(cents)}
         </p>
-      </div>
-      <div className="flex items-center gap-1.5">
+      </button>
+      <div className="flex items-center gap-2 shrink-0 pl-3">
         {overAssigned && (
           <span className="text-xs font-semibold text-destructive">Over-assigned</span>
         )}
-        <ChevronRight size={18} className={overAssigned ? "text-destructive" : "text-primary"} />
+        <button
+          onClick={onBreakdown}
+          aria-label="Ready to Assign breakdown"
+          className={cn(
+            "p-1.5 rounded-full hover:bg-foreground/5 transition-colors",
+            overAssigned ? "text-destructive" : "text-primary",
+          )}
+        >
+          <Info size={18} />
+        </button>
       </div>
     </div>
   );

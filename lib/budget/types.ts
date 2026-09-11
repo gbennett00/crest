@@ -52,12 +52,37 @@ export type BudgetGroup = {
   target: TargetData | null;
 };
 
+// YNAB-style decomposition of Ready to Assign for the viewed month. The lines
+// sum to `totalCents`, which equals `BudgetData.rtaAvailableCents`:
+//   total = leftoverFromPrior + inflowThisMonth
+//           − assignedThisMonth − assignedFuture − priorCashOverspend
+// Inflow figures are net of any credit-card opening balances dated in that
+// bucket (opening balances are categorized to RTA but backed out of the pool),
+// so they read as real assignable inflow rather than register movement.
+export type RtaBreakdown = {
+  // Assignable cash that rolled in from before the viewed month
+  // (prior inflows − prior assignments). May be negative.
+  leftoverFromPriorCents: number;
+  // RTA inflows during the viewed month (net of this month's CC opening).
+  inflowThisMonthCents: number;
+  // Spending assignments made in the viewed month (magnitude, >= 0).
+  assignedThisMonthCents: number;
+  // Spending assignments committed to months after the viewed one (>= 0).
+  // Always 0 for a historical snapshot view.
+  assignedFutureCents: number;
+  // Cash overspending charged to the pool at prior month boundaries (>= 0).
+  priorCashOverspendCents: number;
+  // Equals rtaAvailableCents.
+  totalCents: number;
+};
+
 export type BudgetData = {
   month: string;
   // Inclusive navigation bounds: earliest month with activity → next month.
   minMonth: string;
   maxMonth: string;
   rtaAvailableCents: number;
+  rtaBreakdown: RtaBreakdown;
   groups: BudgetGroup[];
 };
 

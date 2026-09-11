@@ -13,6 +13,7 @@ import {
   buildHistory,
   computePaymentCategoryActivity,
   computeReadyToAssign,
+  computeRtaBreakdown,
   findReadyToAssignId,
   type CreditTxn,
   type HistoryRow,
@@ -143,12 +144,12 @@ export async function loadBudgetView(
 
   let catBudgetsQuery = client
     .from("monthly_budgets")
-    .select("assigned_cents")
+    .select("month, assigned_cents")
     .not("category_id", "is", null)
     .neq("category_id", rtaId ?? "");
   let grpBudgetsQuery = client
     .from("monthly_budgets")
-    .select("assigned_cents")
+    .select("month, assigned_cents")
     .not("group_id", "is", null);
   if (snapshotAssignments) {
     catBudgetsQuery = catBudgetsQuery.lte("month", month);
@@ -160,7 +161,7 @@ export async function loadBudgetView(
       rtaId
         ? client
             .from("category_monthly_activity")
-            .select("activity_cents")
+            .select("month, activity_cents")
             .eq("category_id", rtaId)
             .lte("month", month)
         : Promise.resolve({ data: [] }),
@@ -169,7 +170,7 @@ export async function loadBudgetView(
       ccAccountIds.length > 0
         ? client
             .from("transactions")
-            .select("amount_cents")
+            .select("amount_cents, txn_date")
             .in("account_id", ccAccountIds)
             .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
             .lt("txn_date", afterViewedMonth)
@@ -237,7 +238,31 @@ export async function loadBudgetView(
     priorCashOverspendCents,
   });
 
-  return { month, minMonth, maxMonth, rtaAvailableCents, groups: budgetGroups };
+  // Bucket the same RTA inputs by when they land, so the breakdown popover can
+  // show how the pool was built up. Inflow buckets are netted against the CC
+  // opening balances in the same bucket (they're categorized to RTA but backed
+  // out of the pool), matching the RTA total above.
+  const rtaInflow = bucketCents(rtaActivityRes.data, "activity_cents", "month", month);
+  const ccOpening = bucketCents(ccOpeningRes.data, "amount_cents", "txn_date", month);
+  const catAssignedByBucket = bucketCents(allCatBudgetsRes.data, "assigned_cents", "month", month);
+  const grpAssignedByBucket = bucketCents(allGrpBudgetsRes.data, "assigned_cents", "month", month);
+  const rtaBreakdown = computeRtaBreakdown({
+    inflowPriorCents: rtaInflow.prior - ccOpening.prior,
+    inflowThisMonthCents: rtaInflow.current - ccOpening.current,
+    assignedPriorCents: catAssignedByBucket.prior + grpAssignedByBucket.prior,
+    assignedThisMonthCents: catAssignedByBucket.current + grpAssignedByBucket.current,
+    assignedFutureCents: catAssignedByBucket.future + grpAssignedByBucket.future,
+    priorCashOverspendCents,
+  });
+
+  return {
+    month,
+    minMonth,
+    maxMonth,
+    rtaAvailableCents,
+    rtaBreakdown,
+    groups: budgetGroups,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -369,6 +394,28 @@ function sumCents(rows: unknown[] | null, centsKey: string): number {
     (sum, row) => sum + (row[centsKey] as number),
     0,
   );
+}
+
+/**
+ * Partition `centsKey` across rows into buckets relative to `viewedMonth`,
+ * keyed by `monthKey` (a `YYYY-MM-01` budget month or a `YYYY-MM-DD` date; only
+ * the year-month is used). Used to break Ready to Assign into its parts.
+ */
+function bucketCents(
+  rows: unknown[] | null,
+  centsKey: string,
+  monthKey: string,
+  viewedMonth: string,
+): { prior: number; current: number; future: number } {
+  const acc = { prior: 0, current: 0, future: 0 };
+  for (const row of (rows ?? []) as Record<string, unknown>[]) {
+    const month = `${(row[monthKey] as string).slice(0, 7)}-01`;
+    const cents = row[centsKey] as number;
+    if (month < viewedMonth) acc.prior += cents;
+    else if (month > viewedMonth) acc.future += cents;
+    else acc.current += cents;
+  }
+  return acc;
 }
 
 function buildTargets(rows: unknown[] | null): {
