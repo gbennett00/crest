@@ -176,8 +176,16 @@ export function computePaymentCategoryActivity(params: {
     const pay = txn.paymentCategoryId;
 
     if (txn.isTransfer) {
-      // A payment to the card (transfer inflow) drains the payment envelope.
-      if (txn.amountCents > 0) add(paymentsByPay, pay, txn.month, txn.amountCents);
+      // Any transfer changes the card's balance, so it changes the payment
+      // obligation. An inflow (payment to the card) reduces debt and drains the
+      // payment envelope; an outflow (money moved off the card — withdrawing a
+      // credit balance, or a cash advance to another account) increases debt
+      // and fills it. The signed amount captures both: a positive `payments`
+      // value drains, a negative one fills. Dropping the outflow leg (as this
+      // once did) strands the envelope negative — e.g. a refund followed by
+      // transferring that credit balance out nets to $0 owed but left the
+      // payment category at -(refund).
+      add(paymentsByPay, pay, txn.month, txn.amountCents);
       continue;
     }
 

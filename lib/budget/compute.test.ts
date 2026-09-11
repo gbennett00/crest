@@ -211,15 +211,36 @@ describe("computePaymentCategoryActivity", () => {
     expect(breakdown["pay"].totalActivityCents).toBe(-25_00);
   });
 
-  it("ignores non-payment transfers (e.g. a transfer out of the card)", () => {
+  it("fills the payment envelope for a transfer OUT of the card (increases what's owed)", () => {
+    // A cash advance / withdrawal off the card raises the balance owed, so it
+    // fills the payment envelope — symmetric to a payment-in draining it.
     const { paymentActivity, breakdown } = computePaymentCategoryActivity({
       throughMonth: MONTH,
       catActivity: {},
       catAssigned: {},
       creditTxns: [tx({ amountCents: -40_00, isTransfer: true })],
     });
-    expect(paymentActivity["pay"]).toBeUndefined();
-    expect(breakdown["pay"]).toBeUndefined();
+    expect(paymentActivity["pay"][MONTH]).toBe(40_00);
+    expect(breakdown["pay"].paymentsAndReturnsCents).toBe(40_00);
+    expect(breakdown["pay"].totalActivityCents).toBe(40_00);
+  });
+
+  it("nets a refund followed by transferring the credit balance off the card to $0", () => {
+    // Regression: a $99 refund (drains the envelope) then a $99 transfer off the
+    // card (fills it) leaves $0 owed and $0 in the payment category — not -$99.
+    const { paymentActivity, breakdown } = computePaymentCategoryActivity({
+      throughMonth: MONTH,
+      catActivity: { refundable: { [MONTH]: 99_00 } },
+      catAssigned: {},
+      creditTxns: [
+        refund("refundable", 99_00),
+        tx({ amountCents: -99_00, isTransfer: true }),
+      ],
+    });
+    expect(paymentActivity["pay"]?.[MONTH] ?? 0).toBe(0);
+    expect(breakdown["pay"].returnsCents).toBe(99_00);
+    expect(breakdown["pay"].paymentsAndReturnsCents).toBe(0);
+    expect(breakdown["pay"].totalActivityCents).toBe(0);
   });
 
   it("counts prior-month assignments as funds when capping", () => {
