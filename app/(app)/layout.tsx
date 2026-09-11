@@ -11,7 +11,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Logo size={24} />
           <span className="font-semibold tracking-tight text-primary">Crest</span>
         </div>
-        <UserMenu />
+        <UserMenu isProduction={process.env.VERCEL_ENV === "production"} />
       </header>
 
       <div className="flex flex-1 min-h-0">
