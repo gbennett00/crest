@@ -27,6 +27,40 @@ function selectClass() {
   );
 }
 
+/**
+ * Pre-select an "attach to existing" mapping by matching each Plaid account name
+ * to an unlinked Crest account name (e.g. a YNAB-imported one). This surfaces the
+ * attach option instead of silently defaulting every row to "Create new". Each
+ * existing account is suggested at most once. The user can always override.
+ */
+function suggestMapping(
+  plaidAccounts: PlaidAccountOption[],
+  unlinked: UnlinkedAccountOption[],
+): Record<string, string> {
+  const norm = (s: string) => s.toLowerCase().replace(/[^a-z0-9]/g, "");
+  const mapping: Record<string, string> = {};
+  const used = new Set<string>();
+
+  for (const p of plaidAccounts) {
+    const pn = norm(p.name);
+    let pick = "";
+    if (pn) {
+      for (const u of unlinked) {
+        if (used.has(u.id)) continue;
+        const un = norm(u.name);
+        if (un && (un === pn || un.includes(pn) || pn.includes(un))) {
+          pick = u.id;
+          break;
+        }
+      }
+    }
+    if (pick) used.add(pick);
+    mapping[p.id] = pick;
+  }
+
+  return mapping;
+}
+
 export function LinkAccountButton() {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -64,7 +98,7 @@ export function LinkAccountButton() {
           plaidAccounts: result.plaidAccounts,
           unlinkedAccounts: result.unlinkedAccounts,
         });
-        setMapping(Object.fromEntries(result.plaidAccounts.map((a) => [a.id, ""])));
+        setMapping(suggestMapping(result.plaidAccounts, result.unlinkedAccounts));
       }
     });
   }, []);
@@ -99,7 +133,9 @@ export function LinkAccountButton() {
         <h3 className="font-semibold text-sm">Link detected accounts</h3>
         <p className="text-xs text-muted-foreground">
           If one of these was already imported from YNAB, attach it to that existing account so
-          history isn&apos;t duplicated. Otherwise leave it as &quot;Create new&quot;.
+          history isn&apos;t duplicated — overlapping transactions from the last ~90 days are
+          matched to your imported ones automatically. Otherwise leave it as &quot;Create new&quot;.
+          Suggested matches are pre-selected below.
         </p>
         {pendingLink.plaidAccounts.map((a) => (
           <div key={a.id} className="flex items-center gap-2">
