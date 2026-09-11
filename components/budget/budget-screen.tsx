@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
@@ -95,10 +95,13 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
 
   // RTA banner visibility (matches YNAB). maxMonth is next month, so two steps
   // back is the previous month — the start of the prev/current/next "live"
-  // window. Inside that window we show any non-zero RTA; older months only
-  // surface it when over-assigned (a positive leftover has rolled forward).
+  // window. Inside that window we surface any non-zero RTA with the full banner;
+  // older months only get the banner when over-assigned (a positive leftover has
+  // rolled forward). Every other case falls back to a slim, always-present pill
+  // so the breakdown is reachable anytime — including the "all money assigned"
+  // ($0) state.
   const liveWindowStart = previousBudgetMonth(previousBudgetMonth(data.maxMonth));
-  const showRta =
+  const showRtaBanner =
     data.month >= liveWindowStart
       ? data.rtaAvailableCents !== 0
       : data.rtaAvailableCents < 0;
@@ -151,10 +154,18 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
         <BudgetReorder groups={displayGroups} />
       ) : (
         <>
-          {/* Ready to Assign banner — the amount opens the assign popup; the
-              info button opens the read-only breakdown. */}
-          {showRta && (
+          {/* Ready to Assign — full banner when there's something to act on,
+              otherwise a slim pill so the breakdown stays reachable (e.g. at
+              $0). In both, the amount opens the assign popup and the info button
+              opens the read-only breakdown. */}
+          {showRtaBanner ? (
             <RtaBanner
+              cents={data.rtaAvailableCents}
+              onAssign={() => setAssignOpen(true)}
+              onBreakdown={() => setBreakdownOpen(true)}
+            />
+          ) : (
+            <RtaPill
               cents={data.rtaAvailableCents}
               onAssign={() => setAssignOpen(true)}
               onBreakdown={() => setBreakdownOpen(true)}
@@ -554,6 +565,44 @@ function RtaBanner({
           <Info size={18} />
         </button>
       </div>
+    </div>
+  );
+}
+
+// Compact, always-present stand-in for the RTA banner when there's nothing to
+// act on (notably the "all money assigned" $0 state). Keeps the breakdown one
+// tap away. Same interaction split as the banner: label/amount opens the assign
+// popup, the info button opens the breakdown.
+function RtaPill({
+  cents,
+  onAssign,
+  onBreakdown,
+}: {
+  cents: number;
+  onAssign: () => void;
+  onBreakdown: () => void;
+}) {
+  const formatCents = useFormattedCents();
+  const allAssigned = cents === 0;
+  return (
+    <div className="mx-4 mt-3 mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
+      <button
+        onClick={onAssign}
+        className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
+      >
+        {allAssigned && <Check size={14} className="text-primary shrink-0" />}
+        <span className="text-xs font-medium text-muted-foreground truncate">
+          {allAssigned ? "All money assigned" : "Ready to Assign"}
+        </span>
+        <span className="text-xs font-semibold tabular-nums">{formatCents(cents)}</span>
+      </button>
+      <button
+        onClick={onBreakdown}
+        aria-label="Ready to Assign breakdown"
+        className="p-1 rounded-full text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors shrink-0"
+      >
+        <Info size={15} />
+      </button>
     </div>
   );
 }
