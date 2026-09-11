@@ -74,7 +74,7 @@ export type RtaBreakdown = {
   // Spending committed to months after the viewed one, counted against the pool
   // (magnitude, >= 0). Capped at the cash available before future assignments,
   // so future over-assignment funded by future income never drives this month
-  // negative (matches YNAB). Always 0 for a historical snapshot view.
+  // negative (matches YNAB).
   assignedFutureCents: number;
   // Future assignments beyond the cap above, assumed funded by income arriving
   // in those future months (>= 0). Not subtracted from this month; surfaced so

@@ -93,18 +93,11 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
       g.categories.some((c) => c.role !== "ready_to_assign" && !c.isHidden),
   );
 
-  // RTA banner visibility (matches YNAB). maxMonth is next month, so two steps
-  // back is the previous month — the start of the prev/current/next "live"
-  // window. Inside that window we surface any non-zero RTA with the full banner;
-  // older months only get the banner when over-assigned (a positive leftover has
-  // rolled forward). Every other case falls back to a slim, always-present pill
-  // so the breakdown is reachable anytime — including the "all money assigned"
-  // ($0) state.
-  const liveWindowStart = previousBudgetMonth(previousBudgetMonth(data.maxMonth));
-  const showRtaBanner =
-    data.month >= liveWindowStart
-      ? data.rtaAvailableCents !== 0
-      : data.rtaAvailableCents < 0;
+  // RTA is a single global figure (the same on every month, matching YNAB): show
+  // the full banner whenever there's something to act on — money to assign or an
+  // over-assignment — and fall back to a slim, always-present pill at $0, so the
+  // breakdown is reachable anytime including the "all money assigned" state.
+  const showRtaBanner = data.rtaAvailableCents !== 0;
 
   const groupOptions = displayGroups.map((g) => ({ id: g.id, name: g.name }));
 

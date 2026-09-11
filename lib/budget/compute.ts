@@ -315,8 +315,9 @@ export function computePaymentCategoryActivity(params: {
  *    viewed month negative — only over-assigning *this* month (or uncovered cash
  *    overspending) can. See docs/budgeting-app-architecture.md.
  *
- * `assignedFutureRawCents` is 0 for a historical snapshot view, where later
- * assignments are excluded to begin with.
+ * The same rules apply on every viewed month: assignments in all later months
+ * feed `assignedFutureRawCents`, so RTA reads the same global figure on
+ * historical, current, and future months alike (matching YNAB).
  */
 export function computeRtaBreakdown(input: {
   inflowPriorCents: number;

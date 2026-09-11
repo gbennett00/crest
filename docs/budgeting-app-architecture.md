@@ -336,6 +336,8 @@ Important:
 
 The breakdown lines (`leftover + inflow − assigned this month − previous-month cash overspend − assigned in future`) always sum to the RTA total, and are surfaced to the user in the Ready to Assign breakdown popover.
 
+Because assignments in **all** later months feed the "assigned in future" line (only inflows are bounded to the viewed month), RTA reports the same global figure on every month — historical, current, and future — exactly as YNAB does. There is no per-month "snapshot"; the viewed month only changes how the same total is decomposed.
+
 ---
 
 ## GROUP BUDGETING RULES

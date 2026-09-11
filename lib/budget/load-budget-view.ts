@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import {
   currentBudgetMonth,
   nextBudgetMonth,
-  previousBudgetMonth,
   OPENING_BALANCE_IMPORTED_ID,
 } from "@/lib/ledger";
 import type { BudgetData, TargetData } from "./types";
@@ -33,16 +32,13 @@ export async function getBudgetView(month: string): Promise<BudgetData> {
 /**
  * Load and compute the full budget view for `month`.
  *
- * Ready to Assign is a per-month figure. Inflows categorized to RTA and the
- * credit-card opening balances backed out of the pool are always measured
- * through the *viewed* month, so an earlier view never counts later money.
- *
- * Spending assignments use a sliding window matching YNAB: for the previous,
- * current, and next month, *all* assignments are subtracted (so assigning next
- * month's money reduces this month's RTA and can't be double-assigned). For any
- * month older than the previous month, only assignments through that month are
- * subtracted, so historical months read as the self-contained snapshots they
- * were instead of being dragged negative by later assignments.
+ * Ready to Assign matches YNAB's single global figure — the same on every month.
+ * Inflows categorized to RTA and the credit-card opening balances backed out of
+ * the pool are measured through the *viewed* month, so future income never
+ * counts toward an earlier month's RTA. Spending assignments are counted across
+ * *all* months: those after the viewed month are the "assigned in future" line,
+ * capped in `computeRtaBreakdown` at the cash available before them (so future
+ * over-assignment funded by future income never drags the viewed month negative).
  *
  * `month` is clamped to `[minMonth, maxMonth]` (earliest activity → next month);
  * those bounds are returned so the UI can gate navigation.
@@ -135,25 +131,21 @@ export async function loadBudgetView(
   const ccAccountIds = [...ccAccountMap.keys()];
 
   // Wave 2: RTA inputs. Inflows and the CC-opening back-out are bounded by the
-  // viewed month. Spending assignments are bounded only when viewing a month
-  // older than the previous month; the previous/current/next window sees all
-  // assignments, so future commitments reduce today's RTA (see the docstring).
-  const snapshotAssignments = month < previousBudgetMonth(currentBudgetMonth());
+  // viewed month (future income never counts toward an earlier month's RTA).
+  // Spending assignments are fetched across *all* months — future commitments
+  // are shown as "assigned in future" and capped in `computeRtaBreakdown`, so
+  // every month reports the same global Ready to Assign that YNAB does.
   const afterViewedMonth = nextBudgetMonth(month); // exclusive upper bound
 
-  let catBudgetsQuery = client
+  const catBudgetsQuery = client
     .from("monthly_budgets")
     .select("month, assigned_cents")
     .not("category_id", "is", null)
     .neq("category_id", rtaId ?? "");
-  let grpBudgetsQuery = client
+  const grpBudgetsQuery = client
     .from("monthly_budgets")
     .select("month, assigned_cents")
     .not("group_id", "is", null);
-  if (snapshotAssignments) {
-    catBudgetsQuery = catBudgetsQuery.lte("month", month);
-    grpBudgetsQuery = grpBudgetsQuery.lte("month", month);
-  }
 
   const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes, ccOpeningRes] =
     await Promise.all([

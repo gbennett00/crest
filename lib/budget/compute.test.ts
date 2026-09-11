@@ -124,10 +124,28 @@ describe("computeRtaBreakdown", () => {
     expect(b.totalCents).toBe(-50_00);
   });
 
-  it("keeps assignedFuture at 0 for a snapshot view (no future assignments)", () => {
+  it("reports 0 assignedFuture when nothing is assigned ahead", () => {
     const b = computeRtaBreakdown({ ...base, inflowThisMonthCents: 100_00 });
     expect(b.assignedFutureCents).toBe(0);
     expect(b.totalCents).toBe(100_00);
+  });
+
+  it("reconciles a historical month to $0 like YNAB (reported March case)", () => {
+    // Viewing March: February overspend is the *previous* month's own line, and
+    // future assignments are capped so the month lands at $0 (not the leftover).
+    const b = computeRtaBreakdown({
+      inflowPriorCents: 8_731_23, // leftover from February
+      inflowThisMonthCents: 7_949_48,
+      assignedPriorCents: 0,
+      assignedThisMonthCents: 8_820_03,
+      assignedFutureRawCents: 9_999_99, // more than available; capped below
+      previousMonthCashOverspendCents: 134_37, // February
+      earlierCashOverspendCents: 0,
+    });
+    expect(b.leftoverFromPriorCents).toBe(8_731_23);
+    expect(b.previousMonthCashOverspendCents).toBe(134_37);
+    expect(b.assignedFutureCents).toBe(7_726_31); // capped at cash on hand
+    expect(b.totalCents).toBe(0);
   });
 });
 
