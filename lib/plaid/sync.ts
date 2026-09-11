@@ -7,6 +7,7 @@ import {
   deleteTransaction,
   syncBankClearedBalance,
   createAccount,
+  RECONCILIATION_ADJUSTMENT_PAYEE,
 } from "@/lib/ledger";
 import type { AccountType } from "@/lib/ledger/types";
 import { createPlaidClient } from "./client";
@@ -15,6 +16,7 @@ import {
   plaidBalanceToBalanceCents,
   plaidTxnToUpsertInput,
 } from "./mapping";
+import { selectAdoptionMatch, type AdoptionCandidate } from "./match";
 
 type PlaidItemRow = {
   id: string;
@@ -22,6 +24,8 @@ type PlaidItemRow = {
   plaid_item_id: string;
   access_token: string;
   transactions_cursor: string | null;
+  /** Plaid account ids the user opted out of tracking; never created or synced. */
+  ignored_account_ids: string[] | null;
 };
 
 type SyncResult = {
@@ -29,6 +33,8 @@ type SyncResult = {
   modifiedCount: number;
   removedCount: number;
   accountsCreated: number;
+  /** YNAB-imported rows adopted by a matching Plaid txn instead of duplicated. */
+  adoptedCount: number;
 };
 
 /**
@@ -83,6 +89,80 @@ export async function attachExistingAccountToPlaid(
     })
     .eq("id", accountId);
 
+  if (error) throw new Error(error.message);
+}
+
+/**
+ * Loads the pool of existing transactions in the given accounts that a Plaid
+ * txn may be adopted onto instead of duplicated (see match.ts). Eligible rows
+ * are ones the user entered or imported that aren't yet tied to Plaid:
+ *
+ *   - manual entries (`imported_id IS NULL`), and
+ *   - YNAB CSV imports (`imported_id LIKE 'csv:%'`).
+ *
+ * Everything else is deliberately excluded:
+ *   - already Plaid-backed rows carry a Plaid `transaction_id` (neither null nor
+ *     `csv:`), so the query's filter skips them and re-syncs dedupe normally;
+ *   - transfers (`transfer_account_id` set, incl. `csv:transfer:` legs) — adopting
+ *     one leg would muddy the transfer's two-sided linkage;
+ *   - opening balances (`crest:opening_balance`) — excluded by the id filter;
+ *   - reconciliation adjustments (null id, but a distinctive payee) — excluded here.
+ */
+async function loadAdoptionCandidates(
+  client: SupabaseClient,
+  accountIds: string[],
+): Promise<Map<string, AdoptionCandidate[]>> {
+  const pools = new Map<string, AdoptionCandidate[]>();
+  if (accountIds.length === 0) return pools;
+
+  const { data, error } = await client
+    .from("transactions")
+    .select("id, account_id, amount_cents, txn_date, imported_id, payee, transfer_account_id")
+    .in("account_id", accountIds)
+    .is("transfer_account_id", null)
+    .or("imported_id.is.null,imported_id.like.csv:*");
+
+  if (error) throw new Error(error.message);
+
+  for (const row of data ?? []) {
+    const importedId = row.imported_id as string | null;
+    // Belt-and-suspenders: transfer legs are already excluded by the null
+    // transfer_account_id filter, but guard the csv:transfer: prefix too.
+    if (importedId?.startsWith("csv:transfer:")) continue;
+    // A reconciliation adjustment is a synthetic null-id line — never adopt it.
+    if ((row.payee as string | null) === RECONCILIATION_ADJUSTMENT_PAYEE) continue;
+
+    const accountId = row.account_id as string;
+    const pool = pools.get(accountId) ?? [];
+    pool.push({
+      id: row.id as string,
+      amountCents: row.amount_cents as number,
+      txnDate: row.txn_date as string,
+    });
+    pools.set(accountId, pool);
+  }
+
+  return pools;
+}
+
+/**
+ * Adopts an existing YNAB-imported row onto an incoming Plaid transaction:
+ * rewrites its `imported_id` to Plaid's so subsequent syncs dedupe normally,
+ * and marks it cleared when Plaid reports it posted. The row's amount, date,
+ * payee, memo, allocations, and approval are deliberately left untouched so the
+ * user's categorization survives the migration.
+ */
+async function adoptTransaction(
+  client: SupabaseClient,
+  id: string,
+  plaidImportedId: string,
+  clearedAt: string | null,
+): Promise<void> {
+  const update: Record<string, unknown> = { imported_id: plaidImportedId };
+  // Only ever move a row toward "cleared"; never un-clear one Plaid reports pending.
+  if (clearedAt) update.cleared_at = clearedAt;
+
+  const { error } = await client.from("transactions").update(update).eq("id", id);
   if (error) throw new Error(error.message);
 }
 
@@ -210,7 +290,13 @@ export async function syncItem(
   const accountMap = await resolveAccountMap(client, item.plaid_item_id);
   let accountsCreated = 0;
 
+  // Plaid accounts the user opted out of tracking: skip creation entirely, which
+  // also drops their transactions (the txn loop below ignores accounts absent
+  // from accountMap) and their balance sync.
+  const ignoredAccounts = new Set(item.ignored_account_ids ?? []);
+
   for (const plaidAccount of syncAccounts) {
+    if (ignoredAccounts.has(plaidAccount.account_id)) continue;
     const before = accountMap.size;
     await ensureAccountExists(
       client,
@@ -221,6 +307,15 @@ export async function syncItem(
     );
     if (accountMap.size > before) accountsCreated++;
   }
+
+  // Pool of YNAB-imported rows (per account) that an incoming Plaid txn can be
+  // adopted onto instead of inserting a duplicate across the migration overlap.
+  // Loaded once and consumed as matches are made, so one YNAB row is adopted at
+  // most once per sync.
+  const adoptionPools = await loadAdoptionCandidates(client, [
+    ...new Set(accountMap.values()),
+  ]);
+  let adoptedCount = 0;
 
   for (const txn of [...allAdded, ...allModified]) {
     const crestAccountId = accountMap.get(txn.account_id);
@@ -266,6 +361,28 @@ export async function syncItem(
       }
     }
 
+    // Migration overlap: adopt a matching YNAB-imported row rather than inserting
+    // a duplicate. Only runs for accounts that carry csv: rows (i.e. ones a YNAB
+    // import populated before Plaid was linked).
+    const pool = adoptionPools.get(crestAccountId);
+    if (pool && pool.length > 0) {
+      const matchIdx = selectAdoptionMatch(
+        { amountCents: input.amountCents, txnDate: input.txnDate },
+        pool,
+      );
+      if (matchIdx >= 0) {
+        await adoptTransaction(
+          client,
+          pool[matchIdx].id,
+          input.importedId,
+          input.clearedAt ?? null,
+        );
+        pool.splice(matchIdx, 1);
+        adoptedCount++;
+        continue;
+      }
+    }
+
     await upsertTransaction(client, input);
   }
 
@@ -301,5 +418,6 @@ export async function syncItem(
     modifiedCount: allModified.length,
     removedCount: allRemoved.length,
     accountsCreated,
+    adoptedCount,
   };
 }
