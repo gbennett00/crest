@@ -152,7 +152,8 @@ export function ReconcileDialog({
                   value={actualInput}
                   onChange={(e) => setActualInput(e.target.value)}
                   className={cn(
-                    "w-full rounded-md border border-input bg-background pl-7 pr-3 py-2 text-sm",
+                    // text-base on mobile (16px) stops iOS from zooming on focus.
+                    "w-full rounded-md border border-input bg-background pl-7 pr-3 py-2 text-base md:text-sm",
                     "focus:outline-none focus:ring-1 focus:ring-ring",
                   )}
                 />

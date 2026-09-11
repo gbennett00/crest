@@ -149,7 +149,12 @@ export async function loadBudgetView(
     .select("month, assigned_cents")
     .not("group_id", "is", null);
 
-  const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes, ccOpeningRes] =
+  // The credit-card transactions query below feeds `loadCreditCardActivity`
+  // (called after this Promise.all) but depends only on wave-1 data (ccAccountIds,
+  // month), so it's fetched here rather than after — one fewer sequential round
+  // trip per page load.
+  const through = nextBudgetMonth(month); // everything strictly before next month
+  const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes, ccOpeningRes, ccTxnsRes] =
     await Promise.all([
       rtaId
         ? client
@@ -167,6 +172,15 @@ export async function loadBudgetView(
             .in("account_id", ccAccountIds)
             .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
             .lt("txn_date", afterViewedMonth)
+        : Promise.resolve({ data: [] }),
+      ccAccountIds.length > 0
+        ? client
+            .from("transactions")
+            .select(
+              "account_id, amount_cents, txn_date, imported_id, transfer_account_id, approved_at, transaction_allocations(category_id, amount_cents)",
+            )
+            .in("account_id", ccAccountIds)
+            .lt("txn_date", through)
         : Promise.resolve({ data: [] }),
     ]);
 
@@ -196,7 +210,7 @@ export async function loadBudgetView(
   // Credit-card payment-category activity + register balances + breakdowns.
   // Mutates `catActivity` to inject derived payment-category activity.
   const { cardRegisterBalance, cardBreakdown, creditOutflowByUnit } =
-    await loadCreditCardActivity(client, month, ccAccountMap, {
+    deriveCreditCardActivity(ccTxnsRes.data, month, ccAccountMap, {
       catActivity,
       catAssigned,
       grpActivity,
@@ -256,10 +270,10 @@ export async function loadBudgetView(
 // ---------------------------------------------------------------------------
 
 /**
- * Fetch credit-card transactions through `month`, derive each payment category's
- * funded-spending activity (merged into `catActivity`), and return each payment
- * category's register balance (negative = debt) plus the viewed month's activity
- * breakdown. Returns empty maps when there are no credit cards.
+ * Derive each payment category's funded-spending activity (merged into
+ * `catActivity`) from already-fetched credit-card transactions, and return
+ * each payment category's register balance (negative = debt) plus the viewed
+ * month's activity breakdown. Returns empty maps when there are no credit cards.
  *
  * The register balance is the real amount owed: it includes ALL transactions
  * (approved or not) and the opening balance. Funded spending counts only
@@ -267,8 +281,8 @@ export async function loadBudgetView(
  * purchase adds debt without funding it and surfaces the payment category as
  * underfunded until it is approved and covered.
  */
-async function loadCreditCardActivity(
-  client: SupabaseClient,
+function deriveCreditCardActivity(
+  ccTxnsData: unknown[] | null,
   month: string,
   ccAccountMap: Map<string, string>,
   histories: {
@@ -278,28 +292,15 @@ async function loadCreditCardActivity(
     grpAssigned: MonthlyCents;
     categoryGroup: Map<string, { groupId: string; mode: "category" | "group" }>;
   },
-): Promise<{
+): {
   cardRegisterBalance: Map<string, number>;
   cardBreakdown: Record<string, PaymentCategoryBreakdown>;
   creditOutflowByUnit: MonthlyCents;
-}> {
+} {
   const { catActivity, catAssigned, grpActivity, grpAssigned, categoryGroup } = histories;
   const cardRegisterBalance = new Map<string, number>();
   if (ccAccountMap.size === 0)
     return { cardRegisterBalance, cardBreakdown: {}, creditOutflowByUnit: {} };
-
-  const accountIds = [...ccAccountMap.keys()];
-  const through = nextBudgetMonth(month); // everything strictly before next month
-
-  // ALL credit-card transactions (approved or not) — the register balance is the
-  // real debt, and gross spending includes uncategorized/unapproved purchases.
-  const { data: ccTxnsData } = await client
-    .from("transactions")
-    .select(
-      "account_id, amount_cents, txn_date, imported_id, transfer_account_id, approved_at, transaction_allocations(category_id, amount_cents)",
-    )
-    .in("account_id", accountIds)
-    .lt("txn_date", through);
 
   const creditTxns: CreditTxn[] = [];
 
