@@ -154,6 +154,8 @@ describe("computeAvailableWithOverspend", () => {
     const mar = computeAvailableWithOverspend("2026-03-01", activity, {});
     expect(mar.availableCents).toBe(0);
     expect(mar.cashOverspentBeforeCents).toBe(13437);
+    // March's previous month is February, so the whole charge is "previous month".
+    expect(mar.cashOverspentPreviousMonthCents).toBe(13437);
   });
 
   it("keeps charging cumulative cash overspend in every later month", () => {
@@ -161,6 +163,16 @@ describe("computeAvailableWithOverspend", () => {
     const sep = computeAvailableWithOverspend("2026-09-01", activity, {});
     expect(sep.availableCents).toBe(0);
     expect(sep.cashOverspentBeforeCents).toBe(13437);
+    // By September the February overspend is old news, not the previous month's.
+    expect(sep.cashOverspentPreviousMonthCents).toBe(0);
+  });
+
+  it("reports only the previous month's overspend as the previous-month charge", () => {
+    // Overspend in both April ($10) and July ($25); viewing August.
+    const activity = { "2026-04-01": -10_00, "2026-07-01": -25_00 };
+    const aug = computeAvailableWithOverspend("2026-08-01", activity, {});
+    expect(aug.cashOverspentBeforeCents).toBe(35_00); // both, cumulatively
+    expect(aug.cashOverspentPreviousMonthCents).toBe(25_00); // only July's
   });
 
   it("lets a later inflow to a reset category sit as positive available", () => {

@@ -329,6 +329,15 @@ Important:
 * spending categories consume cash via splits; assigning moves dollars from Ready to Assign into category envelopes
 * **credit-card opening balances are excluded from the total.** Their opening-balance split lands in Ready to Assign for register parity, but the computed RTA backs them out (the negative debt is not assignable cash). The debt instead surfaces as an underfunded credit-card payment category. The same exclusion must be applied everywhere RTA is computed (currently the budget page and the home page)
 
+**The RTA total and its breakdown (YNAB parity).** For the viewed month, `computeRtaBreakdown` (`lib/budget/compute.ts`) is the single source of truth for the RTA total. It buckets the inputs by when they land relative to the viewed month and applies two YNAB rules:
+
+* **Cash overspending** is charged forward per the cash-overspend rule (see CATEGORY AVAILABLE / `computeAvailableWithOverspend`). Only the **previous** month's cash overspend shows as its own breakdown line; overspend charged earlier is already absorbed into the money carried over, so it is folded into the "left over from prior month" line.
+* **Future assignments** (money assigned to months after the viewed one) reduce the viewed month's RTA only down to `$0`: the committed-ahead total is capped at the cash available before future assignments, because any excess is funded by income arriving in those future months, not by cash on hand now. So future over-assignment never drags the viewed month negative — only over-assigning the current month (or uncovered cash overspending) can. Future-dated inflows do **not** count toward an earlier month's RTA.
+
+The breakdown lines (`leftover + inflow − assigned this month − previous-month cash overspend − assigned in future`) always sum to the RTA total, and are surfaced to the user in the Ready to Assign breakdown popover.
+
+Because assignments in **all** later months feed the "assigned in future" line (only inflows are bounded to the viewed month), RTA reports the same global figure on every month — historical, current, and future — exactly as YNAB does. There is no per-month "snapshot"; the viewed month only changes how the same total is decomposed.
+
 ---
 
 ## GROUP BUDGETING RULES
