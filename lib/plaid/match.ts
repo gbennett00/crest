@@ -9,9 +9,11 @@
  * shared transaction would appear twice.
  *
  * To avoid that, before inserting an incoming Plaid transaction we look for an
- * existing YNAB-imported ("adoptable") row in the same account with the same
- * amount and a nearby date, and adopt it — rewrite its `imported_id` to Plaid's
- * so future syncs dedupe normally, while preserving the user's categorization.
+ * existing ("adoptable") row in the same account with the same amount and a
+ * nearby date — a manual entry or a YNAB CSV import — and adopt it: rewrite its
+ * `imported_id` to Plaid's so future syncs dedupe normally, while preserving the
+ * user's categorization. See `loadAdoptionCandidates` in sync.ts for exactly
+ * which rows are eligible.
  *
  * This module is the pure selection logic; the DB-backed adoption lives in
  * `sync.ts`. See docs/plaid-integration-plan.md.

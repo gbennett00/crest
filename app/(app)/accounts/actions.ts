@@ -223,11 +223,21 @@ export async function exchangePublicToken(publicToken: string) {
  */
 export async function completeAccountLinking(
   plaidItemId: string,
-  mappings: { plaidAccountId: string; existingAccountId: string | null }[],
+  mappings: {
+    plaidAccountId: string;
+    existingAccountId: string | null;
+    skip?: boolean;
+  }[],
 ) {
   const supabase = await createClient();
   try {
+    const ignoredAccountIds: string[] = [];
+
     for (const m of mappings) {
+      if (m.skip) {
+        ignoredAccountIds.push(m.plaidAccountId);
+        continue;
+      }
       if (m.existingAccountId) {
         await attachExistingAccountToPlaid(
           supabase,
@@ -237,6 +247,13 @@ export async function completeAccountLinking(
         );
       }
     }
+
+    // Persist opt-outs so later syncs (manual / webhook) don't recreate them.
+    const { error: ignoreError } = await supabase
+      .from("plaid_items")
+      .update({ ignored_account_ids: ignoredAccountIds })
+      .eq("plaid_item_id", plaidItemId);
+    if (ignoreError) return { error: ignoreError.message };
 
     const { data: itemRow, error } = await supabase
       .from("plaid_items")

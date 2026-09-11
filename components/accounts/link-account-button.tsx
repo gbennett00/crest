@@ -20,6 +20,10 @@ type PlaidAccountOption = {
 };
 type UnlinkedAccountOption = { id: string; name: string; type: string };
 
+// Sentinel mapping value for "don't track this Plaid account at all". Can't
+// collide with an existing-account id (those are UUIDs) or "" (create new).
+const SKIP_VALUE = "__skip__";
+
 type PendingLink = {
   itemId: string;
   plaidAccounts: PlaidAccountOption[];
@@ -120,10 +124,15 @@ export function LinkAccountButton() {
     startTransition(async () => {
       const result = await completeAccountLinking(
         pendingLink.itemId,
-        pendingLink.plaidAccounts.map((a) => ({
-          plaidAccountId: a.id,
-          existingAccountId: mapping[a.id] || null,
-        })),
+        pendingLink.plaidAccounts.map((a) => {
+          const choice = mapping[a.id] ?? "";
+          return {
+            plaidAccountId: a.id,
+            existingAccountId:
+              choice && choice !== SKIP_VALUE ? choice : null,
+            skip: choice === SKIP_VALUE,
+          };
+        }),
       );
       if (result.error) {
         setError(result.error);
@@ -164,7 +173,8 @@ export function LinkAccountButton() {
               Choose what to do with each account your bank reported. If one was already
               imported from YNAB, attach it to that existing account so history isn&apos;t
               duplicated — overlapping transactions from the last ~90 days are matched to your
-              imported ones automatically. Suggested matches are pre-selected.
+              existing ones automatically. Suggested matches are pre-selected. Pick
+              &ldquo;Don&apos;t link this account&rdquo; for any you don&apos;t want in Crest.
             </p>
 
             <div className="space-y-3 max-h-[50vh] overflow-y-auto pr-1">
@@ -184,7 +194,11 @@ export function LinkAccountButton() {
                     )}
                   </div>
                   <select
-                    className={selectClass()}
+                    className={cn(
+                      selectClass(),
+                      mapping[a.id] === SKIP_VALUE &&
+                        "text-muted-foreground italic",
+                    )}
                     value={mapping[a.id] ?? ""}
                     onChange={(e) =>
                       setMapping((prev) => ({ ...prev, [a.id]: e.target.value }))
@@ -196,6 +210,7 @@ export function LinkAccountButton() {
                         Attach to “{existing.name}”
                       </option>
                     ))}
+                    <option value={SKIP_VALUE}>Don’t link this account</option>
                   </select>
                 </div>
               ))}

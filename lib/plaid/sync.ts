@@ -7,6 +7,7 @@ import {
   deleteTransaction,
   syncBankClearedBalance,
   createAccount,
+  RECONCILIATION_ADJUSTMENT_PAYEE,
 } from "@/lib/ledger";
 import type { AccountType } from "@/lib/ledger/types";
 import { createPlaidClient } from "./client";
@@ -23,6 +24,8 @@ type PlaidItemRow = {
   plaid_item_id: string;
   access_token: string;
   transactions_cursor: string | null;
+  /** Plaid account ids the user opted out of tracking; never created or synced. */
+  ignored_account_ids: string[] | null;
 };
 
 type SyncResult = {
@@ -90,12 +93,20 @@ export async function attachExistingAccountToPlaid(
 }
 
 /**
- * Loads the pool of YNAB-imported transactions in the given accounts that a
- * Plaid txn may be adopted onto (see match.ts). Only rows whose `imported_id`
- * is in the `csv:` namespace are eligible, and paired transfers
- * (`csv:transfer:`) are excluded — adopting one leg would muddy the transfer's
- * two-sided linkage. Opening balances (`crest:opening_balance`), reconciliation
- * adjustments, and manual entries are naturally excluded by the `csv:` filter.
+ * Loads the pool of existing transactions in the given accounts that a Plaid
+ * txn may be adopted onto instead of duplicated (see match.ts). Eligible rows
+ * are ones the user entered or imported that aren't yet tied to Plaid:
+ *
+ *   - manual entries (`imported_id IS NULL`), and
+ *   - YNAB CSV imports (`imported_id LIKE 'csv:%'`).
+ *
+ * Everything else is deliberately excluded:
+ *   - already Plaid-backed rows carry a Plaid `transaction_id` (neither null nor
+ *     `csv:`), so the query's filter skips them and re-syncs dedupe normally;
+ *   - transfers (`transfer_account_id` set, incl. `csv:transfer:` legs) — adopting
+ *     one leg would muddy the transfer's two-sided linkage;
+ *   - opening balances (`crest:opening_balance`) — excluded by the id filter;
+ *   - reconciliation adjustments (null id, but a distinctive payee) — excluded here.
  */
 async function loadAdoptionCandidates(
   client: SupabaseClient,
@@ -106,15 +117,20 @@ async function loadAdoptionCandidates(
 
   const { data, error } = await client
     .from("transactions")
-    .select("id, account_id, amount_cents, txn_date, imported_id")
+    .select("id, account_id, amount_cents, txn_date, imported_id, payee, transfer_account_id")
     .in("account_id", accountIds)
-    .like("imported_id", "csv:%");
+    .is("transfer_account_id", null)
+    .or("imported_id.is.null,imported_id.like.csv:*");
 
   if (error) throw new Error(error.message);
 
   for (const row of data ?? []) {
-    const importedId = row.imported_id as string;
-    if (importedId.startsWith("csv:transfer:")) continue;
+    const importedId = row.imported_id as string | null;
+    // Belt-and-suspenders: transfer legs are already excluded by the null
+    // transfer_account_id filter, but guard the csv:transfer: prefix too.
+    if (importedId?.startsWith("csv:transfer:")) continue;
+    // A reconciliation adjustment is a synthetic null-id line — never adopt it.
+    if ((row.payee as string | null) === RECONCILIATION_ADJUSTMENT_PAYEE) continue;
 
     const accountId = row.account_id as string;
     const pool = pools.get(accountId) ?? [];
@@ -274,7 +290,13 @@ export async function syncItem(
   const accountMap = await resolveAccountMap(client, item.plaid_item_id);
   let accountsCreated = 0;
 
+  // Plaid accounts the user opted out of tracking: skip creation entirely, which
+  // also drops their transactions (the txn loop below ignores accounts absent
+  // from accountMap) and their balance sync.
+  const ignoredAccounts = new Set(item.ignored_account_ids ?? []);
+
   for (const plaidAccount of syncAccounts) {
+    if (ignoredAccounts.has(plaidAccount.account_id)) continue;
     const before = accountMap.size;
     await ensureAccountExists(
       client,
