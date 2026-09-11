@@ -114,10 +114,13 @@ export function RegisterTransactionList({
                   isChecked && "bg-primary/5",
                 )}
               >
-                {/* Selection checkbox (locked/reconciled lines can't be selected) */}
+                {/* Selection checkbox. Reconciled (locked) lines can't be
+                    selected; the lock status shows on the right, so leave an
+                    empty spacer here to keep rows aligned without a second
+                    lock icon. */}
                 <div className="flex items-center pl-4">
                   {txn.reconciled ? (
-                    <Lock size={14} className="text-muted-foreground/50" />
+                    <span className="w-4 h-4" aria-hidden />
                   ) : (
                     <Checkbox
                       checked={isChecked}
