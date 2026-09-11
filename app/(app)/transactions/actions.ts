@@ -320,6 +320,53 @@ export async function bulkMoveTransactions(
 }
 
 /**
+ * Permanently delete a batch of transactions. Each delete also removes the
+ * mirror leg when the line is one side of a transfer (splits cascade in the
+ * DB). Reconciled (locked) lines are skipped. This is irreversible — the UI
+ * gates it behind a confirmation.
+ */
+export async function bulkDeleteTransactions(
+  txnIds: string[],
+): Promise<BulkResult> {
+  if (txnIds.length === 0) return { updated: 0, skipped: 0 };
+
+  const supabase = await createClient();
+
+  try {
+    const rows = await loadBulkTxns(supabase, txnIds);
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (row.reconciled_at) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        await deleteTransactionWithCounterpart(supabase, row.id);
+        updated++;
+      } catch (e) {
+        // When both legs of a transfer are selected, deleting the first also
+        // removes the second; reaching it here as "not found" means it's
+        // already gone — a successful delete, not a failure.
+        if (e instanceof LedgerError && e.code === "not_found") {
+          updated++;
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    revalidateAll();
+    return { updated, skipped };
+  } catch (e) {
+    if (e instanceof LedgerError) return { updated: 0, skipped: 0, error: e.message };
+    return { updated: 0, skipped: 0, error: "Failed to delete transactions" };
+  }
+}
+
+/**
  * Permanently delete a transaction. When the transaction is one leg of a
  * transfer, the matching mirror leg is removed too. Splits cascade in the DB.
  */

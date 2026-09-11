@@ -176,6 +176,8 @@ export function RegisterTransactionList({
         selectedIds={[...selected]}
         categories={categories}
         accounts={accounts}
+        primary={["categorize", "move"]}
+        menu={["approve", "delete"]}
         currentAccountId={accountId}
         onClearSelection={() => setSelected(new Set())}
       />

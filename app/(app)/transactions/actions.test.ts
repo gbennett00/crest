@@ -19,20 +19,24 @@ vi.mock("@/lib/supabase/server", () => ({
   })),
 }));
 
-// Ledger: keep the real LedgerError, spy on the write path. The spy is created
-// via vi.hoisted so it exists before the hoisted vi.mock factory runs.
-const { updateTransaction } = vi.hoisted(() => ({
+// Ledger: keep the real LedgerError, spy on the write path. The spies are
+// created via vi.hoisted so they exist before the hoisted vi.mock factory runs.
+const { updateTransaction, deleteTransactionWithCounterpart } = vi.hoisted(() => ({
   updateTransaction:
     vi.fn<(client: unknown, input: UpdateTransactionInput) => Promise<unknown>>(),
+  deleteTransactionWithCounterpart:
+    vi.fn<(client: unknown, id: string) => Promise<void>>(),
 }));
 vi.mock("@/lib/ledger", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/ledger")>();
-  return { ...actual, updateTransaction };
+  return { ...actual, updateTransaction, deleteTransactionWithCounterpart };
 });
 
+import { LedgerError } from "@/lib/ledger";
 import {
   bulkApproveTransactions,
   bulkCategorizeTransactions,
+  bulkDeleteTransactions,
   bulkMoveTransactions,
 } from "./actions";
 
@@ -59,6 +63,7 @@ function row(overrides: Partial<Row> = {}): Row {
 
 beforeEach(() => {
   updateTransaction.mockClear();
+  deleteTransactionWithCounterpart.mockReset();
   mockRows = [];
 });
 
@@ -208,5 +213,65 @@ describe("bulkMoveTransactions", () => {
     mockRows = [row({ id: "a", reconciled_at: "2026-01-01T00:00:00Z" })];
     const res = await bulkMoveTransactions(["a"], "acc-9");
     expect(res).toEqual({ updated: 0, skipped: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// bulkDeleteTransactions
+// ---------------------------------------------------------------------------
+
+describe("bulkDeleteTransactions", () => {
+  it("returns early with no work for an empty id list", async () => {
+    const res = await bulkDeleteTransactions([]);
+    expect(res).toEqual({ updated: 0, skipped: 0 });
+    expect(deleteTransactionWithCounterpart).not.toHaveBeenCalled();
+  });
+
+  it("deletes each selected line (transfer legs via the counterpart-aware op)", async () => {
+    deleteTransactionWithCounterpart.mockResolvedValue(undefined);
+    mockRows = [row({ id: "a" }), row({ id: "b", transfer_account_id: "acc-2" })];
+    const res = await bulkDeleteTransactions(["a", "b"]);
+    expect(res).toEqual({ updated: 2, skipped: 0 });
+    expect(deleteTransactionWithCounterpart).toHaveBeenCalledTimes(2);
+    expect(deleteTransactionWithCounterpart.mock.calls.map((c) => c[1])).toEqual([
+      "a",
+      "b",
+    ]);
+  });
+
+  it("skips reconciled (locked) lines", async () => {
+    deleteTransactionWithCounterpart.mockResolvedValue(undefined);
+    mockRows = [
+      row({ id: "a", reconciled_at: "2026-01-01T00:00:00Z" }),
+      row({ id: "b" }),
+    ];
+    const res = await bulkDeleteTransactions(["a", "b"]);
+    expect(res).toEqual({ updated: 1, skipped: 1 });
+    expect(deleteTransactionWithCounterpart).toHaveBeenCalledTimes(1);
+    expect(deleteTransactionWithCounterpart.mock.calls[0][1]).toBe("b");
+  });
+
+  it("counts an already-gone counterpart leg as deleted, not a failure", async () => {
+    // Both legs selected: deleting the first removes the second, so the second
+    // reaches deleteTransactionWithCounterpart as not_found.
+    deleteTransactionWithCounterpart
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(new LedgerError("not_found", "transaction not found"));
+    mockRows = [
+      row({ id: "a", transfer_account_id: "acc-2" }),
+      row({ id: "b", transfer_account_id: "acc-1" }),
+    ];
+    const res = await bulkDeleteTransactions(["a", "b"]);
+    expect(res).toEqual({ updated: 2, skipped: 0 });
+  });
+
+  it("surfaces a real ledger error", async () => {
+    deleteTransactionWithCounterpart.mockRejectedValue(
+      new LedgerError("db_error", "boom"),
+    );
+    mockRows = [row({ id: "a" })];
+    const res = await bulkDeleteTransactions(["a"]);
+    expect(res.error).toBe("boom");
+    expect(res.updated).toBe(0);
   });
 });

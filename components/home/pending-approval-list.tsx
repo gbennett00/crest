@@ -121,6 +121,8 @@ export function PendingApprovalList({
         selectedIds={selectedIds}
         categories={categories}
         accounts={accounts}
+        primary={["approve", "categorize"]}
+        menu={["move", "delete"]}
         onClearSelection={() => setSelected(new Set())}
       />
     </>
