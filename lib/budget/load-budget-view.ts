@@ -134,7 +134,9 @@ export async function loadBudgetView(
   // viewed month (future income never counts toward an earlier month's RTA).
   // Spending assignments are fetched across *all* months — future commitments
   // are shown as "assigned in future" and capped in `computeRtaBreakdown`, so
-  // every month reports the same global Ready to Assign that YNAB does.
+  // every month reports the same global Ready to Assign that YNAB does. (This
+  // holds for historical months too: e.g. a March view deducts April-onward
+  // assignments, capped at cash on hand, so it lands at $0 like YNAB.)
   const afterViewedMonth = nextBudgetMonth(month); // exclusive upper bound
 
   const catBudgetsQuery = client
