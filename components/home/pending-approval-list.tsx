@@ -51,6 +51,10 @@ export function PendingApprovalList({
   }
 
   const selectedIds = [...selected];
+  const selectedTotalCents = pending.reduce(
+    (sum, t) => (selected.has(t.id) ? sum + t.amountCents : sum),
+    0,
+  );
 
   return (
     <>
@@ -119,6 +123,7 @@ export function PendingApprovalList({
 
       <BulkActionsBar
         selectedIds={selectedIds}
+        selectedTotalCents={selectedTotalCents}
         categories={categories}
         accounts={accounts}
         primary={["approve", "categorize"]}

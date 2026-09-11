@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Money } from "@/components/money";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -53,6 +54,8 @@ const ACTION_META: Record<
 
 interface BulkActionsBarProps {
   selectedIds: string[];
+  /** Signed sum (cents) of the selected transactions — shown YNAB-style. */
+  selectedTotalCents: number;
   categories: CategoryOption[];
   accounts: AccountOption[];
   /** Actions shown as inline buttons on the bar. */
@@ -107,6 +110,7 @@ function GroupedCategorySelect({
 
 export function BulkActionsBar({
   selectedIds,
+  selectedTotalCents,
   categories,
   accounts,
   primary,
@@ -277,9 +281,20 @@ export function BulkActionsBar({
 
           {/* Action row */}
           <div className="flex items-center gap-2 px-3 py-2.5">
-            <span className="text-sm font-medium tabular-nums shrink-0">
-              {count} selected
-            </span>
+            <div className="flex flex-col shrink-0 leading-tight">
+              <span
+                className={cn(
+                  "text-sm font-semibold tabular-nums",
+                  selectedTotalCents < 0 && "text-destructive",
+                  selectedTotalCents > 0 && "text-green-600 dark:text-green-400",
+                )}
+              >
+                <Money cents={selectedTotalCents} sign />
+              </span>
+              <span className="text-[11px] text-muted-foreground">
+                {count} selected
+              </span>
+            </div>
             <div className="flex-1 flex items-center justify-end gap-1.5">
               {primary.map((action) => actionButton(action))}
 

@@ -66,6 +66,11 @@ export function RegisterTransactionList({
     setSelected(allSelected ? new Set() : new Set(selectableIds));
   }
 
+  const selectedTotalCents = transactions.reduce(
+    (sum, t) => (selected.has(t.id) ? sum + t.amountCents : sum),
+    0,
+  );
+
   // Preserve incoming order (txn_date desc, created desc) while grouping by day.
   const groups: { date: string; txns: RegisterTxn[] }[] = [];
   for (const txn of transactions) {
@@ -174,6 +179,7 @@ export function RegisterTransactionList({
 
       <BulkActionsBar
         selectedIds={[...selected]}
+        selectedTotalCents={selectedTotalCents}
         categories={categories}
         accounts={accounts}
         primary={["categorize", "move"]}
