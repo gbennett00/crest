@@ -30,7 +30,7 @@ import {
 
 const ICON_SIZE = 15;
 
-export function UserMenu() {
+export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
   const router = useRouter();
   const { theme, setTheme } = useTheme();
   const { privacyMode, togglePrivacyMode } = usePrivacyMode();
@@ -141,7 +141,7 @@ export function UserMenu() {
               <Bell size={ICON_SIZE} />
               Push notifications
             </DropdownMenuCheckboxItem>
-            {subscribed && (
+            {subscribed && !isProduction && (
               <DropdownMenuItem
                 onClick={handleTestPush}
                 disabled={testStatus === "sending"}
