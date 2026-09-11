@@ -201,24 +201,18 @@ export async function loadBudgetView(
 
   // Credit-card payment-category activity + register balances + breakdowns.
   // Mutates `catActivity` to inject derived payment-category activity.
-  const { cardRegisterBalance, cardBreakdown } = await loadCreditCardActivity(
-    client,
-    month,
-    ccAccountMap,
-    { catActivity, catAssigned, grpActivity, grpAssigned, categoryGroup },
-  );
+  const { cardRegisterBalance, cardBreakdown, creditOutflowByUnit } =
+    await loadCreditCardActivity(client, month, ccAccountMap, {
+      catActivity,
+      catAssigned,
+      grpActivity,
+      grpAssigned,
+      categoryGroup,
+    });
 
   const { catTargets, grpTargets } = buildTargets(targetsRes.data);
 
-  const rtaAvailableCents = computeReadyToAssign({
-    rtaActivityCents: sumCents(rtaActivityRes.data, "activity_cents"),
-    creditCardOpeningBalanceCents: sumCents(ccOpeningRes.data, "amount_cents"),
-    totalSpendingAssignedCents:
-      sumCents(allCatBudgetsRes.data, "assigned_cents") +
-      sumCents(allGrpBudgetsRes.data, "assigned_cents"),
-  });
-
-  const budgetGroups = buildBudgetGroups({
+  const { groups: budgetGroups, priorCashOverspendCents } = buildBudgetGroups({
     groups,
     month,
     catActivity,
@@ -229,6 +223,18 @@ export async function loadBudgetView(
     grpTargets,
     cardRegisterBalance,
     cardBreakdown,
+    creditOutflowByUnit,
+  });
+
+  // Ready to Assign is reduced by cash overspending charged in prior months
+  // (YNAB's cash-overspend rule), computed alongside the floored availables.
+  const rtaAvailableCents = computeReadyToAssign({
+    rtaActivityCents: sumCents(rtaActivityRes.data, "activity_cents"),
+    creditCardOpeningBalanceCents: sumCents(ccOpeningRes.data, "amount_cents"),
+    totalSpendingAssignedCents:
+      sumCents(allCatBudgetsRes.data, "assigned_cents") +
+      sumCents(allGrpBudgetsRes.data, "assigned_cents"),
+    priorCashOverspendCents,
   });
 
   return { month, minMonth, maxMonth, rtaAvailableCents, groups: budgetGroups };
@@ -264,10 +270,12 @@ async function loadCreditCardActivity(
 ): Promise<{
   cardRegisterBalance: Map<string, number>;
   cardBreakdown: Record<string, PaymentCategoryBreakdown>;
+  creditOutflowByUnit: MonthlyCents;
 }> {
   const { catActivity, catAssigned, grpActivity, grpAssigned, categoryGroup } = histories;
   const cardRegisterBalance = new Map<string, number>();
-  if (ccAccountMap.size === 0) return { cardRegisterBalance, cardBreakdown: {} };
+  if (ccAccountMap.size === 0)
+    return { cardRegisterBalance, cardBreakdown: {}, creditOutflowByUnit: {} };
 
   const accountIds = [...ccAccountMap.keys()];
   const through = nextBudgetMonth(month); // everything strictly before next month
@@ -317,15 +325,16 @@ async function loadCreditCardActivity(
     });
   }
 
-  const { paymentActivity, breakdown } = computePaymentCategoryActivity({
-    throughMonth: month,
-    catActivity,
-    catAssigned,
-    grpActivity,
-    grpAssigned,
-    categoryGroup,
-    creditTxns,
-  });
+  const { paymentActivity, breakdown, creditOutflowByUnit } =
+    computePaymentCategoryActivity({
+      throughMonth: month,
+      catActivity,
+      catAssigned,
+      grpActivity,
+      grpAssigned,
+      categoryGroup,
+      creditTxns,
+    });
 
   // Merge derived payment-category activity into the spending-category map so
   // availability rolls it forward. Payment categories have no other activity.
@@ -336,7 +345,7 @@ async function loadCreditCardActivity(
     }
   }
 
-  return { cardRegisterBalance, cardBreakdown: breakdown };
+  return { cardRegisterBalance, cardBreakdown: breakdown, creditOutflowByUnit };
 }
 
 // ---------------------------------------------------------------------------

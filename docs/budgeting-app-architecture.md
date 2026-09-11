@@ -416,10 +416,16 @@ reduces the card's debt, so it drains the payment category by the return amount
 (grouped with payments as "Payments & Returns"). The refund also flows back into
 its spending category's available via the allocation, as usual.
 
-**Payments.** A payment transfer to a credit card (a transfer inflow on the card)
-drains the payment category by the payment amount. No spending category is
-involved and the transfer is not categorized — the drain is derived from the
-transfer itself.
+**Payments & transfers.** Any transfer on the card moves its balance, so it moves
+the payment obligation, and the effect is derived from the transfer itself (no
+spending category, never categorized). A transfer **inflow** (a payment to the
+card) reduces debt and **drains** the payment category by the amount. A transfer
+**outflow** (money moved off the card — withdrawing a credit balance, or a cash
+advance to another account) increases debt and **fills** the payment category by
+the amount, symmetric to a payment. The signed transfer amount captures both;
+dropping the outflow leg strands the payment category negative — e.g. a refund
+(drain) followed by transferring that credit balance out (fill) nets to $0 owed,
+and both legs are required to land the payment category back at $0.
 
 **Opening balance (pre-existing debt).** The card's negative opening balance is
 **not** injected into the payment category and is **excluded from the Ready to
