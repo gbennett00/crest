@@ -133,13 +133,6 @@ export function RtaBreakdownPopup({
                 ? "Nice work — every dollar has a job."
                 : "This is money that hasn't been assigned to a category yet."}
           </p>
-          {b.futureCoveredByFutureIncomeCents > 0 && (
-            <p className="text-xs text-muted-foreground mt-2">
-              A further {formatCents(b.futureCoveredByFutureIncomeCents)} is assigned
-              in future months beyond the cash on hand now — that part is covered
-              by income arriving in those months, so it isn&apos;t subtracted here.
-            </p>
-          )}
         </div>
       </div>
     </div>
