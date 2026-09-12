@@ -42,8 +42,8 @@ export async function sendTestPush(): Promise<{ error?: string }> {
   if (userError || !userData.user) return { error: "Not signed in" };
 
   await sendPushToUsers(supabase, [userData.user.id], {
-    title: "Crest",
-    body: "Test notification — if you can see this, push is working.",
+    title: "Test notification",
+    body: "If you can see this, push is working.",
     url: "/",
   });
   return {};

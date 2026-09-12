@@ -79,7 +79,7 @@ export async function POST(request: NextRequest) {
       if (result.addedCount > 0) {
         const planId = (itemRow as { plan_id: string }).plan_id;
         await sendPushToPlan(supabase, planId, {
-          title: "Crest",
+          title: "New transactions",
           body: `${result.addedCount} new transaction${result.addedCount === 1 ? "" : "s"} to review`,
           url: "/#pending",
         });
@@ -116,7 +116,7 @@ export async function POST(request: NextRequest) {
           institution_name: string | null;
         };
         await sendPushToPlan(supabase, plan_id, {
-          title: "Crest",
+          title: "Bank connection issue",
           body: `${institution_name ?? "A bank connection"} needs attention`,
           url: "/accounts",
         });
