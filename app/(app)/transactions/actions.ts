@@ -188,8 +188,10 @@ function allocationsCoverAmount(row: BulkTxnRow): boolean {
  * Approve a batch of transactions. A line that already carries splits summing
  * to its amount keeps them; an uncategorized line is given the single fallback
  * `categoryId` (full amount) so it can be approved in one gesture, mirroring the
- * per-row Approve control. Reconciled lines are skipped (locked); an
- * uncategorized line is skipped when no fallback category is supplied.
+ * per-row Approve control. Reconciled lines can be approved (locking concerns
+ * amount/cleared state, not categorization). Transfer legs are skipped — they
+ * carry no category and are created already approved. An uncategorized line is
+ * skipped when no fallback category is supplied.
  */
 export async function bulkApproveTransactions(
   txnIds: string[],
@@ -206,7 +208,7 @@ export async function bulkApproveTransactions(
     let skipped = 0;
 
     for (const row of rows) {
-      if (row.reconciled_at) {
+      if (row.transfer_account_id) {
         skipped++;
         continue;
       }
@@ -242,7 +244,7 @@ export async function bulkApproveTransactions(
  * Assign a single category (full amount) to a batch of transactions. Approval
  * state is left as-is: an already-approved line stays approved with the new
  * single split; a pending line stays pending but becomes categorized.
- * Reconciled lines and transfer legs are skipped.
+ * Reconciled lines can be categorized; transfer legs (no category) are skipped.
  */
 export async function bulkCategorizeTransactions(
   txnIds: string[],
@@ -259,7 +261,7 @@ export async function bulkCategorizeTransactions(
     let skipped = 0;
 
     for (const row of rows) {
-      if (row.reconciled_at || row.transfer_account_id) {
+      if (row.transfer_account_id) {
         skipped++;
         continue;
       }

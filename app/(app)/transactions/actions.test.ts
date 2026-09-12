@@ -133,9 +133,19 @@ describe("bulkApproveTransactions", () => {
     expect(updateTransaction).not.toHaveBeenCalled();
   });
 
-  it("skips reconciled (locked) lines", async () => {
+  it("approves reconciled (locked) lines — locking doesn't block categorization", async () => {
     mockRows = [row({ id: "e", reconciled_at: "2026-01-01T00:00:00Z" })];
     const res = await bulkApproveTransactions(["e"], "cat-9");
+    expect(res).toEqual({ updated: 1, skipped: 0 });
+    expect(updateTransaction.mock.calls[0][1]).toMatchObject({
+      id: "e",
+      allocations: [{ categoryId: "cat-9", amountCents: -5000 }],
+    });
+  });
+
+  it("skips transfer legs (no category to approve into)", async () => {
+    mockRows = [row({ id: "t", transfer_account_id: "acc-2" })];
+    const res = await bulkApproveTransactions(["t"], "cat-9");
     expect(res).toEqual({ updated: 0, skipped: 1 });
     expect(updateTransaction).not.toHaveBeenCalled();
   });
@@ -166,14 +176,18 @@ describe("bulkCategorizeTransactions", () => {
     expect(arg.approvedAt).toBeUndefined();
   });
 
-  it("skips transfer legs and reconciled lines", async () => {
+  it("categorizes reconciled lines but skips transfer legs", async () => {
     mockRows = [
       row({ id: "a", transfer_account_id: "acc-2" }),
-      row({ id: "b", reconciled_at: "2026-01-01T00:00:00Z" }),
+      row({ id: "b", amount_cents: -1200, reconciled_at: "2026-01-01T00:00:00Z" }),
     ];
     const res = await bulkCategorizeTransactions(["a", "b"], "cat-3");
-    expect(res).toEqual({ updated: 0, skipped: 2 });
-    expect(updateTransaction).not.toHaveBeenCalled();
+    expect(res).toEqual({ updated: 1, skipped: 1 });
+    expect(updateTransaction).toHaveBeenCalledTimes(1);
+    expect(updateTransaction.mock.calls[0][1]).toEqual({
+      id: "b",
+      allocations: [{ categoryId: "cat-3", amountCents: -1200 }],
+    });
   });
 });
 

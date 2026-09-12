@@ -46,12 +46,10 @@ export function RegisterTransactionList({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
 
-  // Reconciled lines are locked; they can't take part in a bulk edit.
-  const selectableIds = transactions
-    .filter((t) => !t.reconciled)
-    .map((t) => t.id);
-  const allSelected =
-    selectableIds.length > 0 && selected.size === selectableIds.length;
+  // Every row is selectable — reconciled lines included. They just can't be
+  // moved or deleted (the bar guards that); categorize/approve still apply.
+  const allIds = transactions.map((t) => t.id);
+  const allSelected = allIds.length > 0 && selected.size === allIds.length;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -63,11 +61,16 @@ export function RegisterTransactionList({
   }
 
   function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(selectableIds));
+    setSelected(allSelected ? new Set() : new Set(allIds));
   }
 
   const selectedTotalCents = transactions.reduce(
     (sum, t) => (selected.has(t.id) ? sum + t.amountCents : sum),
+    0,
+  );
+  // Reconciled (locked) rows can be categorized/approved but not moved/deleted.
+  const lockedSelectedCount = transactions.reduce(
+    (n, t) => (selected.has(t.id) && t.reconciled ? n + 1 : n),
     0,
   );
 
@@ -82,7 +85,7 @@ export function RegisterTransactionList({
   return (
     <div>
       {/* Select-all control */}
-      {selectableIds.length > 0 && (
+      {allIds.length > 0 && (
         <div className="flex items-center gap-2.5 px-4 py-2 border-b bg-muted/10">
           <Checkbox
             checked={allSelected}
@@ -114,20 +117,15 @@ export function RegisterTransactionList({
                   isChecked && "bg-primary/5",
                 )}
               >
-                {/* Selection checkbox. Reconciled (locked) lines can't be
-                    selected; the lock status shows on the right, so leave an
-                    empty spacer here to keep rows aligned without a second
-                    lock icon. */}
+                {/* Selection checkbox. Reconciled lines are selectable too
+                    (for categorize/approve); their locked status shows via the
+                    lock icon on the right. */}
                 <div className="flex items-center pl-4">
-                  {txn.reconciled ? (
-                    <span className="w-4 h-4" aria-hidden />
-                  ) : (
-                    <Checkbox
-                      checked={isChecked}
-                      onCheckedChange={() => toggle(txn.id)}
-                      aria-label={`Select ${txn.payee || "transaction"}`}
-                    />
-                  )}
+                  <Checkbox
+                    checked={isChecked}
+                    onCheckedChange={() => toggle(txn.id)}
+                    aria-label={`Select ${txn.payee || "transaction"}`}
+                  />
                 </div>
                 <Link
                   href={editHref}
@@ -183,6 +181,7 @@ export function RegisterTransactionList({
       <BulkActionsBar
         selectedIds={[...selected]}
         selectedTotalCents={selectedTotalCents}
+        lockedCount={lockedSelectedCount}
         categories={categories}
         accounts={accounts}
         primary={["categorize", "move"]}

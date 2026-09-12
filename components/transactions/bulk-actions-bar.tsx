@@ -56,6 +56,12 @@ interface BulkActionsBarProps {
   selectedIds: string[];
   /** Signed sum (cents) of the selected transactions — shown YNAB-style. */
   selectedTotalCents: number;
+  /**
+   * How many of the selected rows are reconciled (locked). These can be
+   * categorized/approved but not moved or deleted, so Move and Delete are
+   * disabled once every selected row is locked, and warn otherwise.
+   */
+  lockedCount?: number;
   categories: CategoryOption[];
   accounts: AccountOption[];
   /** Actions shown as inline buttons on the bar. */
@@ -111,6 +117,7 @@ function GroupedCategorySelect({
 export function BulkActionsBar({
   selectedIds,
   selectedTotalCents,
+  lockedCount = 0,
   categories,
   accounts,
   primary,
@@ -150,6 +157,17 @@ export function BulkActionsBar({
   }
 
   const count = selectedIds.length;
+  // Reconciled rows can't be moved or deleted. How many selected rows those
+  // actions could actually touch:
+  const eligibleForRestricted = count - lockedCount;
+  // Move/Delete are blocked outright only when nothing eligible remains.
+  function isBlocked(action: BulkAction) {
+    return (
+      (action === "move" || action === "delete") && eligibleForRestricted === 0
+    );
+  }
+  const lockHint = "Reconciled transactions can’t be moved or deleted.";
+
   // The picker row only applies to the non-destructive actions; delete uses a
   // confirmation dialog instead.
   const pickerMode =
@@ -160,11 +178,13 @@ export function BulkActionsBar({
   function actionButton(action: BulkAction) {
     const { label, Icon } = ACTION_META[action];
     const active = mode === action;
+    const blocked = isBlocked(action);
     return (
       <button
         key={action}
         type="button"
-        disabled={isPending}
+        disabled={isPending || blocked}
+        title={blocked ? lockHint : undefined}
         onClick={() => setMode(active ? null : action)}
         className={cn(
           "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
@@ -238,39 +258,48 @@ export function BulkActionsBar({
               )}
 
               {pickerMode === "move" && (
-                <div className="flex items-center gap-2">
-                  {moveTargets.length === 0 ? (
-                    <p className="flex-1 text-xs text-muted-foreground">
-                      No other account to move to.
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex items-center gap-2">
+                    {moveTargets.length === 0 ? (
+                      <p className="flex-1 text-xs text-muted-foreground">
+                        No other account to move to.
+                      </p>
+                    ) : (
+                      <>
+                        <select
+                          value={account}
+                          onChange={(e) => setAccount(e.target.value)}
+                          disabled={isPending}
+                          className={cn(
+                            "flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm",
+                            "focus:outline-none focus:ring-1 focus:ring-ring",
+                          )}
+                        >
+                          {moveTargets.map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {a.name}
+                            </option>
+                          ))}
+                        </select>
+                        <Button
+                          size="sm"
+                          className="h-8 text-xs shrink-0"
+                          disabled={isPending || !account}
+                          onClick={() =>
+                            run(() => bulkMoveTransactions(selectedIds, account))
+                          }
+                        >
+                          {isPending ? "…" : "Move"}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                  {lockedCount > 0 && (
+                    <p className="text-xs text-muted-foreground">
+                      {lockedCount} reconciled{" "}
+                      {lockedCount === 1 ? "line is" : "lines are"} locked and
+                      won’t be moved.
                     </p>
-                  ) : (
-                    <>
-                      <select
-                        value={account}
-                        onChange={(e) => setAccount(e.target.value)}
-                        disabled={isPending}
-                        className={cn(
-                          "flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm",
-                          "focus:outline-none focus:ring-1 focus:ring-ring",
-                        )}
-                      >
-                        {moveTargets.map((a) => (
-                          <option key={a.id} value={a.id}>
-                            {a.name}
-                          </option>
-                        ))}
-                      </select>
-                      <Button
-                        size="sm"
-                        className="h-8 text-xs shrink-0"
-                        disabled={isPending || !account}
-                        onClick={() =>
-                          run(() => bulkMoveTransactions(selectedIds, account))
-                        }
-                      >
-                        {isPending ? "…" : "Move"}
-                      </Button>
-                    </>
                   )}
                 </div>
               )}
@@ -313,9 +342,12 @@ export function BulkActionsBar({
                   <DropdownMenuContent align="end" side="top">
                     {menu.map((action) => {
                       const { label, Icon, destructive } = ACTION_META[action];
+                      const blocked = isBlocked(action);
                       return (
                         <DropdownMenuItem
                           key={action}
+                          disabled={blocked}
+                          title={blocked ? lockHint : undefined}
                           onSelect={() => setMode(action)}
                           className={cn(
                             destructive &&
@@ -357,14 +389,22 @@ export function BulkActionsBar({
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
-              Delete {count} transaction{count === 1 ? "" : "s"}?
+              Delete {eligibleForRestricted} transaction
+              {eligibleForRestricted === 1 ? "" : "s"}?
             </AlertDialogTitle>
             <AlertDialogDescription>
-              This permanently removes {count === 1 ? "it" : "them"} from the
-              register. Transfers remove their matching leg too. This can’t be
-              undone.
+              This permanently removes {eligibleForRestricted === 1 ? "it" : "them"}{" "}
+              from the register. Transfers remove their matching leg too. This
+              can’t be undone.
             </AlertDialogDescription>
           </AlertDialogHeader>
+          {lockedCount > 0 && (
+            <p className="text-xs text-muted-foreground">
+              {lockedCount} reconciled{" "}
+              {lockedCount === 1 ? "line is" : "lines are"} locked and will be
+              kept.
+            </p>
+          )}
           {error && <p className="text-xs text-destructive">{error}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
