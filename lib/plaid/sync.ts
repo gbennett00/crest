@@ -317,12 +317,17 @@ export async function syncItem(
   ]);
   let adoptedCount = 0;
 
-  for (const txn of [...allAdded, ...allModified]) {
+  // Writes `txn` and reports whether it actually landed in the DB. A txn is
+  // skipped (false) when its account isn't tracked (unmapped/ignored) or it's
+  // a zero-amount entry — callers use this to count what was really written,
+  // not Plaid's raw added/modified counts, which include every account on the
+  // Item regardless of whether Crest tracks it.
+  async function writeTxn(txn: Transaction): Promise<boolean> {
     const crestAccountId = accountMap.get(txn.account_id);
-    if (!crestAccountId) continue;
+    if (!crestAccountId) return false;
 
     const input = plaidTxnToUpsertInput(txn, crestAccountId);
-    if (input.amountCents === 0) continue;
+    if (input.amountCents === 0) return false;
 
     if (txn.pending_transaction_id) {
       const { data: pendingRow } = await client
@@ -357,7 +362,7 @@ export async function syncItem(
           .update({ imported_id: input.importedId })
           .eq("id", pendingRow.id as string);
 
-        continue;
+        return true;
       }
     }
 
@@ -379,11 +384,21 @@ export async function syncItem(
         );
         pool.splice(matchIdx, 1);
         adoptedCount++;
-        continue;
+        return true;
       }
     }
 
     await upsertTransaction(client, input);
+    return true;
+  }
+
+  let writtenAddedCount = 0;
+  for (const txn of allAdded) {
+    if (await writeTxn(txn)) writtenAddedCount++;
+  }
+  let writtenModifiedCount = 0;
+  for (const txn of allModified) {
+    if (await writeTxn(txn)) writtenModifiedCount++;
   }
 
   for (const removed of allRemoved) {
@@ -414,8 +429,8 @@ export async function syncItem(
     .eq("id", item.id);
 
   return {
-    addedCount: allAdded.length,
-    modifiedCount: allModified.length,
+    addedCount: writtenAddedCount,
+    modifiedCount: writtenModifiedCount,
     removedCount: allRemoved.length,
     accountsCreated,
     adoptedCount,
