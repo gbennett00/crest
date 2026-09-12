@@ -16,7 +16,6 @@ import {
   getPlaidAccountsForItem,
   getUnlinkedAccounts,
   syncItem,
-  syncItemAndNotify,
 } from "@/lib/plaid/sync";
 
 export async function createManualAccount(formData: FormData) {
@@ -283,7 +282,10 @@ export async function syncLinkedItem(plaidItemId: string) {
 
     if (error || !itemRow) return { error: "Item not found" };
 
-    const result = await syncItemAndNotify(supabase, itemRow as never);
+    // Deliberately plain syncItem, not syncItemAndNotify: a manual sync means
+    // the user is already in the app pulling for new transactions on purpose,
+    // so a push notification here would just be redundant.
+    const result = await syncItem(supabase, itemRow as never);
     revalidatePath("/accounts");
     return { success: true, ...result };
   } catch (e) {
