@@ -16,6 +16,7 @@ import {
   getPlaidAccountsForItem,
   getUnlinkedAccounts,
   syncItem,
+  syncItemAndNotify,
 } from "@/lib/plaid/sync";
 
 export async function createManualAccount(formData: FormData) {
@@ -282,7 +283,7 @@ export async function syncLinkedItem(plaidItemId: string) {
 
     if (error || !itemRow) return { error: "Item not found" };
 
-    const result = await syncItem(supabase, itemRow as never);
+    const result = await syncItemAndNotify(supabase, itemRow as never);
     revalidatePath("/accounts");
     return { success: true, ...result };
   } catch (e) {

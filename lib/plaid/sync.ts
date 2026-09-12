@@ -17,6 +17,7 @@ import {
   plaidTxnToUpsertInput,
 } from "./mapping";
 import { selectAdoptionMatch, type AdoptionCandidate } from "./match";
+import { sendPushToPlan } from "@/lib/push";
 
 type PlaidItemRow = {
   id: string;
@@ -420,4 +421,28 @@ export async function syncItem(
     accountsCreated,
     adoptedCount,
   };
+}
+
+/**
+ * syncItem, plus a push notification to the plan when new transactions
+ * landed. Used by every entry point that can discover new activity — the
+ * Plaid webhook and a user-triggered manual sync alike — so notifications
+ * fire consistently regardless of what triggered the sync. Not used by the
+ * initial post-link sync (completeAccountLinking): a fresh link's first
+ * pull can bring in up to 90 days of history, and the user is already
+ * looking at the screen that triggered it.
+ */
+export async function syncItemAndNotify(
+  client: SupabaseClient,
+  item: PlaidItemRow,
+): Promise<SyncResult> {
+  const result = await syncItem(client, item);
+  if (result.addedCount > 0) {
+    await sendPushToPlan(client, item.plan_id, {
+      title: "Crest",
+      body: `${result.addedCount} new transaction${result.addedCount === 1 ? "" : "s"} to review`,
+      url: "/#pending",
+    });
+  }
+  return result;
 }

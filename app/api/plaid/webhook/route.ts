@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import * as jose from "jose";
 
 import { createPlaidClient } from "@/lib/plaid/client";
-import { syncItem } from "@/lib/plaid/sync";
+import { syncItemAndNotify } from "@/lib/plaid/sync";
 import { createServiceClient } from "@/lib/supabase/service";
 import { sendPushToPlan } from "@/lib/push";
 
@@ -75,15 +75,7 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (itemRow) {
-      const result = await syncItem(supabase, itemRow as never);
-      if (result.addedCount > 0) {
-        const planId = (itemRow as { plan_id: string }).plan_id;
-        await sendPushToPlan(supabase, planId, {
-          title: "Crest",
-          body: `${result.addedCount} new transaction${result.addedCount === 1 ? "" : "s"} to review`,
-          url: "/#pending",
-        });
-      }
+      await syncItemAndNotify(supabase, itemRow as never);
     }
   }
 

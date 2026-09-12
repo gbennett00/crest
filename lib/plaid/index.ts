@@ -10,4 +10,5 @@ export {
   getPlaidAccountsForItem,
   getUnlinkedAccounts,
   syncItem,
+  syncItemAndNotify,
 } from "./sync";
