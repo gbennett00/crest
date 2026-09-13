@@ -442,11 +442,30 @@ function makeReconcileMock(initial: {
   function makeBuilder(table: string) {
     let op: "select" | "insert" | "update" | "delete" = "select";
     let payload: Record<string, unknown> | null = null;
+    let isFilter: [string, unknown] | null = null;
 
     function resolveSingle() {
       if (table === "categories") {
         return {
           data: readyToAssignId ? { id: readyToAssignId } : null,
+          error: null,
+        };
+      }
+      if (table === "account_balances") {
+        // Mirror the account_balances view: cleared/uncleared/working sums.
+        const cleared = state.transactions
+          .filter((t) => t.cleared_at !== null)
+          .reduce((s, t) => s + t.amount_cents, 0);
+        const uncleared = state.transactions
+          .filter((t) => t.cleared_at === null)
+          .reduce((s, t) => s + t.amount_cents, 0);
+        return {
+          data: {
+            account_id: "acc-1",
+            cleared_cents: cleared,
+            uncleared_cents: uncleared,
+            working_cents: cleared + uncleared,
+          },
           error: null,
         };
       }
@@ -502,6 +521,13 @@ function makeReconcileMock(initial: {
 
     function resolveList() {
       if (table === "transactions" && op === "select") {
+        // Uncleared-count query used by loadAccountClosureState (head:true).
+        if (isFilter && isFilter[0] === "cleared_at" && isFilter[1] === null) {
+          const count = state.transactions.filter(
+            (t) => t.cleared_at === null,
+          ).length;
+          return { data: [], count, error: null };
+        }
         return {
           data: state.transactions.map((t) => ({
             amount_cents: t.amount_cents,
@@ -532,7 +558,10 @@ function makeReconcileMock(initial: {
       eq: () => builder,
       neq: () => builder,
       not: () => builder,
-      is: () => builder,
+      is: (col: string, val: unknown) => {
+        isFilter = [col, val];
+        return builder;
+      },
       lte: () => builder,
       order: () => builder,
       limit: () => builder,

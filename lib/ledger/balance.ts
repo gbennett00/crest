@@ -43,20 +43,24 @@ export function sumClearedTransactionAmounts(
  * transaction must be cleared (no uncleared/pending lines lingering) and the
  * working balance must be exactly zero (no money left to move out). This keeps
  * balance math and reconciliation honest — a closed account contributes nothing.
+ *
+ * Pure decision function: the two facts it needs (whether any uncleared line
+ * remains, and the working balance) are aggregated in Postgres and passed in by
+ * `loadAccountClosureState`, so this never walks the whole register itself.
  */
-export function evaluateAccountClosure(
-  transactions: TransactionAmountLine[],
-): {
+export function evaluateAccountClosure(input: {
+  hasUnclearedTransactions: boolean;
+  workingBalanceCents: Cents;
+}): {
   eligible: boolean;
   allCleared: boolean;
   workingBalanceCents: Cents;
 } {
-  const allCleared = transactions.every((t) => t.clearedAt !== null);
-  const working = workingBalanceCents(transactions);
+  const allCleared = !input.hasUnclearedTransactions;
   return {
-    eligible: allCleared && working === 0,
+    eligible: allCleared && input.workingBalanceCents === 0,
     allCleared,
-    workingBalanceCents: working,
+    workingBalanceCents: input.workingBalanceCents,
   };
 }
 
