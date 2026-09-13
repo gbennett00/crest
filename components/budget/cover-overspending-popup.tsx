@@ -115,7 +115,7 @@ export function CoverOverspendingPopup({
       onClick={onClose}
     >
       <div
-        className="bg-background w-full sm:max-w-lg sm:rounded-2xl flex flex-col max-h-[92dvh] sm:max-h-[85dvh] shadow-2xl"
+        className="bg-background w-full sm:max-w-lg sm:rounded-2xl flex flex-col max-h-[92dvh] sm:max-h-[85dvh] shadow-2xl text-left"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky header */}
