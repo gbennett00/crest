@@ -4,6 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { Money } from "@/components/money";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { StickyHeader } from "@/components/ui/sticky-header";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -16,7 +17,7 @@ export default function TransactionsPage({
   searchParams: Promise<{ category?: string; month?: string }>;
 }) {
   return (
-    <Suspense fallback={<div className="pt-12 animate-pulse p-4 space-y-3">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-12 bg-muted rounded" />)}</div>}>
+    <Suspense fallback={<div className="animate-pulse p-4 space-y-3">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-12 bg-muted rounded" />)}</div>}>
       <TransactionsContent searchParams={searchParams} />
     </Suspense>
   );
@@ -76,8 +77,8 @@ async function TransactionsContent({
   const backHref = monthFilter ? `/budget?month=${monthFilter}` : "/budget";
 
   return (
-    <div className="max-w-2xl pt-12">
-      <div className="sticky top-12 z-10 bg-background border-b px-4 py-3 flex items-center gap-3">
+    <div className="max-w-2xl">
+      <StickyHeader className="px-4 py-3 flex items-center gap-3">
         <Link href={backHref} className="text-muted-foreground hover:text-foreground">
           <ChevronLeft size={20} />
         </Link>
@@ -85,7 +86,7 @@ async function TransactionsContent({
           <h1 className="font-semibold text-sm truncate">{categoryName}</h1>
           <p className="text-xs text-muted-foreground">{monthLabel}</p>
         </div>
-      </div>
+      </StickyHeader>
 
       {txns.length === 0 ? (
         <p className="text-center text-sm text-muted-foreground py-16">No transactions.</p>

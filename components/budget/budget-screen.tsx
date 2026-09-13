@@ -22,6 +22,7 @@ import { RowMenu } from "./row-menu";
 import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
+import { StickyHeader } from "@/components/ui/sticky-header";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type {
   BudgetCategory,
@@ -127,7 +128,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
       )}
 
       {/* Month navigation — sticky directly under the global header. */}
-      <div className="sticky top-0 z-10 bg-background border-b flex items-center justify-between px-2 h-11 shrink-0">
+      <StickyHeader className="flex items-center justify-between px-2 h-11 shrink-0">
         <button
           onClick={() => navigate(previousBudgetMonth(data.month))}
           disabled={data.month <= data.minMonth}
@@ -157,7 +158,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
             onToggleReorder={() => setReordering((r) => !r)}
           />
         </div>
-      </div>
+      </StickyHeader>
 
       {reordering ? (
         <BudgetReorder groups={displayGroups} />

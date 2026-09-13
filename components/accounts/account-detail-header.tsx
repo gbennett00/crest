@@ -14,6 +14,7 @@ import {
 import { ReconcileDialog } from "./reconcile-dialog";
 import { CloseAccountDialog } from "./close-account-dialog";
 import { reopenAccountAction } from "@/app/(app)/accounts/actions";
+import { StickyHeader } from "@/components/ui/sticky-header";
 
 export function AccountDetailHeader({
   accountId,
@@ -50,7 +51,7 @@ export function AccountDetailHeader({
 
   return (
     <>
-      <div className="sticky top-12 z-10 bg-background border-b px-4 py-3 flex items-center gap-3">
+      <StickyHeader className="px-4 py-3 flex items-center gap-3">
         <Link href={backHref} className="text-muted-foreground hover:text-foreground shrink-0">
           <ChevronLeft size={20} />
         </Link>
@@ -99,7 +100,7 @@ export function AccountDetailHeader({
             )}
           </DropdownMenuContent>
         </DropdownMenu>
-      </div>
+      </StickyHeader>
 
       {reconcileOpen && (
         <ReconcileDialog
