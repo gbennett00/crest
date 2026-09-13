@@ -40,7 +40,11 @@ async function RegisterContent({
 
   const [accountRes, txnsRes, allTxnAmountsRes, categoriesRes, accountsRes] =
     await Promise.all([
-      supabase.from("accounts").select("id, name, type, is_linked").eq("id", id).single(),
+      supabase
+        .from("accounts")
+        .select("id, name, type, is_linked, balance_cents")
+        .eq("id", id)
+        .single(),
       supabase
         .from("transactions")
         .select(
@@ -164,6 +168,8 @@ async function RegisterContent({
         accountId={id}
         accountName={categoryName ? `${categoryName} — ${account.name}` : (account.name as string)}
         registerClearedBalanceCents={registerClearedBalanceCents}
+        isLinked={account.is_linked as boolean}
+        bankBalanceCents={account.balance_cents as number | null}
         backHref="/accounts"
       />
 
