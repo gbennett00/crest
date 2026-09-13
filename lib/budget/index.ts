@@ -3,6 +3,7 @@ export type {
   BudgetData,
   BudgetGroup,
   BudgetViewItem,
+  RtaBreakdown,
   TargetData,
 } from "./types";
 export { getBudgetView, loadBudgetView } from "./load-budget-view";

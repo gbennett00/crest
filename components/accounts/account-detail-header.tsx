@@ -19,6 +19,8 @@ export function AccountDetailHeader({
   accountId,
   accountName,
   registerClearedBalanceCents,
+  isLinked = false,
+  bankBalanceCents = null,
   backHref,
   isActive,
   canClose,
@@ -27,6 +29,8 @@ export function AccountDetailHeader({
   accountId: string;
   accountName: string;
   registerClearedBalanceCents: number;
+  isLinked?: boolean;
+  bankBalanceCents?: number | null;
   backHref: string;
   isActive: boolean;
   canClose: boolean;
@@ -101,6 +105,8 @@ export function AccountDetailHeader({
         <ReconcileDialog
           accountId={accountId}
           registerClearedBalanceCents={registerClearedBalanceCents}
+          isLinked={isLinked}
+          bankBalanceCents={bankBalanceCents}
           onClose={() => setReconcileOpen(false)}
         />
       )}

@@ -16,11 +16,17 @@ export {
   assertBudgetMonth,
   computeAvailable,
   computeAvailableThrough,
+  computeAvailableWithOverspend,
   currentBudgetMonth,
   nextBudgetMonth,
   previousBudgetMonth,
 } from "./budget";
-export { checkReconciliation, RECONCILIATION_FIX_HINT } from "./reconciliation";
+export {
+  checkReconciliation,
+  reconcileInitialView,
+  RECONCILIATION_FIX_HINT,
+  type ReconcileView,
+} from "./reconciliation";
 export {
   assertIntegerCents,
   assertNonZeroAmount,

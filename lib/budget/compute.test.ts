@@ -4,7 +4,7 @@ import {
   buildBudgetGroups,
   buildHistory,
   computePaymentCategoryActivity,
-  computeReadyToAssign,
+  computeRtaBreakdown,
   findReadyToAssignId,
   paymentShortfallCents,
   type CreditTxn,
@@ -31,37 +31,121 @@ describe("buildHistory", () => {
   });
 });
 
-describe("computeReadyToAssign", () => {
-  it("subtracts spending assignments from inflows", () => {
-    expect(
-      computeReadyToAssign({
-        rtaActivityCents: 500_00,
-        creditCardOpeningBalanceCents: 0,
-        totalSpendingAssignedCents: 300_00,
-      }),
-    ).toBe(200_00);
+describe("computeRtaBreakdown", () => {
+  const base = {
+    inflowPriorCents: 0,
+    inflowThisMonthCents: 0,
+    assignedPriorCents: 0,
+    assignedThisMonthCents: 0,
+    assignedFutureRawCents: 0,
+    previousMonthCashOverspendCents: 0,
+    earlierCashOverspendCents: 0,
+  };
+
+  it("folds prior inflow and prior assignment into a single leftover line", () => {
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowPriorCents: 500_00,
+      assignedPriorCents: 320_00,
+    });
+    expect(b.leftoverFromPriorCents).toBe(180_00);
+    expect(b.totalCents).toBe(180_00);
   });
 
-  it("backs out negative credit-card opening balances so debt is not assignable cash", () => {
-    // A card opened with -100.00 of debt is categorized to RTA as -10000, but
-    // must not reduce assignable cash. Subtracting the (negative) opening adds it back.
-    expect(
-      computeReadyToAssign({
-        rtaActivityCents: 500_00 - 100_00, // inflow plus the -100 opening line
-        creditCardOpeningBalanceCents: -100_00,
-        totalSpendingAssignedCents: 0,
-      }),
-    ).toBe(500_00);
+  it("leftover goes negative when prior assignments exceed prior inflow", () => {
+    const b = computeRtaBreakdown({ ...base, assignedPriorCents: 40_00 });
+    expect(b.leftoverFromPriorCents).toBe(-40_00);
+    expect(b.totalCents).toBe(-40_00);
   });
 
-  it("can go negative when over-assigned", () => {
-    expect(
-      computeReadyToAssign({
-        rtaActivityCents: 100_00,
-        creditCardOpeningBalanceCents: 0,
-        totalSpendingAssignedCents: 150_00,
-      }),
-    ).toBe(-50_00);
+  it("over-assigning the current month drives the total negative", () => {
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowThisMonthCents: 100_00,
+      assignedThisMonthCents: 150_00,
+    });
+    expect(b.totalCents).toBe(-50_00);
+  });
+
+  it("folds older cash overspend into leftover; carries the previous month's as its own line", () => {
+    // Reported August case: the $134.37 overspend was in February (older than
+    // July), so it belongs in leftover, not its own line. No July overspend.
+    const b = computeRtaBreakdown({
+      inflowPriorCents: 5_622_44,
+      inflowThisMonthCents: 5_695_37,
+      assignedPriorCents: 0,
+      assignedThisMonthCents: 5_546_54,
+      assignedFutureRawCents: 5_646_43,
+      previousMonthCashOverspendCents: 0,
+      earlierCashOverspendCents: 134_37,
+    });
+    expect(b.leftoverFromPriorCents).toBe(5_622_44 - 134_37); // 5_488_07, matches YNAB
+    expect(b.previousMonthCashOverspendCents).toBe(0);
+  });
+
+  it("caps future assignments at cash on hand so future over-assignment floors at $0", () => {
+    // Reported August case: $5,646.43 assigned ahead but only $5,636.90 on hand;
+    // the extra $9.53 is funded by future income, so the pool is $0, not -$9.53.
+    const b = computeRtaBreakdown({
+      inflowPriorCents: 5_488_07,
+      inflowThisMonthCents: 5_695_37,
+      assignedPriorCents: 0,
+      assignedThisMonthCents: 5_546_54,
+      assignedFutureRawCents: 5_646_43,
+      previousMonthCashOverspendCents: 0,
+      earlierCashOverspendCents: 0,
+    });
+    expect(b.assignedFutureCents).toBe(5_636_90); // capped at available
+    expect(b.futureCoveredByFutureIncomeCents).toBe(9_53);
+    expect(b.totalCents).toBe(0);
+  });
+
+  it("does not cap future assignments that fit within cash on hand", () => {
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowThisMonthCents: 1_000_00,
+      assignedFutureRawCents: 300_00,
+    });
+    expect(b.assignedFutureCents).toBe(300_00);
+    expect(b.futureCoveredByFutureIncomeCents).toBe(0);
+    expect(b.totalCents).toBe(700_00);
+  });
+
+  it("does not let future assignments deepen a current-month over-assignment", () => {
+    // Already -$50 this month; future assignments contribute nothing (funded by
+    // future income), so the total stays -$50, not more negative.
+    const b = computeRtaBreakdown({
+      ...base,
+      inflowThisMonthCents: 100_00,
+      assignedThisMonthCents: 150_00,
+      assignedFutureRawCents: 400_00,
+    });
+    expect(b.assignedFutureCents).toBe(0);
+    expect(b.totalCents).toBe(-50_00);
+  });
+
+  it("reports 0 assignedFuture when nothing is assigned ahead", () => {
+    const b = computeRtaBreakdown({ ...base, inflowThisMonthCents: 100_00 });
+    expect(b.assignedFutureCents).toBe(0);
+    expect(b.totalCents).toBe(100_00);
+  });
+
+  it("reconciles a historical month to $0 like YNAB (reported March case)", () => {
+    // Viewing March: February overspend is the *previous* month's own line, and
+    // future assignments are capped so the month lands at $0 (not the leftover).
+    const b = computeRtaBreakdown({
+      inflowPriorCents: 8_731_23, // leftover from February
+      inflowThisMonthCents: 7_949_48,
+      assignedPriorCents: 0,
+      assignedThisMonthCents: 8_820_03,
+      assignedFutureRawCents: 9_999_99, // more than available; capped below
+      previousMonthCashOverspendCents: 134_37, // February
+      earlierCashOverspendCents: 0,
+    });
+    expect(b.leftoverFromPriorCents).toBe(8_731_23);
+    expect(b.previousMonthCashOverspendCents).toBe(134_37);
+    expect(b.assignedFutureCents).toBe(7_726_31); // capped at cash on hand
+    expect(b.totalCents).toBe(0);
   });
 });
 
@@ -200,15 +284,36 @@ describe("computePaymentCategoryActivity", () => {
     expect(breakdown["pay"].totalActivityCents).toBe(-25_00);
   });
 
-  it("ignores non-payment transfers (e.g. a transfer out of the card)", () => {
+  it("fills the payment envelope for a transfer OUT of the card (increases what's owed)", () => {
+    // A cash advance / withdrawal off the card raises the balance owed, so it
+    // fills the payment envelope — symmetric to a payment-in draining it.
     const { paymentActivity, breakdown } = computePaymentCategoryActivity({
       throughMonth: MONTH,
       catActivity: {},
       catAssigned: {},
       creditTxns: [tx({ amountCents: -40_00, isTransfer: true })],
     });
-    expect(paymentActivity["pay"]).toBeUndefined();
-    expect(breakdown["pay"]).toBeUndefined();
+    expect(paymentActivity["pay"][MONTH]).toBe(40_00);
+    expect(breakdown["pay"].paymentsAndReturnsCents).toBe(40_00);
+    expect(breakdown["pay"].totalActivityCents).toBe(40_00);
+  });
+
+  it("nets a refund followed by transferring the credit balance off the card to $0", () => {
+    // Regression: a $99 refund (drains the envelope) then a $99 transfer off the
+    // card (fills it) leaves $0 owed and $0 in the payment category — not -$99.
+    const { paymentActivity, breakdown } = computePaymentCategoryActivity({
+      throughMonth: MONTH,
+      catActivity: { refundable: { [MONTH]: 99_00 } },
+      catAssigned: {},
+      creditTxns: [
+        refund("refundable", 99_00),
+        tx({ amountCents: -99_00, isTransfer: true }),
+      ],
+    });
+    expect(paymentActivity["pay"]?.[MONTH] ?? 0).toBe(0);
+    expect(breakdown["pay"].returnsCents).toBe(99_00);
+    expect(breakdown["pay"].paymentsAndReturnsCents).toBe(0);
+    expect(breakdown["pay"].totalActivityCents).toBe(0);
   });
 
   it("counts prior-month assignments as funds when capping", () => {
@@ -402,7 +507,7 @@ describe("buildBudgetGroups", () => {
   ];
 
   it("sorts categories by sort_index", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: baseGroups,
       month: MONTH,
       catActivity: {},
@@ -418,7 +523,7 @@ describe("buildBudgetGroups", () => {
   });
 
   it("rolls assigned + activity forward into available", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: baseGroups,
       month: MONTH,
       catActivity: { "c-rent": { "2026-06-01": -100_00 } },
@@ -438,7 +543,7 @@ describe("buildBudgetGroups", () => {
   });
 
   it("never reports a spendable available for the RTA row", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: [
         {
           id: "g-in",
@@ -465,7 +570,7 @@ describe("buildBudgetGroups", () => {
   });
 
   it("attaches the card register balance to payment categories", () => {
-    const groups = buildBudgetGroups({
+    const { groups } = buildBudgetGroups({
       groups: baseGroups,
       month: MONTH,
       catActivity: {},
@@ -479,5 +584,47 @@ describe("buildBudgetGroups", () => {
     });
     const rent = groups[0].categories.find((c) => c.id === "c-rent")!;
     expect(rent.cardRegisterBalanceCents).toBe(-250_00);
+  });
+
+  it("resets a cash-overspent category next month and reports the RTA charge", () => {
+    // Water overspent $134.37 in May (no assignment). Viewing June, it should
+    // read $0 (reset) and the overspend surfaces as priorCashOverspendCents.
+    const { groups, priorCashOverspendCents } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH, // 2026-06-01
+      catActivity: { "c-water": { "2026-05-01": -134_37 } },
+      catAssigned: {},
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+    });
+    const water = groups[0].categories.find((c) => c.id === "c-water")!;
+    expect(water.availableCents).toBe(0);
+    expect(priorCashOverspendCents).toBe(134_37);
+    // The category-budgeted group subtotal is the sum of its members.
+    expect(groups[0].groupAvailableCents).toBe(0);
+  });
+
+  it("carries uncovered credit overspending forward without charging RTA", () => {
+    // Water: $50 assigned, $70 credit purchase in May → $20 uncovered credit.
+    const { groups, priorCashOverspendCents } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH, // 2026-06-01
+      catActivity: { "c-water": { "2026-05-01": -70_00 } },
+      catAssigned: { "c-water": { "2026-05-01": 50_00 } },
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+      creditOutflowByUnit: { "c:c-water": { "2026-05-01": 70_00 } },
+    });
+    const water = groups[0].categories.find((c) => c.id === "c-water")!;
+    expect(water.availableCents).toBe(-20_00); // credit debt still rolling
+    expect(priorCashOverspendCents).toBe(0);
   });
 });
