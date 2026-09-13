@@ -159,7 +159,7 @@ export async function upsertTransaction(
 
   const { data: existing, error: lookupError } = await client
     .from("transactions")
-    .select("id, amount_cents")
+    .select("id, amount_cents, transfer_account_id")
     .eq("account_id", input.accountId)
     .eq("imported_id", input.importedId)
     .maybeSingle();
@@ -174,7 +174,14 @@ export async function upsertTransaction(
     txn_date: input.txnDate,
     payee: input.payee ?? "",
     memo: input.memo ?? null,
-    transfer_account_id: input.transferAccountId ?? null,
+    // Callers here (Plaid/CSV sync) never describe a transfer themselves — a
+    // transfer's rows are only ever created via createTransfer. On update,
+    // preserve whatever transfer linkage the existing row already has (e.g. a
+    // transfer leg adopted from a YNAB import) instead of stamping it null;
+    // on insert there's no existing linkage to preserve, so null is correct.
+    transfer_account_id: existing
+      ? existing.transfer_account_id
+      : input.transferAccountId ?? null,
     imported_id: input.importedId,
     cleared_at: input.clearedAt ?? null,
     approved_at: input.approvedAt ?? null,
