@@ -160,7 +160,7 @@ async function RegisterContent({
   }));
 
   return (
-    <div className="max-w-2xl pt-12">
+    <div className="max-w-2xl">
       <AccountDetailHeader
         accountId={id}
         accountName={categoryName ? `${categoryName} — ${account.name}` : (account.name as string)}
@@ -208,7 +208,7 @@ const MONTH_NAMES = [
 
 function RegisterSkeleton() {
   return (
-    <div className="pt-12">
+    <div>
       <div className="animate-pulse p-4 space-y-3">
         {Array.from({ length: 8 }).map((_, i) => (
           <div key={i} className="h-14 bg-muted rounded" />
