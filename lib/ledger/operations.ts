@@ -283,6 +283,32 @@ export async function bulkUpsertTransactions(
   }));
 }
 
+/**
+ * Guard against pointing a transaction at a closed (inactive) account. Closed
+ * accounts stay fully readable but must not receive new or reassigned activity;
+ * transfers are already blocked at the DB level by `ledger_create_transfer`.
+ */
+async function assertAccountActive(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const { data, error } = await client
+    .from("accounts")
+    .select("is_active")
+    .eq("id", accountId)
+    .single();
+
+  if (error || !data) {
+    throw new LedgerError("not_found", error?.message ?? "account not found");
+  }
+  if (!(data as { is_active: boolean }).is_active) {
+    throw new LedgerError(
+      "account_closed",
+      "Cannot assign a transaction to a closed account.",
+    );
+  }
+}
+
 export async function createTransaction(
   client: SupabaseClient,
   input: CreateTransactionInput,
@@ -294,6 +320,7 @@ export async function createTransaction(
     input.allocations,
     input.approvedAt ?? null,
   );
+  await assertAccountActive(client, input.accountId);
 
   const row = await insertWithAllocations(
     client,
@@ -338,6 +365,12 @@ export async function updateTransaction(
   assertNonZeroAmount(amountCents);
   if (input.txnDate) {
     assertTxnDate(input.txnDate);
+  }
+
+  // Moving a transaction to a different account may not target a closed one.
+  // Editing a transaction that already lives on a closed account is still fine.
+  if (input.accountId !== undefined && input.accountId !== current.account_id) {
+    await assertAccountActive(client, input.accountId);
   }
 
   // Determine which state transitions are happening so we can require allocations

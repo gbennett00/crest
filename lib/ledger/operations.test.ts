@@ -25,20 +25,37 @@ import type { TransactionRow } from "./types";
 // A Proxy that satisfies any Supabase chain depth. Only single() is terminal;
 // everything else returns the proxy so arbitrary chains compose freely.
 // maybeSingle() returns no existing row (used by upsertTransaction lookup).
-function makeMockClient(fetchRow: TransactionRow | null = null): SupabaseClient {
-  const singleFn = vi.fn().mockResolvedValue({ data: fetchRow, error: null });
+// The "accounts" table resolves single() to an {is_active} row so the closed-
+// account guard in create/updateTransaction sees an active account by default;
+// pass accountActive=false to exercise the rejection path.
+function makeMockClient(
+  fetchRow: TransactionRow | null = null,
+  accountActive = true,
+): SupabaseClient {
+  function makeProxy(single: ReturnType<typeof vi.fn>) {
+    const proxy: Record<string, unknown> = new Proxy(
+      {} as Record<string, unknown>,
+      {
+        get(_, prop) {
+          if (prop === "single") return single;
+          if (prop === "maybeSingle")
+            return vi.fn().mockResolvedValue({ data: null, error: null });
+          return () => proxy;
+        },
+      },
+    );
+    return proxy;
+  }
 
-  const proxy: Record<string, unknown> = new Proxy({} as Record<string, unknown>, {
-    get(_, prop) {
-      if (prop === "single") return singleFn;
-      if (prop === "maybeSingle")
-        return vi.fn().mockResolvedValue({ data: null, error: null });
-      return () => proxy;
-    },
-  });
+  const txnProxy = makeProxy(
+    vi.fn().mockResolvedValue({ data: fetchRow, error: null }),
+  );
+  const acctProxy = makeProxy(
+    vi.fn().mockResolvedValue({ data: { is_active: accountActive }, error: null }),
+  );
 
   return {
-    from: vi.fn(() => proxy),
+    from: vi.fn((table: string) => (table === "accounts" ? acctProxy : txnProxy)),
     rpc: vi.fn().mockResolvedValue({ error: null }),
   } as unknown as SupabaseClient;
 }
@@ -113,6 +130,39 @@ describe("createTransaction — split enforcement", () => {
         approvedAt: APPROVED_AT,
         allocations: [{ categoryId: "cat-rta", amountCents: 10000 }],
       }),
+    ).resolves.toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// create / updateTransaction — closed-account guard
+// ---------------------------------------------------------------------------
+
+describe("closed-account guard", () => {
+  it("rejects creating a transaction on a closed account", async () => {
+    const client = makeMockClient(txnRow(), false);
+    await expect(
+      createTransaction(client, {
+        accountId: "acc-closed",
+        amountCents: -5000,
+        txnDate: "2026-01-15",
+      }),
+    ).rejects.toMatchObject({ code: "account_closed" });
+  });
+
+  it("rejects moving a transaction to a closed account", async () => {
+    // Existing txn is on acc-1; moving it to a different, closed account fails.
+    const client = makeMockClient(txnRow({ account_id: "acc-1" }), false);
+    await expect(
+      updateTransaction(client, { id: "txn-1", accountId: "acc-closed" }),
+    ).rejects.toMatchObject({ code: "account_closed" });
+  });
+
+  it("allows editing a transaction that already lives on a closed account", async () => {
+    // No account change → the guard is skipped even if the account is closed.
+    const client = makeMockClient(txnRow({ account_id: "acc-1" }), false);
+    await expect(
+      updateTransaction(client, { id: "txn-1", payee: "Renamed" }),
     ).resolves.toBeDefined();
   });
 });
@@ -255,8 +305,21 @@ describe("updateTransaction — conditional split enforcement", () => {
         },
       },
     );
+    // The destination account must read as active for the closed-account guard.
+    const acctProxy: Record<string, unknown> = new Proxy(
+      {} as Record<string, unknown>,
+      {
+        get(_, prop) {
+          if (prop === "single")
+            return vi
+              .fn()
+              .mockResolvedValue({ data: { is_active: true }, error: null });
+          return () => acctProxy;
+        },
+      },
+    );
     const client = {
-      from: vi.fn(() => proxy),
+      from: vi.fn((table: string) => (table === "accounts" ? acctProxy : proxy)),
       rpc: vi.fn().mockResolvedValue({ error: null }),
     } as unknown as SupabaseClient;
 
