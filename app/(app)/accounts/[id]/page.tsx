@@ -1,10 +1,6 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import {
-  sumClearedTransactionAmounts,
-  sumPendingTransactionAmounts,
-  workingBalanceCents,
-} from "@/lib/ledger";
+import { loadAccountBalance } from "@/lib/ledger";
 import { AccountDetailHeader } from "@/components/accounts/account-detail-header";
 import { AccountBalanceSummary } from "@/components/accounts/account-balance-summary";
 import { AccountAddTransaction } from "@/components/accounts/account-add-transaction";
@@ -38,7 +34,7 @@ async function RegisterContent({
   const { category: categoryFilter, month: monthFilter } = await searchParams;
   const supabase = await createClient();
 
-  const [accountRes, txnsRes, allTxnAmountsRes, categoriesRes, accountsRes] =
+  const [accountRes, txnsRes, balance, categoriesRes, accountsRes] =
     await Promise.all([
       supabase
         .from("accounts")
@@ -54,11 +50,9 @@ async function RegisterContent({
         .order("txn_date", { ascending: false })
         .order("created_at", { ascending: false })
         .limit(200),
-      // Fetch all transaction amounts for balance calculations
-      supabase
-        .from("transactions")
-        .select("amount_cents, cleared_at")
-        .eq("account_id", id),
+      // Balance summaries aggregated in Postgres (see account_balances view) —
+      // avoids fetching every row and the PostgREST max_rows truncation bug.
+      loadAccountBalance(supabase, id),
       supabase
         .from("categories")
         .select("id, name, role, category_groups!group_id(name)")
@@ -82,14 +76,9 @@ async function RegisterContent({
 
   const account = accountRes.data;
 
-  // Compute balance summaries
-  const allLines = (allTxnAmountsRes.data ?? []).map((r) => ({
-    amountCents: r.amount_cents as number,
-    clearedAt: r.cleared_at as string | null,
-  }));
-  const registerClearedBalanceCents = sumClearedTransactionAmounts(allLines);
-  const unclearedCents = sumPendingTransactionAmounts(allLines);
-  const workingCents = workingBalanceCents(allLines);
+  const registerClearedBalanceCents = balance.clearedCents;
+  const unclearedCents = balance.unclearedCents;
+  const workingCents = balance.workingCents;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let txns = (txnsRes.data ?? []) as any[];

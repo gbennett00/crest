@@ -1,17 +1,17 @@
-import { sumClearedTransactionAmounts } from "./balance";
 import type {
   ReconciliationCheckInput,
   ReconciliationCheckResult,
 } from "./types";
 
 /**
- * Reconcile bank cleared balance (balance_cents) to sum of cleared register lines.
- * Opening balance must be a cleared transaction (see createOpeningBalance).
+ * Reconcile bank cleared balance (balance_cents) to the register cleared
+ * balance. The cleared sum is computed in Postgres (the `account_balances`
+ * view); the opening balance is a cleared transaction and so is included.
  */
 export function checkReconciliation(
   input: ReconciliationCheckInput,
 ): ReconciliationCheckResult {
-  const registerCleared = sumClearedTransactionAmounts(input.transactions);
+  const registerCleared = input.registerClearedBalanceCents;
 
   if (registerCleared === input.bankClearedBalanceCents) {
     return { ok: true };

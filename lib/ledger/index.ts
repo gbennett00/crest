@@ -58,6 +58,8 @@ export {
   getReadyToAssignCategoryId,
   getTransactionAllocations,
   listAccounts,
+  loadAccountBalance,
+  loadAccountBalances,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
   syncBankClearedBalance,
@@ -67,6 +69,7 @@ export {
   upsertTransaction,
 } from "./operations";
 export type {
+  AccountBalance,
   AccountBalanceSummary,
   AccountType,
   AllocationRow,

@@ -30,38 +30,44 @@ async function TransactionsContent({
   const { category: categoryId, month: monthFilter } = await searchParams;
   const supabase = await createClient();
 
+  // Month bounds for the DB-side filter (half-open [monthFilter, nextMonth)).
+  const nextMonth = (() => {
+    if (!monthFilter) return null;
+    const [y, m] = monthFilter.split("-").map(Number);
+    return m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
+  })();
+
   const [categoryRes, txnRes] = await Promise.all([
     categoryId
       ? supabase.from("categories").select("id, name").eq("id", categoryId).single()
       : Promise.resolve({ data: null, error: null }),
     categoryId
-      ? supabase
-          .from("transaction_allocations")
-          .select("amount_cents, transactions(id, payee, amount_cents, txn_date, approved_at, cleared_at, memo, accounts!transactions_account_id_fkey(name))")
-          .eq("category_id", categoryId)
+      ? (() => {
+          // Root at transactions (not allocations) so txn_date is a top-level
+          // column we can filter and sort on in Postgres. The !inner join keeps
+          // only transactions with an allocation to this category, embedding
+          // just that allocation.
+          let q = supabase
+            .from("transactions")
+            .select(
+              "id, payee, amount_cents, txn_date, approved_at, cleared_at, memo, " +
+                "accounts!transactions_account_id_fkey(name), " +
+                "transaction_allocations!inner(amount_cents, category_id)",
+            )
+            .eq("transaction_allocations.category_id", categoryId)
+            .order("txn_date", { ascending: false });
+          if (monthFilter && nextMonth) {
+            q = q.gte("txn_date", monthFilter).lt("txn_date", nextMonth);
+          }
+          return q;
+        })()
       : Promise.resolve({ data: [], error: null }),
   ]);
 
   const categoryName = (categoryRes.data as { name: string } | null)?.name ?? "Category";
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  let allocs = (txnRes.data ?? []) as any[];
-
-  if (monthFilter) {
-    const [y, m] = monthFilter.split("-").map(Number);
-    const nextMonth = m === 12 ? `${y + 1}-01-01` : `${y}-${String(m + 1).padStart(2, "0")}-01`;
-    allocs = allocs.filter((a) => {
-      const t = Array.isArray(a.transactions) ? a.transactions[0] : a.transactions;
-      const d = (t?.txn_date ?? "") as string;
-      return d >= monthFilter && d < nextMonth;
-    });
-  }
-
-  allocs.sort((a, b) => {
-    const ta = Array.isArray(a.transactions) ? a.transactions[0] : a.transactions;
-    const tb = Array.isArray(b.transactions) ? b.transactions[0] : b.transactions;
-    return ((tb?.txn_date ?? "") as string).localeCompare((ta?.txn_date ?? "") as string);
-  });
+  const txns = (txnRes.data ?? []) as any[];
 
   const monthLabel = monthFilter
     ? `${MONTH_NAMES[+monthFilter.slice(5, 7) - 1]} ${monthFilter.slice(0, 4)}`
@@ -81,17 +87,20 @@ async function TransactionsContent({
         </div>
       </div>
 
-      {allocs.length === 0 ? (
+      {txns.length === 0 ? (
         <p className="text-center text-sm text-muted-foreground py-16">No transactions.</p>
       ) : (
-        allocs.map((alloc, i) => {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          const txn: any = Array.isArray(alloc.transactions) ? alloc.transactions[0] : alloc.transactions;
-          if (!txn) return null;
+        txns.map((txn, i) => {
           const isApproved = !!txn.approved_at;
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
           const accountsData: any = Array.isArray(txn.accounts) ? txn.accounts[0] : txn.accounts;
           const accountName = (accountsData as { name: string } | null)?.name ?? "Unknown";
+
+          // The category's share of this transaction (summed in case a split
+          // allocated to the same category more than once).
+          const categoryAmountCents = (
+            (txn.transaction_allocations ?? []) as { amount_cents: number }[]
+          ).reduce((s, a) => s + a.amount_cents, 0);
 
           const currentUrl = `/transactions?category=${categoryId ?? ""}&month=${monthFilter ?? ""}`;
           const editHref = `/transactions/${txn.id}?back=${encodeURIComponent(currentUrl)}`;
@@ -113,10 +122,10 @@ async function TransactionsContent({
               <span
                 className={cn(
                   "text-sm font-medium tabular-nums shrink-0",
-                  alloc.amount_cents < 0 ? "text-destructive" : "text-green-600 dark:text-green-400",
+                  categoryAmountCents < 0 ? "text-destructive" : "text-green-600 dark:text-green-400",
                 )}
               >
-                <Money cents={alloc.amount_cents} />
+                <Money cents={categoryAmountCents} />
               </span>
             </Link>
           );
