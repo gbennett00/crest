@@ -8,7 +8,9 @@ import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { parseMoneyExpression } from "@/lib/format";
 import { bulkAssign } from "@/app/(app)/budget/actions";
-import type { BudgetData, TargetData } from "./budget-screen";
+import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
+import type { TargetData } from "@/lib/budget/types";
+import type { BudgetData } from "./budget-screen";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -21,51 +23,8 @@ function formatMonth(month: string) {
   return `${MONTH_NAMES[m - 1]} ${y}`;
 }
 
-type EntryKey = string; // `c:${categoryId}` or `g:${groupId}`
-
-type Entry = {
-  key: EntryKey;
-  type: "category" | "group";
-  id: string;
-  name: string;
-  groupName: string;
-  originalAssigned: number;
-  currentAvailable: number; // available based on server state (before popup edits)
-  target: TargetData | null;
-};
-
-function buildEntries(data: BudgetData): Entry[] {
-  const entries: Entry[] = [];
-  for (const group of data.groups) {
-    if (group.budgetMode === "group") {
-      entries.push({
-        key: `g:${group.id}`,
-        type: "group",
-        id: group.id,
-        name: group.name,
-        groupName: "Group budget",
-        originalAssigned: group.groupAssignedCents,
-        currentAvailable: group.groupAvailableCents,
-        target: group.target,
-      });
-    } else {
-      for (const cat of group.categories) {
-        if (cat.role === "ready_to_assign" || cat.isHidden) continue;
-        entries.push({
-          key: `c:${cat.id}`,
-          type: "category",
-          id: cat.id,
-          name: cat.name,
-          groupName: group.name,
-          originalAssigned: cat.assignedCents,
-          currentAvailable: cat.availableCents,
-          target: cat.target,
-        });
-      }
-    }
-  }
-  return entries;
-}
+type Entry = BudgetEntry;
+const buildEntries = buildBudgetEntries;
 
 function targetNeed(target: TargetData, draftAssigned: number, currentAvailable: number, draftDelta: number): number {
   const draftAvailable = currentAvailable + draftDelta;
