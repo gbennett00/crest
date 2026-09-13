@@ -14,7 +14,8 @@ import {
 type Allocation = { categoryId: string; amountCents: number };
 
 function revalidateAll() {
-  revalidatePath("/accounts");
+  // "layout" covers both /accounts and the dynamic /accounts/[id] register.
+  revalidatePath("/accounts", "layout");
   revalidatePath("/");
   revalidatePath("/budget");
 }
@@ -127,6 +128,243 @@ export async function saveTransaction(formData: FormData) {
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Failed to save transaction" };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Bulk editing
+// ---------------------------------------------------------------------------
+
+/**
+ * Shared result shape for the bulk actions. `updated` counts transactions that
+ * were changed; `skipped` counts those left untouched because they can't safely
+ * take the operation (reconciled lines, transfer legs, or — for approve — an
+ * uncategorized line with no category to fall back on).
+ */
+export type BulkResult = {
+  updated: number;
+  skipped: number;
+  error?: string;
+};
+
+type BulkTxnRow = {
+  id: string;
+  amount_cents: number;
+  approved_at: string | null;
+  reconciled_at: string | null;
+  transfer_account_id: string | null;
+  transaction_allocations: { category_id: string; amount_cents: number }[];
+};
+
+async function loadBulkTxns(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  txnIds: string[],
+): Promise<BulkTxnRow[]> {
+  const { data, error } = await supabase
+    .from("transactions")
+    .select(
+      "id, amount_cents, approved_at, reconciled_at, transfer_account_id, transaction_allocations(category_id, amount_cents)",
+    )
+    .in("id", txnIds);
+  if (error) throw new LedgerError("db_error", error.message);
+  return (data ?? []) as unknown as BulkTxnRow[];
+}
+
+function existingAllocations(row: BulkTxnRow): Allocation[] {
+  return (row.transaction_allocations ?? []).map((a) => ({
+    categoryId: a.category_id,
+    amountCents: a.amount_cents,
+  }));
+}
+
+function allocationsCoverAmount(row: BulkTxnRow): boolean {
+  const allocs = row.transaction_allocations ?? [];
+  if (allocs.length === 0) return false;
+  const sum = allocs.reduce((s, a) => s + a.amount_cents, 0);
+  return sum === row.amount_cents;
+}
+
+/**
+ * Approve a batch of transactions. A line that already carries splits summing
+ * to its amount keeps them; an uncategorized line is given the single fallback
+ * `categoryId` (full amount) so it can be approved in one gesture, mirroring the
+ * per-row Approve control. Reconciled lines can be approved (locking concerns
+ * amount/cleared state, not categorization). Transfer legs are skipped — they
+ * carry no category and are created already approved. An uncategorized line is
+ * skipped when no fallback category is supplied.
+ */
+export async function bulkApproveTransactions(
+  txnIds: string[],
+  categoryId: string | null,
+): Promise<BulkResult> {
+  if (txnIds.length === 0) return { updated: 0, skipped: 0 };
+
+  const supabase = await createClient();
+  const now = new Date().toISOString();
+
+  try {
+    const rows = await loadBulkTxns(supabase, txnIds);
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (row.transfer_account_id) {
+        skipped++;
+        continue;
+      }
+
+      let allocations: Allocation[];
+      if (allocationsCoverAmount(row)) {
+        allocations = existingAllocations(row);
+      } else if (categoryId) {
+        allocations = [{ categoryId, amountCents: row.amount_cents }];
+      } else {
+        // Uncategorized and no fallback category to apply — can't approve.
+        skipped++;
+        continue;
+      }
+
+      await updateTransaction(supabase, {
+        id: row.id,
+        approvedAt: now,
+        allocations,
+      });
+      updated++;
+    }
+
+    revalidateAll();
+    return { updated, skipped };
+  } catch (e) {
+    if (e instanceof LedgerError) return { updated: 0, skipped: 0, error: e.message };
+    return { updated: 0, skipped: 0, error: "Failed to approve transactions" };
+  }
+}
+
+/**
+ * Assign a single category (full amount) to a batch of transactions. Approval
+ * state is left as-is: an already-approved line stays approved with the new
+ * single split; a pending line stays pending but becomes categorized.
+ * Reconciled lines can be categorized; transfer legs (no category) are skipped.
+ */
+export async function bulkCategorizeTransactions(
+  txnIds: string[],
+  categoryId: string,
+): Promise<BulkResult> {
+  if (txnIds.length === 0) return { updated: 0, skipped: 0 };
+  if (!categoryId) return { updated: 0, skipped: 0, error: "Category is required" };
+
+  const supabase = await createClient();
+
+  try {
+    const rows = await loadBulkTxns(supabase, txnIds);
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (row.transfer_account_id) {
+        skipped++;
+        continue;
+      }
+
+      await updateTransaction(supabase, {
+        id: row.id,
+        allocations: [{ categoryId, amountCents: row.amount_cents }],
+      });
+      updated++;
+    }
+
+    revalidateAll();
+    return { updated, skipped };
+  } catch (e) {
+    if (e instanceof LedgerError) return { updated: 0, skipped: 0, error: e.message };
+    return { updated: 0, skipped: 0, error: "Failed to categorize transactions" };
+  }
+}
+
+/**
+ * Move a batch of transactions to a different account. Transfer legs are
+ * skipped (moving one side would orphan its mirror) and reconciled lines are
+ * skipped (locked). Lines already in the target account are a no-op skip.
+ */
+export async function bulkMoveTransactions(
+  txnIds: string[],
+  accountId: string,
+): Promise<BulkResult> {
+  if (txnIds.length === 0) return { updated: 0, skipped: 0 };
+  if (!accountId) return { updated: 0, skipped: 0, error: "Account is required" };
+
+  const supabase = await createClient();
+
+  try {
+    const rows = await loadBulkTxns(supabase, txnIds);
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (row.reconciled_at || row.transfer_account_id) {
+        skipped++;
+        continue;
+      }
+
+      await updateTransaction(supabase, {
+        id: row.id,
+        accountId,
+      });
+      updated++;
+    }
+
+    revalidateAll();
+    return { updated, skipped };
+  } catch (e) {
+    if (e instanceof LedgerError) return { updated: 0, skipped: 0, error: e.message };
+    return { updated: 0, skipped: 0, error: "Failed to move transactions" };
+  }
+}
+
+/**
+ * Permanently delete a batch of transactions. Each delete also removes the
+ * mirror leg when the line is one side of a transfer (splits cascade in the
+ * DB). Reconciled (locked) lines are skipped. This is irreversible — the UI
+ * gates it behind a confirmation.
+ */
+export async function bulkDeleteTransactions(
+  txnIds: string[],
+): Promise<BulkResult> {
+  if (txnIds.length === 0) return { updated: 0, skipped: 0 };
+
+  const supabase = await createClient();
+
+  try {
+    const rows = await loadBulkTxns(supabase, txnIds);
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (row.reconciled_at) {
+        skipped++;
+        continue;
+      }
+
+      try {
+        await deleteTransactionWithCounterpart(supabase, row.id);
+        updated++;
+      } catch (e) {
+        // When both legs of a transfer are selected, deleting the first also
+        // removes the second; reaching it here as "not found" means it's
+        // already gone — a successful delete, not a failure.
+        if (e instanceof LedgerError && e.code === "not_found") {
+          updated++;
+          continue;
+        }
+        throw e;
+      }
+    }
+
+    revalidateAll();
+    return { updated, skipped };
+  } catch (e) {
+    if (e instanceof LedgerError) return { updated: 0, skipped: 0, error: e.message };
+    return { updated: 0, skipped: 0, error: "Failed to delete transactions" };
   }
 }
 

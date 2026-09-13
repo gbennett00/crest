@@ -26,7 +26,7 @@ export function BottomNav() {
   const pathname = usePathname();
   useEagerPrefetch();
   return (
-    <nav className="fixed bottom-0 inset-x-0 h-16 border-t bg-background flex md:hidden z-20">
+    <nav className="fixed bottom-0 inset-x-0 min-h-16 border-t bg-background flex md:hidden z-20 pb-[env(safe-area-inset-bottom)]">
       {NAV_LINKS.map(({ href, label, Icon, exact }) => {
         const active = exact ? pathname === href : pathname.startsWith(href);
         return (

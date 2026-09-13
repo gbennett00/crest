@@ -4,7 +4,6 @@ import { createClient } from "@/lib/supabase/server";
 import {
   currentBudgetMonth,
   nextBudgetMonth,
-  previousBudgetMonth,
   OPENING_BALANCE_IMPORTED_ID,
 } from "@/lib/ledger";
 import type { BudgetData, TargetData } from "./types";
@@ -12,7 +11,7 @@ import {
   buildBudgetGroups,
   buildHistory,
   computePaymentCategoryActivity,
-  computeReadyToAssign,
+  computeRtaBreakdown,
   findReadyToAssignId,
   type CreditTxn,
   type HistoryRow,
@@ -33,16 +32,13 @@ export async function getBudgetView(month: string): Promise<BudgetData> {
 /**
  * Load and compute the full budget view for `month`.
  *
- * Ready to Assign is a per-month figure. Inflows categorized to RTA and the
- * credit-card opening balances backed out of the pool are always measured
- * through the *viewed* month, so an earlier view never counts later money.
- *
- * Spending assignments use a sliding window matching YNAB: for the previous,
- * current, and next month, *all* assignments are subtracted (so assigning next
- * month's money reduces this month's RTA and can't be double-assigned). For any
- * month older than the previous month, only assignments through that month are
- * subtracted, so historical months read as the self-contained snapshots they
- * were instead of being dragged negative by later assignments.
+ * Ready to Assign matches YNAB's single global figure — the same on every month.
+ * Inflows categorized to RTA and the credit-card opening balances backed out of
+ * the pool are measured through the *viewed* month, so future income never
+ * counts toward an earlier month's RTA. Spending assignments are counted across
+ * *all* months: those after the viewed month are the "assigned in future" line,
+ * capped in `computeRtaBreakdown` at the cash available before them (so future
+ * over-assignment funded by future income never drags the viewed month negative).
  *
  * `month` is clamped to `[minMonth, maxMonth]` (earliest activity → next month);
  * those bounds are returned so the UI can gate navigation.
@@ -135,63 +131,58 @@ export async function loadBudgetView(
   const ccAccountIds = [...ccAccountMap.keys()];
 
   // Wave 2: RTA inputs. Inflows and the CC-opening back-out are bounded by the
-  // viewed month. Spending assignments are bounded only when viewing a month
-  // older than the previous month; the previous/current/next window sees all
-  // assignments, so future commitments reduce today's RTA (see the docstring).
-  const snapshotAssignments = month < previousBudgetMonth(currentBudgetMonth());
+  // viewed month (future income never counts toward an earlier month's RTA).
+  // Spending assignments are fetched across *all* months — future commitments
+  // are shown as "assigned in future" and capped in `computeRtaBreakdown`, so
+  // every month reports the same global Ready to Assign that YNAB does. (This
+  // holds for historical months too: e.g. a March view deducts April-onward
+  // assignments, capped at cash on hand, so it lands at $0 like YNAB.)
   const afterViewedMonth = nextBudgetMonth(month); // exclusive upper bound
 
-  let catBudgetsQuery = client
+  const catBudgetsQuery = client
     .from("monthly_budgets")
-    .select("assigned_cents")
+    .select("month, assigned_cents")
     .not("category_id", "is", null)
     .neq("category_id", rtaId ?? "");
-  let grpBudgetsQuery = client
+  const grpBudgetsQuery = client
     .from("monthly_budgets")
-    .select("assigned_cents")
+    .select("month, assigned_cents")
     .not("group_id", "is", null);
-  if (snapshotAssignments) {
-    catBudgetsQuery = catBudgetsQuery.lte("month", month);
-    grpBudgetsQuery = grpBudgetsQuery.lte("month", month);
-  }
 
-  // The credit-card transactions fetch depends only on wave-1 data (ccAccountIds
-  // and the history maps below), not on any wave-2 result, so it rides along in
-  // the same round-trip instead of adding a third sequential one.
-  const [
-    rtaActivityRes,
-    allCatBudgetsRes,
-    allGrpBudgetsRes,
-    ccOpeningRes,
-    ccTxnsRes,
-  ] = await Promise.all([
-    rtaId
-      ? client
-          .from("category_monthly_activity")
-          .select("activity_cents")
-          .eq("category_id", rtaId)
-          .lte("month", month)
-      : Promise.resolve({ data: [] }),
-    rtaId ? catBudgetsQuery : Promise.resolve({ data: [] }),
-    grpBudgetsQuery,
-    ccAccountIds.length > 0
-      ? client
-          .from("transactions")
-          .select("amount_cents")
-          .in("account_id", ccAccountIds)
-          .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
-          .lt("txn_date", afterViewedMonth)
-      : Promise.resolve({ data: [] }),
-    ccAccountIds.length > 0
-      ? client
-          .from("transactions")
-          .select(
-            "account_id, amount_cents, txn_date, imported_id, transfer_account_id, approved_at, transaction_allocations(category_id, amount_cents)",
-          )
-          .in("account_id", ccAccountIds)
-          .lt("txn_date", afterViewedMonth)
-      : Promise.resolve({ data: [] }),
-  ]);
+  // The credit-card transactions query below feeds `loadCreditCardActivity`
+  // (called after this Promise.all) but depends only on wave-1 data (ccAccountIds,
+  // month), so it's fetched here rather than after — one fewer sequential round
+  // trip per page load.
+  const through = nextBudgetMonth(month); // everything strictly before next month
+  const [rtaActivityRes, allCatBudgetsRes, allGrpBudgetsRes, ccOpeningRes, ccTxnsRes] =
+    await Promise.all([
+      rtaId
+        ? client
+            .from("category_monthly_activity")
+            .select("month, activity_cents")
+            .eq("category_id", rtaId)
+            .lte("month", month)
+        : Promise.resolve({ data: [] }),
+      rtaId ? catBudgetsQuery : Promise.resolve({ data: [] }),
+      grpBudgetsQuery,
+      ccAccountIds.length > 0
+        ? client
+            .from("transactions")
+            .select("amount_cents, txn_date")
+            .in("account_id", ccAccountIds)
+            .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
+            .lt("txn_date", afterViewedMonth)
+        : Promise.resolve({ data: [] }),
+      ccAccountIds.length > 0
+        ? client
+            .from("transactions")
+            .select(
+              "account_id, amount_cents, txn_date, imported_id, transfer_account_id, approved_at, transaction_allocations(category_id, amount_cents)",
+            )
+            .in("account_id", ccAccountIds)
+            .lt("txn_date", through)
+        : Promise.resolve({ data: [] }),
+    ]);
 
   // Build the spending-category / group history maps.
   const catActivity = buildHistory(
@@ -217,71 +208,81 @@ export async function loadBudgetView(
   }
 
   // Credit-card payment-category activity + register balances + breakdowns.
-  // Mutates `catActivity` to inject derived payment-category activity. The
-  // transactions were fetched in the wave-2 round-trip above.
-  const { cardRegisterBalance, cardBreakdown } = computeCreditCardActivity(
-    (ccTxnsRes.data ?? []) as CreditTxnRow[],
-    month,
-    ccAccountMap,
-    { catActivity, catAssigned, grpActivity, grpAssigned, categoryGroup },
-  );
+  // Mutates `catActivity` to inject derived payment-category activity.
+  const { cardRegisterBalance, cardBreakdown, creditOutflowByUnit } =
+    deriveCreditCardActivity(ccTxnsRes.data, month, ccAccountMap, {
+      catActivity,
+      catAssigned,
+      grpActivity,
+      grpAssigned,
+      categoryGroup,
+    });
 
   const { catTargets, grpTargets } = buildTargets(targetsRes.data);
 
-  const rtaAvailableCents = computeReadyToAssign({
-    rtaActivityCents: sumCents(rtaActivityRes.data, "activity_cents"),
-    creditCardOpeningBalanceCents: sumCents(ccOpeningRes.data, "amount_cents"),
-    totalSpendingAssignedCents:
-      sumCents(allCatBudgetsRes.data, "assigned_cents") +
-      sumCents(allGrpBudgetsRes.data, "assigned_cents"),
+  const { groups: budgetGroups, priorCashOverspendCents, previousMonthCashOverspendCents } =
+    buildBudgetGroups({
+      groups,
+      month,
+      catActivity,
+      catAssigned,
+      grpActivity,
+      grpAssigned,
+      catTargets,
+      grpTargets,
+      cardRegisterBalance,
+      cardBreakdown,
+      creditOutflowByUnit,
+    });
+
+  // Ready to Assign and its YNAB-style breakdown. Bucket each RTA input by when
+  // it lands relative to the viewed month; inflow buckets are netted against the
+  // CC opening balances in the same bucket (categorized to RTA but backed out of
+  // the pool). `computeRtaBreakdown` applies YNAB's rules — cash overspending
+  // older than the previous month folds into leftover, and future assignments
+  // are capped at cash on hand — and is the source of truth for the RTA total.
+  const rtaInflow = bucketCents(rtaActivityRes.data, "activity_cents", "month", month);
+  const ccOpening = bucketCents(ccOpeningRes.data, "amount_cents", "txn_date", month);
+  const catAssignedByBucket = bucketCents(allCatBudgetsRes.data, "assigned_cents", "month", month);
+  const grpAssignedByBucket = bucketCents(allGrpBudgetsRes.data, "assigned_cents", "month", month);
+  const rtaBreakdown = computeRtaBreakdown({
+    inflowPriorCents: rtaInflow.prior - ccOpening.prior,
+    inflowThisMonthCents: rtaInflow.current - ccOpening.current,
+    assignedPriorCents: catAssignedByBucket.prior + grpAssignedByBucket.prior,
+    assignedThisMonthCents: catAssignedByBucket.current + grpAssignedByBucket.current,
+    assignedFutureRawCents: catAssignedByBucket.future + grpAssignedByBucket.future,
+    previousMonthCashOverspendCents,
+    earlierCashOverspendCents: priorCashOverspendCents - previousMonthCashOverspendCents,
   });
 
-  const budgetGroups = buildBudgetGroups({
-    groups,
+  return {
     month,
-    catActivity,
-    catAssigned,
-    grpActivity,
-    grpAssigned,
-    catTargets,
-    grpTargets,
-    cardRegisterBalance,
-    cardBreakdown,
-  });
-
-  return { month, minMonth, maxMonth, rtaAvailableCents, groups: budgetGroups };
+    minMonth,
+    maxMonth,
+    rtaAvailableCents: rtaBreakdown.totalCents,
+    rtaBreakdown,
+    groups: budgetGroups,
+  };
 }
 
 // ---------------------------------------------------------------------------
 // IO helpers
 // ---------------------------------------------------------------------------
 
-/** Shape of a credit-card transaction row selected in wave 2. */
-type CreditTxnRow = {
-  account_id: string;
-  amount_cents: number;
-  txn_date: string;
-  imported_id: string | null;
-  transfer_account_id: string | null;
-  approved_at: string | null;
-  transaction_allocations: { category_id: string | null; amount_cents: number }[] | null;
-};
-
 /**
  * Derive each payment category's funded-spending activity (merged into
- * `catActivity`) from already-fetched credit-card transactions, and return each
- * payment category's register balance (negative = debt) plus the viewed month's
- * activity breakdown. Returns empty maps when there are no credit cards.
+ * `catActivity`) from already-fetched credit-card transactions, and return
+ * each payment category's register balance (negative = debt) plus the viewed
+ * month's activity breakdown. Returns empty maps when there are no credit cards.
  *
- * `ccTxns` is ALL credit-card transactions (approved or not) through the viewed
- * month. The register balance is the real amount owed: it includes every
- * transaction and the opening balance. Funded spending counts only approved,
- * categorized, covered purchases — so an unapproved/uncategorized purchase adds
- * debt without funding it and surfaces the payment category as underfunded until
- * it is approved and covered.
+ * The register balance is the real amount owed: it includes ALL transactions
+ * (approved or not) and the opening balance. Funded spending counts only
+ * approved, categorized, covered purchases — so an unapproved/uncategorized
+ * purchase adds debt without funding it and surfaces the payment category as
+ * underfunded until it is approved and covered.
  */
-function computeCreditCardActivity(
-  ccTxns: CreditTxnRow[],
+function deriveCreditCardActivity(
+  ccTxnsData: unknown[] | null,
   month: string,
   ccAccountMap: Map<string, string>,
   histories: {
@@ -294,14 +295,24 @@ function computeCreditCardActivity(
 ): {
   cardRegisterBalance: Map<string, number>;
   cardBreakdown: Record<string, PaymentCategoryBreakdown>;
+  creditOutflowByUnit: MonthlyCents;
 } {
   const { catActivity, catAssigned, grpActivity, grpAssigned, categoryGroup } = histories;
   const cardRegisterBalance = new Map<string, number>();
-  if (ccAccountMap.size === 0) return { cardRegisterBalance, cardBreakdown: {} };
+  if (ccAccountMap.size === 0)
+    return { cardRegisterBalance, cardBreakdown: {}, creditOutflowByUnit: {} };
 
   const creditTxns: CreditTxn[] = [];
 
-  for (const txn of ccTxns) {
+  for (const txn of (ccTxnsData ?? []) as Array<{
+    account_id: string;
+    amount_cents: number;
+    txn_date: string;
+    imported_id: string | null;
+    transfer_account_id: string | null;
+    approved_at: string | null;
+    transaction_allocations: { category_id: string | null; amount_cents: number }[] | null;
+  }>) {
     const paymentCatId = ccAccountMap.get(txn.account_id);
     if (!paymentCatId) continue;
 
@@ -326,15 +337,16 @@ function computeCreditCardActivity(
     });
   }
 
-  const { paymentActivity, breakdown } = computePaymentCategoryActivity({
-    throughMonth: month,
-    catActivity,
-    catAssigned,
-    grpActivity,
-    grpAssigned,
-    categoryGroup,
-    creditTxns,
-  });
+  const { paymentActivity, breakdown, creditOutflowByUnit } =
+    computePaymentCategoryActivity({
+      throughMonth: month,
+      catActivity,
+      catAssigned,
+      grpActivity,
+      grpAssigned,
+      categoryGroup,
+      creditTxns,
+    });
 
   // Merge derived payment-category activity into the spending-category map so
   // availability rolls it forward. Payment categories have no other activity.
@@ -345,7 +357,7 @@ function computeCreditCardActivity(
     }
   }
 
-  return { cardRegisterBalance, cardBreakdown: breakdown };
+  return { cardRegisterBalance, cardBreakdown: breakdown, creditOutflowByUnit };
 }
 
 // ---------------------------------------------------------------------------
@@ -364,11 +376,26 @@ function toHistoryRows(
   }));
 }
 
-function sumCents(rows: unknown[] | null, centsKey: string): number {
-  return ((rows ?? []) as Record<string, unknown>[]).reduce(
-    (sum, row) => sum + (row[centsKey] as number),
-    0,
-  );
+/**
+ * Partition `centsKey` across rows into buckets relative to `viewedMonth`,
+ * keyed by `monthKey` (a `YYYY-MM-01` budget month or a `YYYY-MM-DD` date; only
+ * the year-month is used). Used to break Ready to Assign into its parts.
+ */
+function bucketCents(
+  rows: unknown[] | null,
+  centsKey: string,
+  monthKey: string,
+  viewedMonth: string,
+): { prior: number; current: number; future: number } {
+  const acc = { prior: 0, current: 0, future: 0 };
+  for (const row of (rows ?? []) as Record<string, unknown>[]) {
+    const month = `${(row[monthKey] as string).slice(0, 7)}-01`;
+    const cents = row[centsKey] as number;
+    if (month < viewedMonth) acc.prior += cents;
+    else if (month > viewedMonth) acc.future += cents;
+    else acc.current += cents;
+  }
+  return acc;
 }
 
 function buildTargets(rows: unknown[] | null): {

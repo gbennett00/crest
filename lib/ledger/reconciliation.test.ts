@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { checkReconciliation } from "./reconciliation";
+import { checkReconciliation, reconcileInitialView } from "./reconciliation";
 
 describe("checkReconciliation", () => {
   it("passes when bank cleared matches the register cleared balance", () => {
@@ -35,5 +35,34 @@ describe("checkReconciliation", () => {
       registerClearedBalanceCents: 1500,
       bankClearedBalanceCents: 1000,
     });
+  });
+});
+
+describe("reconcileInitialView", () => {
+  it("shows the manual confirm for unlinked accounts", () => {
+    expect(reconcileInitialView(false, 5000, 5000)).toBe("manual");
+  });
+
+  it("shows the manual confirm for a linked account with no bank balance yet", () => {
+    expect(reconcileInitialView(true, null, 5000)).toBe("manual");
+  });
+
+  it("shows 'matched' when a linked account's bank balance equals the cleared register", () => {
+    expect(reconcileInitialView(true, 5000, 5000)).toBe("matched");
+  });
+
+  it("shows 'review' when a linked account's bank balance diverges", () => {
+    expect(reconcileInitialView(true, 5500, 5000)).toBe("review");
+  });
+
+  it("matches on the cleared total regardless of pending activity", () => {
+    // registerClearedBalanceCents already excludes pending, so a bank balance
+    // equal to the cleared total is a match even with pending transactions live.
+    expect(reconcileInitialView(true, 1000, 1000)).toBe("matched");
+  });
+
+  it("treats a zero bank balance as a real value, not 'unknown'", () => {
+    expect(reconcileInitialView(true, 0, 0)).toBe("matched");
+    expect(reconcileInitialView(true, 0, 500)).toBe("review");
   });
 });

@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { getHomeData } from "@/lib/budget";
 import { Money } from "@/components/money";
-import { ApproveForm } from "@/components/home/approve-form";
+import { PendingApprovalList } from "@/components/home/pending-approval-list";
 import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { HomeAssignButton } from "@/components/home/home-assign-button";
 import { PinManager } from "@/components/home/pin-manager";
@@ -130,37 +130,11 @@ async function HomeContent() {
           count={pending.length}
           accent="amber"
         >
-          <div className="divide-y">
-            {pending.map((txn) => (
-              <div key={txn.id} className="py-3 px-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-sm font-medium truncate">{txn.payee}</p>
-                    <p className="text-xs text-muted-foreground">
-                      {txn.accountName} · {formatDate(txn.txnDate)}
-                    </p>
-                  </div>
-                  <div className="text-right shrink-0">
-                    <p
-                      className={cn(
-                        "text-sm font-medium tabular-nums",
-                        txn.amountCents < 0 ? "text-destructive" : "text-green-600 dark:text-green-400",
-                      )}
-                    >
-                      <Money cents={txn.amountCents} />
-                    </p>
-                  </div>
-                </div>
-                {categories.length > 0 && (
-                  <ApproveForm
-                    transactionId={txn.id}
-                    amountCents={txn.amountCents}
-                    categories={categories}
-                  />
-                )}
-              </div>
-            ))}
-          </div>
+          <PendingApprovalList
+            pending={pending}
+            categories={categories}
+            accounts={accounts}
+          />
         </Section>
       )}
 
@@ -258,14 +232,6 @@ function Section({
       {children}
     </div>
   );
-}
-
-function formatDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
 }
 
 function HomeSkeleton() {

@@ -13,6 +13,7 @@ function cat(partial: Partial<BudgetCategory> & { id: string; name: string }): B
     availableCents: 0,
     target: null,
     cardRegisterBalanceCents: null,
+    cardActivityBreakdown: null,
     ...partial,
   };
 }
@@ -36,6 +37,15 @@ function data(groups: BudgetGroup[]): BudgetData {
     minMonth: "2026-06-01",
     maxMonth: "2026-07-01",
     rtaAvailableCents: 0,
+    rtaBreakdown: {
+      leftoverFromPriorCents: 0,
+      inflowThisMonthCents: 0,
+      assignedThisMonthCents: 0,
+      previousMonthCashOverspendCents: 0,
+      assignedFutureCents: 0,
+      futureCoveredByFutureIncomeCents: 0,
+      totalCents: 0,
+    },
     groups,
   };
 }

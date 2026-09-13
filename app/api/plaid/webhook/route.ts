@@ -4,6 +4,7 @@ import * as jose from "jose";
 import { createPlaidClient } from "@/lib/plaid/client";
 import { syncItem } from "@/lib/plaid/sync";
 import { createServiceClient } from "@/lib/supabase/service";
+import { sendPushToPlan } from "@/lib/push";
 
 const PLAID_WEBHOOK_VERIFICATION_ENABLED =
   process.env.NODE_ENV === "production" ||
@@ -74,7 +75,15 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (itemRow) {
-      await syncItem(supabase, itemRow as never);
+      const result = await syncItem(supabase, itemRow as never);
+      if (result.addedCount > 0) {
+        const planId = (itemRow as { plan_id: string }).plan_id;
+        await sendPushToPlan(supabase, planId, {
+          title: "New transactions",
+          body: `${result.addedCount} new transaction${result.addedCount === 1 ? "" : "s"} to review`,
+          url: "/#pending",
+        });
+      }
     }
   }
 
@@ -86,6 +95,12 @@ export async function POST(request: NextRequest) {
     };
     const status = statusMap[body.webhook_code];
     if (status) {
+      const { data: itemRow } = await supabase
+        .from("plaid_items")
+        .select("plan_id, institution_name")
+        .eq("plaid_item_id", body.item_id)
+        .single();
+
       await supabase
         .from("plaid_items")
         .update({
@@ -94,6 +109,18 @@ export async function POST(request: NextRequest) {
           updated_at: new Date().toISOString(),
         })
         .eq("plaid_item_id", body.item_id);
+
+      if (itemRow) {
+        const { plan_id, institution_name } = itemRow as {
+          plan_id: string;
+          institution_name: string | null;
+        };
+        await sendPushToPlan(supabase, plan_id, {
+          title: "Bank connection issue",
+          body: `${institution_name ?? "A bank connection"} needs attention`,
+          url: "/accounts",
+        });
+      }
     }
   }
 

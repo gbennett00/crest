@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChevronDown, ChevronLeft, ChevronRight } from "lucide-react";
+import { Check, ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
@@ -16,6 +16,7 @@ import {
 } from "@/app/(app)/budget/actions";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
+import { RtaBreakdownPopup } from "./rta-breakdown-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
 import { RowMenu } from "./row-menu";
 import { BudgetToolbar } from "./budget-toolbar";
@@ -52,6 +53,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
   const [, startTransition] = useTransition();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
+  const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [reordering, setReordering] = useState(false);
 
   // On mobile, group-budgeted groups have nothing useful in their member rows
@@ -107,15 +109,11 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
       g.categories.some((c) => c.role !== "ready_to_assign" && !c.isHidden),
   );
 
-  // RTA banner visibility (matches YNAB). maxMonth is next month, so two steps
-  // back is the previous month — the start of the prev/current/next "live"
-  // window. Inside that window we show any non-zero RTA; older months only
-  // surface it when over-assigned (a positive leftover has rolled forward).
-  const liveWindowStart = previousBudgetMonth(previousBudgetMonth(data.maxMonth));
-  const showRta =
-    data.month >= liveWindowStart
-      ? data.rtaAvailableCents !== 0
-      : data.rtaAvailableCents < 0;
+  // RTA is a single global figure (the same on every month, matching YNAB): show
+  // the full banner whenever there's something to act on — money to assign or an
+  // over-assignment — and fall back to a slim, always-present pill at $0, so the
+  // breakdown is reachable anytime including the "all money assigned" state.
+  const showRtaBanner = data.rtaAvailableCents !== 0;
 
   const groupOptions = displayGroups.map((g) => ({ id: g.id, name: g.name }));
 
@@ -123,6 +121,9 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
     <div className="flex flex-col">
       {assignOpen && (
         <AssignPopup data={data} onClose={() => setAssignOpen(false)} />
+      )}
+      {breakdownOpen && (
+        <RtaBreakdownPopup data={data} onClose={() => setBreakdownOpen(false)} />
       )}
 
       {/* Month navigation — sticky directly under the global header. */}
@@ -162,11 +163,22 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
         <BudgetReorder groups={displayGroups} />
       ) : (
         <>
-          {/* Ready to Assign banner — clickable to open assign popup. */}
-          {showRta && (
-            <button className="text-left w-full" onClick={() => setAssignOpen(true)}>
-              <RtaBanner cents={data.rtaAvailableCents} />
-            </button>
+          {/* Ready to Assign — full banner when there's something to act on,
+              otherwise a slim pill so the breakdown stays reachable (e.g. at
+              $0). In both, the amount opens the assign popup and the info button
+              opens the read-only breakdown. */}
+          {showRtaBanner ? (
+            <RtaBanner
+              cents={data.rtaAvailableCents}
+              onAssign={() => setAssignOpen(true)}
+              onBreakdown={() => setBreakdownOpen(true)}
+            />
+          ) : (
+            <RtaPill
+              cents={data.rtaAvailableCents}
+              onAssign={() => setAssignOpen(true)}
+              onBreakdown={() => setBreakdownOpen(true)}
+            />
           )}
 
           {/* Column headers */}
@@ -511,19 +523,30 @@ function InlineName({
 // Sub-components
 // ---------------------------------------------------------------------------
 
-function RtaBanner({ cents }: { cents: number }) {
+function RtaBanner({
+  cents,
+  onAssign,
+  onBreakdown,
+}: {
+  cents: number;
+  onAssign: () => void;
+  onBreakdown: () => void;
+}) {
   const formatCents = useFormattedCents();
   const overAssigned = cents < 0;
   return (
     <div
       className={cn(
-        "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between cursor-pointer hover:opacity-90 transition-opacity",
+        "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between",
         overAssigned
           ? "bg-destructive/10 border border-destructive/30"
           : "bg-primary/10 border border-primary/30",
       )}
     >
-      <div>
+      <button
+        className="text-left flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
+        onClick={onAssign}
+      >
         <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
           Ready to Assign
         </p>
@@ -535,13 +558,60 @@ function RtaBanner({ cents }: { cents: number }) {
         >
           {formatCents(cents)}
         </p>
-      </div>
-      <div className="flex items-center gap-1.5">
+      </button>
+      <div className="flex items-center gap-2 shrink-0 pl-3">
         {overAssigned && (
           <span className="text-xs font-semibold text-destructive">Over-assigned</span>
         )}
-        <ChevronRight size={18} className={overAssigned ? "text-destructive" : "text-primary"} />
+        <button
+          onClick={onBreakdown}
+          aria-label="Ready to Assign breakdown"
+          className={cn(
+            "p-1.5 rounded-full hover:bg-foreground/5 transition-colors",
+            overAssigned ? "text-destructive" : "text-primary",
+          )}
+        >
+          <Info size={18} />
+        </button>
       </div>
+    </div>
+  );
+}
+
+// Compact, always-present stand-in for the RTA banner when there's nothing to
+// act on (notably the "all money assigned" $0 state). Keeps the breakdown one
+// tap away. Same interaction split as the banner: label/amount opens the assign
+// popup, the info button opens the breakdown.
+function RtaPill({
+  cents,
+  onAssign,
+  onBreakdown,
+}: {
+  cents: number;
+  onAssign: () => void;
+  onBreakdown: () => void;
+}) {
+  const formatCents = useFormattedCents();
+  const allAssigned = cents === 0;
+  return (
+    <div className="mx-4 mt-3 mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
+      <button
+        onClick={onAssign}
+        className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
+      >
+        {allAssigned && <Check size={14} className="text-primary shrink-0" />}
+        <span className="text-xs font-medium text-muted-foreground truncate">
+          {allAssigned ? "All money assigned" : "Ready to Assign"}
+        </span>
+        <span className="text-xs font-semibold tabular-nums">{formatCents(cents)}</span>
+      </button>
+      <button
+        onClick={onBreakdown}
+        aria-label="Ready to Assign breakdown"
+        className="p-1 rounded-full text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors shrink-0"
+      >
+        <Info size={15} />
+      </button>
     </div>
   );
 }
