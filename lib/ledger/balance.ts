@@ -37,6 +37,34 @@ export function sumClearedTransactionAmounts(
 }
 
 /**
+ * Whether an account is eligible to be closed, and why not if it isn't.
+ *
+ * Closing an account is only safe once its register is fully settled: every
+ * transaction must be cleared (no uncleared/pending lines lingering) and the
+ * working balance must be exactly zero (no money left to move out). This keeps
+ * balance math and reconciliation honest — a closed account contributes nothing.
+ *
+ * Pure decision function: the two facts it needs (whether any uncleared line
+ * remains, and the working balance) are aggregated in Postgres and passed in by
+ * `loadAccountClosureState`, so this never walks the whole register itself.
+ */
+export function evaluateAccountClosure(input: {
+  hasUnclearedTransactions: boolean;
+  workingBalanceCents: Cents;
+}): {
+  eligible: boolean;
+  allCleared: boolean;
+  workingBalanceCents: Cents;
+} {
+  const allCleared = !input.hasUnclearedTransactions;
+  return {
+    eligible: allCleared && input.workingBalanceCents === 0,
+    allCleared,
+    workingBalanceCents: input.workingBalanceCents,
+  };
+}
+
+/**
  * Helpful approximate spendable balance: last bank cleared balance plus
  * pending (uncleared) activity in the Crest register.
  */

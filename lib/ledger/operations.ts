@@ -1,6 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { LedgerError } from "./errors";
+import { evaluateAccountClosure } from "./balance";
 import {
   assertBudgetMonth,
   computeAvailableThrough,
@@ -277,6 +278,32 @@ export async function bulkUpsertTransactions(
   }));
 }
 
+/**
+ * Guard against pointing a transaction at a closed (inactive) account. Closed
+ * accounts stay fully readable but must not receive new or reassigned activity;
+ * transfers are already blocked at the DB level by `ledger_create_transfer`.
+ */
+async function assertAccountActive(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const { data, error } = await client
+    .from("accounts")
+    .select("is_active")
+    .eq("id", accountId)
+    .single();
+
+  if (error || !data) {
+    throw new LedgerError("not_found", error?.message ?? "account not found");
+  }
+  if (!(data as { is_active: boolean }).is_active) {
+    throw new LedgerError(
+      "account_closed",
+      "Cannot assign a transaction to a closed account.",
+    );
+  }
+}
+
 export async function createTransaction(
   client: SupabaseClient,
   input: CreateTransactionInput,
@@ -288,6 +315,7 @@ export async function createTransaction(
     input.allocations,
     input.approvedAt ?? null,
   );
+  await assertAccountActive(client, input.accountId);
 
   const row = await insertWithAllocations(
     client,
@@ -332,6 +360,12 @@ export async function updateTransaction(
   assertNonZeroAmount(amountCents);
   if (input.txnDate) {
     assertTxnDate(input.txnDate);
+  }
+
+  // Moving a transaction to a different account may not target a closed one.
+  // Editing a transaction that already lives on a closed account is still fine.
+  if (input.accountId !== undefined && input.accountId !== current.account_id) {
+    await assertAccountActive(client, input.accountId);
   }
 
   // Determine which state transitions are happening so we can require allocations
@@ -717,6 +751,91 @@ export async function listAccounts(client: SupabaseClient) {
   }
 
   return (data ?? []).map((row) => mapAccountRow(row));
+}
+
+/**
+ * Whether an account currently qualifies to be closed, evaluated against live
+ * data. Both facts are aggregated in Postgres — the count of uncleared lines
+ * and the working balance from the `account_balances` view — so this stays
+ * immune to the PostgREST max_rows cap that a full row fetch would hit.
+ */
+export async function loadAccountClosureState(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const [unclearedRes, balance] = await Promise.all([
+    client
+      .from("transactions")
+      .select("id", { count: "exact", head: true })
+      .eq("account_id", accountId)
+      .is("cleared_at", null),
+    loadAccountBalance(client, accountId),
+  ]);
+
+  if (unclearedRes.error) {
+    throw new LedgerError("db_error", unclearedRes.error.message);
+  }
+
+  return evaluateAccountClosure({
+    hasUnclearedTransactions: (unclearedRes.count ?? 0) > 0,
+    workingBalanceCents: balance.workingCents,
+  });
+}
+
+/**
+ * Close an account by marking it inactive. Only permitted once the register is
+ * fully settled: every transaction cleared and a zero working balance (see
+ * `evaluateAccountClosure`). The eligibility check is re-run here against live
+ * data so a stale client view can never force a close. A closed account is
+ * hidden from pickers and totals but its history stays fully readable.
+ */
+export async function closeAccount(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const eligibility = await loadAccountClosureState(client, accountId);
+
+  if (!eligibility.eligible) {
+    const reason = !eligibility.allCleared
+      ? "all transactions must be cleared"
+      : `working balance must be zero (currently ${eligibility.workingBalanceCents} cents)`;
+    throw new LedgerError(
+      "account_not_closeable",
+      `Account cannot be closed: ${reason}.`,
+    );
+  }
+
+  const { data, error } = await client
+    .from("accounts")
+    .update({ is_active: false })
+    .eq("id", accountId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new LedgerError("db_error", error?.message ?? "failed to close account");
+  }
+
+  return mapAccountRow(data);
+}
+
+/** Reopen a previously closed account by marking it active again. */
+export async function reopenAccount(
+  client: SupabaseClient,
+  accountId: string,
+) {
+  const { data, error } = await client
+    .from("accounts")
+    .update({ is_active: true })
+    .eq("id", accountId)
+    .select("*")
+    .single();
+
+  if (error || !data) {
+    throw new LedgerError("db_error", error?.message ?? "failed to reopen account");
+  }
+
+  return mapAccountRow(data);
 }
 
 const ZERO_ACCOUNT_BALANCE: AccountBalance = {

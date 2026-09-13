@@ -4,10 +4,12 @@ import { revalidatePath } from "next/cache";
 import { CountryCode, Products } from "plaid";
 import { createClient } from "@/lib/supabase/server";
 import {
+  closeAccount,
   createAccount,
   LedgerError,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
+  reopenAccount,
 } from "@/lib/ledger";
 import { getActivePlanId } from "@/lib/plan/active-plan";
 import { createPlaidClient } from "@/lib/plaid/client";
@@ -120,6 +122,37 @@ export async function reconcileWithAdjustmentAction(
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Reconciliation failed" };
+  }
+}
+
+/**
+ * Close an account (mark inactive). Requires every transaction cleared and a
+ * zero working balance; the ledger op re-checks this against live data.
+ */
+export async function closeAccountAction(accountId: string) {
+  const supabase = await createClient();
+  try {
+    await closeAccount(supabase, accountId);
+    revalidatePath("/accounts");
+    revalidatePath(`/accounts/${accountId}`);
+    return { success: true };
+  } catch (e) {
+    if (e instanceof LedgerError) return { error: e.message };
+    return { error: "Failed to close account" };
+  }
+}
+
+/** Reopen a previously closed account (mark active). */
+export async function reopenAccountAction(accountId: string) {
+  const supabase = await createClient();
+  try {
+    await reopenAccount(supabase, accountId);
+    revalidatePath("/accounts");
+    revalidatePath(`/accounts/${accountId}`);
+    return { success: true };
+  } catch (e) {
+    if (e instanceof LedgerError) return { error: e.message };
+    return { error: "Failed to reopen account" };
   }
 }
 

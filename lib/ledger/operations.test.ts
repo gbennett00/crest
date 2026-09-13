@@ -4,12 +4,14 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   bulkUpsertCategoryBudgets,
   bulkUpsertTransactions,
+  closeAccount,
   createAccount,
   createTransaction,
   createTransfer,
   deleteTransactionWithCounterpart,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
+  reopenAccount,
   updateTransaction,
   upsertTransaction,
 } from "./operations";
@@ -23,20 +25,37 @@ import type { TransactionRow } from "./types";
 // A Proxy that satisfies any Supabase chain depth. Only single() is terminal;
 // everything else returns the proxy so arbitrary chains compose freely.
 // maybeSingle() returns no existing row (used by upsertTransaction lookup).
-function makeMockClient(fetchRow: TransactionRow | null = null): SupabaseClient {
-  const singleFn = vi.fn().mockResolvedValue({ data: fetchRow, error: null });
+// The "accounts" table resolves single() to an {is_active} row so the closed-
+// account guard in create/updateTransaction sees an active account by default;
+// pass accountActive=false to exercise the rejection path.
+function makeMockClient(
+  fetchRow: TransactionRow | null = null,
+  accountActive = true,
+): SupabaseClient {
+  function makeProxy(single: ReturnType<typeof vi.fn>) {
+    const proxy: Record<string, unknown> = new Proxy(
+      {} as Record<string, unknown>,
+      {
+        get(_, prop) {
+          if (prop === "single") return single;
+          if (prop === "maybeSingle")
+            return vi.fn().mockResolvedValue({ data: null, error: null });
+          return () => proxy;
+        },
+      },
+    );
+    return proxy;
+  }
 
-  const proxy: Record<string, unknown> = new Proxy({} as Record<string, unknown>, {
-    get(_, prop) {
-      if (prop === "single") return singleFn;
-      if (prop === "maybeSingle")
-        return vi.fn().mockResolvedValue({ data: null, error: null });
-      return () => proxy;
-    },
-  });
+  const txnProxy = makeProxy(
+    vi.fn().mockResolvedValue({ data: fetchRow, error: null }),
+  );
+  const acctProxy = makeProxy(
+    vi.fn().mockResolvedValue({ data: { is_active: accountActive }, error: null }),
+  );
 
   return {
-    from: vi.fn(() => proxy),
+    from: vi.fn((table: string) => (table === "accounts" ? acctProxy : txnProxy)),
     rpc: vi.fn().mockResolvedValue({ error: null }),
   } as unknown as SupabaseClient;
 }
@@ -111,6 +130,39 @@ describe("createTransaction — split enforcement", () => {
         approvedAt: APPROVED_AT,
         allocations: [{ categoryId: "cat-rta", amountCents: 10000 }],
       }),
+    ).resolves.toBeDefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// create / updateTransaction — closed-account guard
+// ---------------------------------------------------------------------------
+
+describe("closed-account guard", () => {
+  it("rejects creating a transaction on a closed account", async () => {
+    const client = makeMockClient(txnRow(), false);
+    await expect(
+      createTransaction(client, {
+        accountId: "acc-closed",
+        amountCents: -5000,
+        txnDate: "2026-01-15",
+      }),
+    ).rejects.toMatchObject({ code: "account_closed" });
+  });
+
+  it("rejects moving a transaction to a closed account", async () => {
+    // Existing txn is on acc-1; moving it to a different, closed account fails.
+    const client = makeMockClient(txnRow({ account_id: "acc-1" }), false);
+    await expect(
+      updateTransaction(client, { id: "txn-1", accountId: "acc-closed" }),
+    ).rejects.toMatchObject({ code: "account_closed" });
+  });
+
+  it("allows editing a transaction that already lives on a closed account", async () => {
+    // No account change → the guard is skipped even if the account is closed.
+    const client = makeMockClient(txnRow({ account_id: "acc-1" }), false);
+    await expect(
+      updateTransaction(client, { id: "txn-1", payee: "Renamed" }),
     ).resolves.toBeDefined();
   });
 });
@@ -253,8 +305,21 @@ describe("updateTransaction — conditional split enforcement", () => {
         },
       },
     );
+    // The destination account must read as active for the closed-account guard.
+    const acctProxy: Record<string, unknown> = new Proxy(
+      {} as Record<string, unknown>,
+      {
+        get(_, prop) {
+          if (prop === "single")
+            return vi
+              .fn()
+              .mockResolvedValue({ data: { is_active: true }, error: null });
+          return () => acctProxy;
+        },
+      },
+    );
     const client = {
-      from: vi.fn(() => proxy),
+      from: vi.fn((table: string) => (table === "accounts" ? acctProxy : proxy)),
       rpc: vi.fn().mockResolvedValue({ error: null }),
     } as unknown as SupabaseClient;
 
@@ -367,6 +432,7 @@ function makeReconcileMock(initial: {
   const state = {
     transactions: [...initial.transactions],
     balanceCents: initial.balanceCents,
+    isActive: true,
   };
   const readyToAssignId =
     initial.readyToAssignId === undefined ? "rta-1" : initial.readyToAssignId;
@@ -376,6 +442,7 @@ function makeReconcileMock(initial: {
   function makeBuilder(table: string) {
     let op: "select" | "insert" | "update" | "delete" = "select";
     let payload: Record<string, unknown> | null = null;
+    let isFilter: [string, unknown] | null = null;
 
     function resolveSingle() {
       if (table === "categories") {
@@ -403,8 +470,11 @@ function makeReconcileMock(initial: {
         };
       }
       if (table === "accounts") {
-        if (op === "update") {
+        if (op === "update" && payload!.balance_cents !== undefined) {
           state.balanceCents = payload!.balance_cents as number;
+        }
+        if (op === "update" && payload!.is_active !== undefined) {
+          state.isActive = payload!.is_active as boolean;
         }
         return {
           data: {
@@ -414,7 +484,7 @@ function makeReconcileMock(initial: {
             balance_cents: state.balanceCents,
             payment_category_id: null,
             is_linked: false,
-            is_active: true,
+            is_active: state.isActive,
             created_at: "2026-01-01T00:00:00Z",
           },
           error: null,
@@ -451,6 +521,13 @@ function makeReconcileMock(initial: {
 
     function resolveList() {
       if (table === "transactions" && op === "select") {
+        // Uncleared-count query used by loadAccountClosureState (head:true).
+        if (isFilter && isFilter[0] === "cleared_at" && isFilter[1] === null) {
+          const count = state.transactions.filter(
+            (t) => t.cleared_at === null,
+          ).length;
+          return { data: [], count, error: null };
+        }
         return {
           data: state.transactions.map((t) => ({
             amount_cents: t.amount_cents,
@@ -481,7 +558,10 @@ function makeReconcileMock(initial: {
       eq: () => builder,
       neq: () => builder,
       not: () => builder,
-      is: () => builder,
+      is: (col: string, val: unknown) => {
+        isFilter = [col, val];
+        return builder;
+      },
       lte: () => builder,
       order: () => builder,
       limit: () => builder,
@@ -577,6 +657,69 @@ describe("reconcileWithAdjustment", () => {
     expect(result.reconciledAt).toBeDefined();
     expect(inserted).toHaveLength(0);
     expect(state.balanceCents).toBe(10_000);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// closeAccount / reopenAccount
+// ---------------------------------------------------------------------------
+
+describe("closeAccount", () => {
+  it("closes an account whose register is all cleared with a zero balance", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [
+        { amount_cents: 10_000, cleared_at: "2026-05-01T00:00:00Z" },
+        { amount_cents: -10_000, cleared_at: "2026-05-01T00:00:00Z" },
+      ],
+      balanceCents: 0,
+    });
+
+    const account = await closeAccount(client, "acc-1");
+
+    expect(state.isActive).toBe(false);
+    expect(account.isActive).toBe(false);
+  });
+
+  it("refuses to close when an uncleared transaction remains", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [
+        { amount_cents: 10_000, cleared_at: "2026-05-01T00:00:00Z" },
+        { amount_cents: -10_000, cleared_at: null },
+      ],
+      balanceCents: 0,
+    });
+
+    await expect(closeAccount(client, "acc-1")).rejects.toMatchObject({
+      code: "account_not_closeable",
+    });
+    expect(state.isActive).toBe(true);
+  });
+
+  it("refuses to close when the working balance is non-zero", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [{ amount_cents: 5000, cleared_at: "2026-05-01T00:00:00Z" }],
+      balanceCents: 5000,
+    });
+
+    await expect(closeAccount(client, "acc-1")).rejects.toMatchObject({
+      code: "account_not_closeable",
+    });
+    expect(state.isActive).toBe(true);
+  });
+});
+
+describe("reopenAccount", () => {
+  it("marks a closed account active again", async () => {
+    const { client, state } = makeReconcileMock({
+      transactions: [],
+      balanceCents: 0,
+    });
+    state.isActive = false;
+
+    const account = await reopenAccount(client, "acc-1");
+
+    expect(state.isActive).toBe(true);
+    expect(account.isActive).toBe(true);
   });
 });
 

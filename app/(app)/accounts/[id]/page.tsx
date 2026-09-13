@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { loadAccountBalance } from "@/lib/ledger";
+import { loadAccountBalance, loadAccountClosureState } from "@/lib/ledger";
 import { AccountDetailHeader } from "@/components/accounts/account-detail-header";
 import { AccountBalanceSummary } from "@/components/accounts/account-balance-summary";
 import { AccountAddTransaction } from "@/components/accounts/account-add-transaction";
@@ -38,7 +38,7 @@ async function RegisterContent({
     await Promise.all([
       supabase
         .from("accounts")
-        .select("id, name, type, is_linked, balance_cents")
+        .select("id, name, type, is_linked, balance_cents, is_active")
         .eq("id", id)
         .single(),
       supabase
@@ -79,6 +79,14 @@ async function RegisterContent({
   const registerClearedBalanceCents = balance.clearedCents;
   const unclearedCents = balance.unclearedCents;
   const workingCents = balance.workingCents;
+
+  // Eligibility for closing the account: all cleared + zero working balance.
+  const closure = await loadAccountClosureState(supabase, id);
+  const closeBlockReason = !closure.allCleared
+    ? "All transactions must be cleared"
+    : closure.workingBalanceCents !== 0
+      ? "Working balance must be zero"
+      : undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let txns = (txnsRes.data ?? []) as any[];
@@ -160,6 +168,9 @@ async function RegisterContent({
         isLinked={account.is_linked as boolean}
         bankBalanceCents={account.balance_cents as number | null}
         backHref="/accounts"
+        isActive={account.is_active as boolean}
+        canClose={closure.eligible}
+        closeBlockReason={closeBlockReason}
       />
 
       {/* Balance summary */}

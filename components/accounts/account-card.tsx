@@ -9,6 +9,7 @@ export type AccountData = {
   type: "checking" | "savings" | "credit";
   workingBalanceCents: number;
   isLinked: boolean;
+  isActive: boolean;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -21,7 +22,10 @@ export function AccountCard({ account }: { account: AccountData }) {
   return (
     <Link
       href={`/accounts/${account.id}`}
-      className="flex items-center justify-between px-4 py-3.5 hover:bg-muted/30 transition-colors"
+      className={cn(
+        "flex items-center justify-between px-4 py-3.5 hover:bg-muted/30 transition-colors",
+        !account.isActive && "opacity-60",
+      )}
     >
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-2">

@@ -51,6 +51,7 @@ const selectClass = cn(
 
 export function TransactionForm({
   accounts,
+  accountNameById,
   categories,
   txn,
   defaultAccountId,
@@ -60,6 +61,10 @@ export function TransactionForm({
   embedded = false,
 }: {
   accounts: AccountOption[];
+  // Names for ALL accounts (including closed ones), keyed by id. Used only to
+  // display a transfer's counterpart account, which may have since been closed
+  // and dropped from the active `accounts` picker list.
+  accountNameById?: Record<string, string>;
   categories: CategoryOption[];
   txn?: TransactionEditData | null;
   defaultAccountId?: string;
@@ -287,10 +292,14 @@ export function TransactionForm({
 
   // ---- Existing transfer: not editable in this iteration ----
   if (isEdit && txn?.transferAccountId) {
-    const fromName =
-      accounts.find((a) => a.id === txn.accountId)?.name ?? "account";
-    const toName =
-      accounts.find((a) => a.id === txn.transferAccountId)?.name ?? "account";
+    // Resolve names against the full account map first so a counterpart that has
+    // since been closed still shows its name; fall back to the picker list.
+    const nameOf = (id: string) =>
+      accountNameById?.[id] ??
+      accounts.find((a) => a.id === id)?.name ??
+      "account";
+    const fromName = nameOf(txn.accountId);
+    const toName = nameOf(txn.transferAccountId);
     const out = txn.amountCents < 0;
     return (
       <div className="p-4 space-y-4 max-w-lg">

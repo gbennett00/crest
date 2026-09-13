@@ -38,7 +38,9 @@ async function EditTransactionContent({
       .select("id, payee, amount_cents, txn_date, memo, cleared_at, reconciled_at, approved_at, account_id, transfer_account_id, transaction_allocations(category_id, amount_cents, categories(name))")
       .eq("id", id)
       .single(),
-    supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
+    // All accounts (including closed) — active ones feed the pickers, while the
+    // full set resolves counterpart names on transfers to closed accounts.
+    supabase.from("accounts").select("id, name, is_active").order("name"),
     supabase
       .from("categories")
       .select("id, name, role, is_hidden, category_groups!group_id(name)")
@@ -78,10 +80,20 @@ async function EditTransactionContent({
     allocations,
   };
 
-  const accounts = (accountsRes.data ?? []).map((a) => ({
-    id: a.id as string,
-    name: a.name as string,
-  }));
+  const allAccounts = (accountsRes.data ?? []) as {
+    id: string;
+    name: string;
+    is_active: boolean;
+  }[];
+  // Only active accounts can be chosen in the pickers…
+  const accounts = allAccounts
+    .filter((a) => a.is_active)
+    .map((a) => ({ id: a.id, name: a.name }));
+  // …but every account name is available for read-only display (e.g. the
+  // counterpart of a transfer whose other account has since been closed).
+  const accountNameById = Object.fromEntries(
+    allAccounts.map((a) => [a.id, a.name]),
+  );
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const categories: CategoryOption[] = (categoriesRes.data ?? []).map((c: any) => ({
@@ -108,6 +120,7 @@ async function EditTransactionContent({
       <TransactionForm
         txn={txn}
         accounts={accounts}
+        accountNameById={accountNameById}
         categories={categories}
         backHref={backHref}
       />
