@@ -42,6 +42,7 @@ export {
   buildReconciliationCheck,
   bulkUpsertCategoryBudgets,
   bulkUpsertTransactions,
+  claimPlaidTransaction,
   closeAccount,
   createAccount,
   createOpeningBalance,
