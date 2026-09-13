@@ -199,6 +199,65 @@ describe("upsertTransaction — split enforcement", () => {
 });
 
 // ---------------------------------------------------------------------------
+// upsertTransaction — transfer linkage preservation
+// ---------------------------------------------------------------------------
+
+describe("upsertTransaction — transfer linkage preservation", () => {
+  it("preserves an adopted transfer leg's transfer_account_id instead of nulling it on re-sync", async () => {
+    // Simulates a Plaid-adopted transfer leg (e.g. a credit card payment) coming
+    // back through a later "modified" sync event. The Plaid input never carries
+    // transferAccountId, but the existing row's linkage must survive the update.
+    const updateArgs: Record<string, unknown>[] = [];
+    const proxy: Record<string, unknown> = new Proxy(
+      {} as Record<string, unknown>,
+      {
+        get(_, prop) {
+          if (prop === "maybeSingle") {
+            return () =>
+              Promise.resolve({
+                data: {
+                  id: "txn-1",
+                  amount_cents: -5000,
+                  transfer_account_id: "acc-credit-card",
+                },
+                error: null,
+              });
+          }
+          if (prop === "update") {
+            return (arg: Record<string, unknown>) => {
+              updateArgs.push(arg);
+              return proxy;
+            };
+          }
+          if (prop === "single") {
+            return () =>
+              Promise.resolve({
+                data: txnRow({ transfer_account_id: "acc-credit-card" }),
+                error: null,
+              });
+          }
+          return () => proxy;
+        },
+      },
+    );
+    const client = {
+      from: vi.fn(() => proxy),
+      rpc: vi.fn(),
+    } as unknown as SupabaseClient;
+
+    await upsertTransaction(client, {
+      accountId: "acc-1",
+      importedId: "plaid-123",
+      amountCents: -5000,
+      txnDate: "2026-01-15",
+      payee: "Credit Card Payment",
+    });
+
+    expect(updateArgs[0].transfer_account_id).toBe("acc-credit-card");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // updateTransaction — conditional split enforcement
 // ---------------------------------------------------------------------------
 

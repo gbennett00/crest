@@ -98,15 +98,22 @@ export async function attachExistingAccountToPlaid(
  * are ones the user entered or imported that aren't yet tied to Plaid:
  *
  *   - manual entries (`imported_id IS NULL`), and
- *   - YNAB CSV imports (`imported_id LIKE 'csv:%'`).
+ *   - YNAB CSV imports (`imported_id LIKE 'csv:%'`), including transfer legs
+ *     (`csv:transfer:...`) — a credit card payment is a transfer, and Plaid
+ *     reports each side as an ordinary single-account transaction with no
+ *     notion of the Crest transfer linkage, so its legs must be adoptable too
+ *     or every payment duplicates on migration.
  *
  * Everything else is deliberately excluded:
  *   - already Plaid-backed rows carry a Plaid `transaction_id` (neither null nor
  *     `csv:`), so the query's filter skips them and re-syncs dedupe normally;
- *   - transfers (`transfer_account_id` set, incl. `csv:transfer:` legs) — adopting
- *     one leg would muddy the transfer's two-sided linkage;
  *   - opening balances (`crest:opening_balance`) — excluded by the id filter;
  *   - reconciliation adjustments (null id, but a distinctive payee) — excluded here.
+ *
+ * Adopting a transfer leg only ever rewrites its `imported_id`/`cleared_at`
+ * (see adoptTransaction) — `transfer_account_id`, `amount_cents`, and
+ * `txn_date` are untouched, so the transfer's two-sided linkage (matched
+ * elsewhere by opposite account + negated amount + same date) survives.
  */
 async function loadAdoptionCandidates(
   client: SupabaseClient,
@@ -119,16 +126,11 @@ async function loadAdoptionCandidates(
     .from("transactions")
     .select("id, account_id, amount_cents, txn_date, imported_id, payee, transfer_account_id")
     .in("account_id", accountIds)
-    .is("transfer_account_id", null)
     .or("imported_id.is.null,imported_id.like.csv:*");
 
   if (error) throw new Error(error.message);
 
   for (const row of data ?? []) {
-    const importedId = row.imported_id as string | null;
-    // Belt-and-suspenders: transfer legs are already excluded by the null
-    // transfer_account_id filter, but guard the csv:transfer: prefix too.
-    if (importedId?.startsWith("csv:transfer:")) continue;
     // A reconciliation adjustment is a synthetic null-id line — never adopt it.
     if ((row.payee as string | null) === RECONCILIATION_ADJUSTMENT_PAYEE) continue;
 
@@ -149,8 +151,9 @@ async function loadAdoptionCandidates(
  * Adopts an existing YNAB-imported row onto an incoming Plaid transaction:
  * rewrites its `imported_id` to Plaid's so subsequent syncs dedupe normally,
  * and marks it cleared when Plaid reports it posted. The row's amount, date,
- * payee, memo, allocations, and approval are deliberately left untouched so the
- * user's categorization survives the migration.
+ * payee, memo, allocations, approval, and transfer linkage
+ * (`transfer_account_id`) are deliberately left untouched so the user's
+ * categorization survives the migration.
  */
 async function adoptTransaction(
   client: SupabaseClient,
