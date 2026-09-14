@@ -403,7 +403,7 @@ export function TransactionForm({
     <>
       {/* Account + Date */}
       <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <Label htmlFor="txn-account" className="text-xs">
             {isTransfer ? "From" : "Account"}
           </Label>
@@ -412,7 +412,7 @@ export function TransactionForm({
             name="accountId"
             defaultValue={txn?.accountId ?? defaultAccountId ?? ""}
             required
-            className={selectClass}
+            className={cn(selectClass, "min-w-0")}
           >
             <option value="" disabled>
               Select…
@@ -424,7 +424,7 @@ export function TransactionForm({
             ))}
           </select>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <Label htmlFor="txn-date" className="text-xs">
             Date
           </Label>

@@ -115,7 +115,7 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
       <DropdownMenuContent align="end" className="w-44">
         {mounted && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-2">
+            <DropdownMenuSubTrigger className="gap-2 pl-8">
               {(() => {
                 const current = THEME_META[(theme as keyof typeof THEME_META) ?? "system"] ?? THEME_META.system;
                 const CurrentIcon = current.Icon;
@@ -157,7 +157,7 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
           Hide amounts
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push("/import")} className="gap-2">
+        <DropdownMenuItem onClick={() => router.push("/import")} className="gap-2 pl-8">
           <Upload size={ICON_SIZE} /> Import from YNAB
         </DropdownMenuItem>
         {notifSupported && (
@@ -176,7 +176,7 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
               <DropdownMenuItem
                 onClick={handleTestPush}
                 disabled={testStatus === "sending"}
-                className="gap-2"
+                className="gap-2 pl-8"
               >
                 <Send size={ICON_SIZE} />
                 {testStatus === "sent"
@@ -189,7 +189,7 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
           </>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={logout} className="gap-2">
+        <DropdownMenuItem onClick={logout} className="gap-2 pl-8">
           <LogOut size={ICON_SIZE} /> Log out
         </DropdownMenuItem>
       </DropdownMenuContent>
