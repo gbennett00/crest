@@ -18,6 +18,7 @@ import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
 import { RtaBreakdownPopup } from "./rta-breakdown-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
+import { CoverOverspendingPopup } from "./cover-overspending-popup";
 import { RowMenu } from "./row-menu";
 import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
@@ -223,6 +224,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
               return (
                 <div key={group.id}>
                   <GroupHeaderRow
+                    data={data}
                     group={group}
                     isExpanded={isExpanded}
                     onToggle={() => toggle(group.id)}
@@ -240,6 +242,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
                     visibleCats.map((cat) => (
                       <CategoryRow
                         key={cat.id}
+                        data={data}
                         cat={cat}
                         group={group}
                         month={data.month}
@@ -265,6 +268,7 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
 // ---------------------------------------------------------------------------
 
 function GroupHeaderRow({
+  data,
   group,
   isExpanded,
   onToggle,
@@ -273,6 +277,7 @@ function GroupHeaderRow({
   available,
   onAssignGroup,
 }: {
+  data: BudgetData;
   group: BudgetGroup;
   isExpanded: boolean;
   onToggle: () => void;
@@ -284,7 +289,9 @@ function GroupHeaderRow({
   const formatCents = useFormattedCents();
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
   const isGroupBudget = group.budgetMode === "group";
+  const overspent = isGroupBudget && available < 0;
 
   return (
     <div
@@ -340,17 +347,44 @@ function GroupHeaderRow({
       <span className="hidden md:block text-right text-muted-foreground">
         {formatCents(activity)}
       </span>
-      <AvailableCell cents={available} />
+      {overspent ? (
+        <span className="relative block text-right" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setCoverOpen(true)}
+            className="text-right font-medium tabular-nums text-destructive hover:underline"
+          >
+            {formatCents(available)}
+          </button>
+          {coverOpen && (
+            <CoverOverspendingPopup
+              data={data}
+              target={{
+                type: "group",
+                id: group.id,
+                name: group.name,
+                originalAssigned: group.groupAssignedCents,
+                overspentCents: available,
+              }}
+              onClose={() => setCoverOpen(false)}
+            />
+          )}
+        </span>
+      ) : (
+        <AvailableCell cents={available} />
+      )}
     </div>
   );
 }
 
 function CategoryRow({
+  data,
   cat,
   group,
   month,
   onAssign,
 }: {
+  data: BudgetData;
   cat: BudgetCategory;
   group: BudgetGroup;
   month: string;
@@ -361,11 +395,13 @@ function CategoryRow({
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [ccOpen, setCcOpen] = useState(false);
+  const [coverOpen, setCoverOpen] = useState(false);
 
   const isCategoryBudget = group.budgetMode === "category";
   const isCC = cat.cardRegisterBalanceCents !== null;
   const underfunded =
     isCC && paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents) > 0;
+  const overspent = isCategoryBudget && cat.availableCents < 0;
 
   function handleRowClick() {
     if (renaming) return;
@@ -442,7 +478,17 @@ function CategoryRow({
 
       {isCategoryBudget ? (
         <span className="relative block text-right">
-          <AvailableCell cents={cat.availableCents} />
+          {overspent ? (
+            <button
+              type="button"
+              onClick={(e) => { e.stopPropagation(); setCoverOpen(true); }}
+              className="text-right font-medium tabular-nums text-destructive hover:underline"
+            >
+              {formatCents(cat.availableCents)}
+            </button>
+          ) : (
+            <AvailableCell cents={cat.availableCents} />
+          )}
           {isCC && (
             <span onClick={(e) => e.stopPropagation()}>
               <PaymentCategoryActivity
@@ -451,6 +497,21 @@ function CategoryRow({
                 open={ccOpen}
                 onOpenChange={setCcOpen}
                 showTrigger={false}
+              />
+            </span>
+          )}
+          {coverOpen && (
+            <span onClick={(e) => e.stopPropagation()}>
+              <CoverOverspendingPopup
+                data={data}
+                target={{
+                  type: "category",
+                  id: cat.id,
+                  name: cat.name,
+                  originalAssigned: cat.assignedCents,
+                  overspentCents: cat.availableCents,
+                }}
+                onClose={() => setCoverOpen(false)}
               />
             </span>
           )}

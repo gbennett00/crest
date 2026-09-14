@@ -6,8 +6,8 @@ import { PendingApprovalList } from "@/components/home/pending-approval-list";
 import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { HomeAssignButton } from "@/components/home/home-assign-button";
 import { PinManager } from "@/components/home/pin-manager";
+import { OverspentSection } from "@/components/home/overspent-section";
 import { cn } from "@/lib/utils";
-import { ChevronRight } from "lucide-react";
 
 export default function HomePage() {
   return (
@@ -93,32 +93,7 @@ async function HomeContent() {
       {/* Overspent */}
       {overspent.length > 0 && (
         <Section title="Overspent" count={overspent.length} accent="red">
-          <div className="divide-y">
-            {overspent.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between px-4 py-2.5"
-              >
-                <div>
-                  <p className="text-sm font-medium">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.isGroup ? "Group budget" : item.groupName}
-                  </p>
-                </div>
-                <p className="text-sm font-semibold tabular-nums text-destructive">
-                  <Money cents={item.availableCents} />
-                </p>
-              </div>
-            ))}
-          </div>
-          <div className="px-4 pb-3">
-            <Link
-              href="/budget"
-              className="text-xs text-primary hover:underline flex items-center gap-1"
-            >
-              Fix in Budget <ChevronRight size={12} />
-            </Link>
-          </div>
+          <OverspentSection data={budgetData} items={overspent} />
         </Section>
       )}
 

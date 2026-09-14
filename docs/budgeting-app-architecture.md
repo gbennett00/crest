@@ -363,6 +363,31 @@ Then:
 
 ---
 
+## COVER OVERSPENDING
+
+YNAB-style action for fixing a negative available balance on a funding unit
+(a category in a category-budgeted group, or a whole group in a
+group-budgeted group — see GROUP BUDGETING RULES). Reachable by clicking the
+red available amount.
+
+* the user picks any number of other funded funding units (available > 0),
+  or Ready to Assign, as sources
+* each source's contribution is independently editable — a user may take
+  less than a source's full available balance, leaving the rest there
+* the total pulled cannot exceed the overspent amount or any source's own
+  available balance; partial covers (leaving some overspend uncovered) are
+  allowed
+* implemented purely as `assigned_cents` moves for the viewed month — the
+  overspent unit's assigned amount increases by the total covered, each
+  category/group source's assigned amount decreases by its contribution;
+  Ready to Assign needs no explicit write since it is derived, not stored
+  (see READY TO ASSIGN)
+* this is a different mechanic from a credit-card payment category's
+  "assign to cover" (see CREDIT CARD LOGIC), which only ever pulls from
+  Ready to Assign for that one category
+
+---
+
 ## TRANSFERS
 
 A transfer is a movement of money between two of the user's own accounts. It is
@@ -577,6 +602,8 @@ Capabilities:
 * collapse/expand groups
 * display ready-to-assign prominently
 * visually distinguish overspending
+* cover overspending from another funded category/group, or Ready to Assign
+  (see COVER OVERSPENDING), by clicking the negative available amount
 * support group-budgeted and category-budgeted modes
 
 Mobile:
