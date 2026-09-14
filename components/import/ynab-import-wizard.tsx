@@ -233,6 +233,8 @@ export function YnabImportWizard() {
           </li>
           <li>
             {summary.transactionsCreated} transactions created, {summary.transactionsUpdated} updated
+            {summary.transactionsMatchedToPlaid > 0 &&
+              `, ${summary.transactionsMatchedToPlaid} matched to existing Plaid transactions`}
           </li>
           <li>{summary.transfersCreated} transfers created</li>
           <li>{summary.openingBalancesCreated} opening balances created</li>

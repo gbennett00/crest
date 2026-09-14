@@ -4,11 +4,13 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import {
   bulkUpsertCategoryBudgets,
   bulkUpsertTransactions,
+  claimPlaidTransaction,
   createAccount,
   createOpeningBalance,
   createTransfer,
   getAccount,
   getReadyToAssignCategoryId,
+  OPENING_BALANCE_IMPORTED_ID,
 } from "@/lib/ledger";
 import type {
   AccountType,
@@ -16,6 +18,7 @@ import type {
   UpsertCategoryBudgetInput,
   UpsertTransactionInput,
 } from "@/lib/ledger/types";
+import { selectAdoptionMatch, type AdoptionCandidate } from "@/lib/plaid/match";
 import { chunk, mapWithConcurrency } from "./concurrency";
 import { isCreditCardPaymentCategory, isReadyToAssignCategory } from "./mapping";
 import type { ParsedTransaction, ParsedTransfer, PlanParseResult, RegisterParseResult } from "./types";
@@ -71,6 +74,8 @@ export type ImportSummary = {
   categoriesCreated: number;
   transactionsCreated: number;
   transactionsUpdated: number;
+  /** Register rows matched to an existing Plaid-imported transaction and categorized onto it instead of duplicated — see loadClaimablePlaidTransactions. */
+  transactionsMatchedToPlaid: number;
   transfersCreated: number;
   openingBalancesCreated: number;
   assignmentsWritten: number;
@@ -90,6 +95,48 @@ function hashTransaction(t: ParsedTransaction): string {
 function hashTransfer(t: ParsedTransfer): string {
   const payload = `${t.fromAccount}|${t.toAccount}|${t.date}|${t.amountCents}|${t.dedupeIndex}`;
   return createHash("sha256").update(payload).digest("hex").slice(0, 32);
+}
+
+/**
+ * Loads, per account, existing transactions that already carry a real
+ * external id — not a YNAB CSV hash (`csv:...`) and not the opening-balance
+ * marker — i.e. Plaid-imported rows. A register row whose account, amount,
+ * and date land within selectAdoptionMatch's window of one of these is the
+ * same real-world purchase Plaid already reported (e.g. Plaid was linked and
+ * synced history before this CSV was uploaded); claimPlaidTransaction applies
+ * its categorization to that row instead of runImport inserting a second,
+ * duplicate transaction. This is the reverse of loadAdoptionCandidates in
+ * lib/plaid/sync.ts, which handles the same overlap when Plaid syncs second.
+ */
+async function loadClaimablePlaidTransactions(
+  client: SupabaseClient,
+  accountIds: string[],
+): Promise<Map<string, AdoptionCandidate[]>> {
+  const pools = new Map<string, AdoptionCandidate[]>();
+  if (accountIds.length === 0) return pools;
+
+  const { data, error } = await client
+    .from("transactions")
+    .select("id, account_id, amount_cents, txn_date")
+    .in("account_id", accountIds)
+    .not("imported_id", "is", null)
+    .not("imported_id", "like", "csv:%")
+    .neq("imported_id", OPENING_BALANCE_IMPORTED_ID);
+
+  if (error) throw new Error(error.message);
+
+  for (const row of data ?? []) {
+    const accountId = row.account_id as string;
+    const pool = pools.get(accountId) ?? [];
+    pool.push({
+      id: row.id as string,
+      amountCents: row.amount_cents as number,
+      txnDate: row.txn_date as string,
+    });
+    pools.set(accountId, pool);
+  }
+
+  return pools;
 }
 
 /** Mirrors createManualAccount's credit-card-payment-category provisioning (app/(app)/accounts/actions.ts). */
@@ -235,6 +282,11 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
 
   let transactionsCreated = 0;
   let transactionsUpdated = 0;
+  let transactionsMatchedToPlaid = 0;
+
+  const claimablePools = await loadClaimablePlaidTransactions(client, [
+    ...new Set([...accountMap.values()].map((a) => a.accountId)),
+  ]);
 
   const preparedTransactions: { input: UpsertTransactionInput; label: string }[] = [];
   for (const t of input.register.transactions) {
@@ -254,6 +306,27 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
       allocations.push({ categoryId, amountCents: a.amountCents });
     }
     if (failed) continue;
+
+    // Migration overlap, reverse direction: this purchase may already exist
+    // as a Plaid-imported row. If so, categorize that row instead of
+    // inserting a duplicate — see loadClaimablePlaidTransactions.
+    const claimPool = claimablePools.get(account.accountId);
+    if (claimPool && claimPool.length > 0) {
+      const matchIdx = selectAdoptionMatch({ amountCents: t.amountCents, txnDate: t.date }, claimPool);
+      if (matchIdx >= 0) {
+        const candidate = claimPool[matchIdx];
+        claimPool.splice(matchIdx, 1);
+        transactionsMatchedToPlaid += 1;
+        try {
+          await claimPlaidTransaction(client, candidate.id, allocations);
+        } catch (e) {
+          errors.push(
+            `Failed to apply categorization for ${label} to existing Plaid transaction: ${e instanceof Error ? e.message : String(e)}`,
+          );
+        }
+        continue;
+      }
+    }
 
     const now = new Date().toISOString();
     preparedTransactions.push({
@@ -367,6 +440,7 @@ export async function runImport(client: SupabaseClient, input: ImportInput): Pro
     categoriesCreated,
     transactionsCreated,
     transactionsUpdated,
+    transactionsMatchedToPlaid,
     transfersCreated,
     openingBalancesCreated,
     assignmentsWritten,

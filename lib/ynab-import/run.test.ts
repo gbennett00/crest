@@ -119,17 +119,67 @@ function makeClient() {
       };
     }
     if (table === "transactions") {
+      // Applies an update payload to both the light TxnRow index and the
+      // full-row map, mirroring what the real UPDATE would persist.
+      function updateRow(id: string, patch: Record<string, unknown>) {
+        const existing = fullRows.get(id);
+        if (!existing) return { data: null, error: { message: "not found" } };
+        const updated = { ...existing, ...patch };
+        fullRows.set(id, updated);
+        const t = transactions.get(id);
+        if (t) {
+          transactions.set(id, {
+            ...t,
+            amount_cents: (patch.amount_cents as number) ?? t.amount_cents,
+            approved_at: patch.approved_at !== undefined ? (patch.approved_at as string | null) : t.approved_at,
+          });
+        }
+        return { data: updated, error: null };
+      }
+
+      // General-purpose filtered select over fullRows, supporting the chains
+      // this test double needs: .eq/.in/.not/.neq in any combination, with
+      // .maybeSingle()/.single() terminals or plain awaiting (list result) —
+      // covers both the legacy (account_id, imported_id) lookup used by
+      // upsertTransaction/createOpeningBalance and the newer claim-pool /
+      // claimPlaidTransaction queries.
+      function selectQuery() {
+        const filters: ((row: Record<string, unknown>) => boolean)[] = [];
+        const builder = {
+          eq: (col: string, val: unknown) => {
+            filters.push((row) => row[col] === val);
+            return builder;
+          },
+          in: (col: string, vals: unknown[]) => {
+            filters.push((row) => vals.includes(row[col]));
+            return builder;
+          },
+          neq: (col: string, val: unknown) => {
+            filters.push((row) => row[col] !== val);
+            return builder;
+          },
+          not: (col: string, kind: string, val: unknown) => {
+            if (kind === "is") {
+              filters.push((row) => row[col] !== null && row[col] !== undefined);
+            } else if (kind === "like") {
+              const prefix = String(val).endsWith("%") ? String(val).slice(0, -1) : String(val);
+              filters.push((row) => typeof row[col] !== "string" || !(row[col] as string).startsWith(prefix));
+            }
+            return builder;
+          },
+          matchRows: () => [...fullRows.values()].filter((row) => filters.every((f) => f(row))),
+          maybeSingle: async () => ({ data: builder.matchRows()[0] ?? null, error: null }),
+          single: async () => {
+            const rows = builder.matchRows();
+            return rows[0] ? { data: rows[0], error: null } : { data: null, error: { message: "not found" } };
+          },
+          then: (resolve: (v: unknown) => void) => resolve({ data: builder.matchRows(), error: null }),
+        };
+        return builder;
+      }
+
       return {
-        select: () => ({
-          eq: (_c1: string, accountId: string) => ({
-            eq: (_c2: string, importedId: string) => ({
-              maybeSingle: async () => {
-                const found = findTxnByAccountImportedId(accountId, importedId);
-                return { data: found ? { id: found.id, amount_cents: found.amount_cents } : null, error: null };
-              },
-            }),
-          }),
-        }),
+        select: () => selectQuery(),
         insert: (payload: Record<string, unknown>) => {
           const id = nextId("txn");
           const row: TxnRow = {
@@ -145,19 +195,13 @@ function makeClient() {
           return { select: () => ({ single: async () => ({ data: full, error: null }) }) };
         },
         update: (patch: Record<string, unknown>) => ({
-          eq: (_col: string, id: string) => ({
-            select: () => ({
-              single: async () => {
-                const existing = fullRows.get(id);
-                if (!existing) return { data: null, error: { message: "not found" } };
-                const updated = { ...existing, ...patch };
-                fullRows.set(id, updated);
-                const t = transactions.get(id);
-                if (t) transactions.set(id, { ...t, amount_cents: (patch.amount_cents as number) ?? t.amount_cents, approved_at: patch.approved_at !== undefined ? (patch.approved_at as string | null) : t.approved_at });
-                return { data: updated, error: null };
-              },
-            }),
-          }),
+          eq: (_col: string, id: string) => {
+            const result = updateRow(id, patch);
+            return {
+              select: () => ({ single: async () => result }),
+              then: (resolve: (v: unknown) => void) => resolve(result),
+            };
+          },
         }),
       };
     }
@@ -235,7 +279,40 @@ function makeClient() {
     }),
   } as unknown as SupabaseClient;
 
-  return { client, accounts, categoryGroups, categories, monthlyBudgets, transactions };
+  // Seeds a pre-existing transaction directly into both maps — used to
+  // simulate a row a prior Plaid sync already wrote, without going through
+  // runImport itself (which only ever writes csv:-imported rows).
+  function seedTransaction(row: {
+    accountId: string;
+    amountCents: number;
+    txnDate: string;
+    importedId: string | null;
+    approvedAt?: string | null;
+    payee?: string;
+  }) {
+    const id = nextId("txn");
+    const txn: TxnRow = {
+      id,
+      account_id: row.accountId,
+      imported_id: row.importedId,
+      amount_cents: row.amountCents,
+      approved_at: row.approvedAt ?? null,
+    };
+    transactions.set(id, txn);
+    fullRows.set(id, {
+      ...txn,
+      txn_date: row.txnDate,
+      payee: row.payee ?? "Bank Payee",
+      memo: null,
+      transfer_account_id: null,
+      cleared_at: null,
+      reconciled_at: null,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    return id;
+  }
+
+  return { client, accounts, categoryGroups, categories, monthlyBudgets, transactions, fullRows, seedTransaction };
 }
 
 describe("runImport", () => {
@@ -536,5 +613,152 @@ describe("runImport", () => {
     expect(summary.transactionsCreated).toBe(0);
     expect(summary.errors).toHaveLength(1);
     expect(summary.errors[0]).toMatch(/could not resolve category/);
+  });
+});
+
+describe("runImport — Plaid migration overlap (reverse direction)", () => {
+  it("claims a matching existing Plaid-imported transaction instead of inserting a duplicate", async () => {
+    const { client, accounts, transactions, seedTransaction } = makeClient();
+    accounts.set("acc-checking", {
+      id: "acc-checking",
+      name: "Checking",
+      type: "checking",
+      payment_category_id: null,
+      is_active: true,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    // Simulates a row a prior Plaid sync already wrote — unapproved, no
+    // categorization yet, imported_id is a raw Plaid transaction id.
+    seedTransaction({
+      accountId: "acc-checking",
+      amountCents: -450,
+      txnDate: "2026-01-14",
+      importedId: "plaid-txn-1",
+    });
+
+    const register = emptyRegister({
+      transactions: [
+        {
+          account: "Checking",
+          date: "2026-01-15", // one day off — within the match window
+          payee: "Coffee Shop",
+          memo: "",
+          amountCents: -450,
+          cleared: true,
+          allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
+          dedupeIndex: 0,
+        },
+      ],
+    });
+
+    const summary = await runImport(client, {
+      register,
+      plan: emptyPlan(),
+      planId: "plan-1",
+      accountResolutions: [{ csvName: "Checking", action: "existing", accountId: "acc-checking" }],
+      categoryResolutions: [{ categoryGroup: "General", category: "Dining", action: "create" }],
+    });
+
+    expect(summary.transactionsCreated).toBe(0);
+    expect(summary.transactionsMatchedToPlaid).toBe(1);
+    expect(summary.errors).toEqual([]);
+    // No duplicate row — still just the one Plaid-imported transaction.
+    expect(transactions.size).toBe(1);
+    const [txn] = [...transactions.values()];
+    expect(txn.imported_id).toBe("plaid-txn-1"); // untouched, so future Plaid syncs still find it
+    expect(txn.approved_at).not.toBeNull(); // claimed: categorization applied
+  });
+
+  it("does not overwrite an already-approved Plaid transaction's categorization, but still avoids duplicating it", async () => {
+    const { client, accounts, transactions, seedTransaction } = makeClient();
+    accounts.set("acc-checking", {
+      id: "acc-checking",
+      name: "Checking",
+      type: "checking",
+      payment_category_id: null,
+      is_active: true,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    seedTransaction({
+      accountId: "acc-checking",
+      amountCents: -450,
+      txnDate: "2026-01-14",
+      importedId: "plaid-txn-1",
+      approvedAt: "2026-01-14T12:00:00Z", // user already categorized this in the app
+    });
+
+    const register = emptyRegister({
+      transactions: [
+        {
+          account: "Checking",
+          date: "2026-01-15",
+          payee: "Coffee Shop",
+          memo: "",
+          amountCents: -450,
+          cleared: true,
+          allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
+          dedupeIndex: 0,
+        },
+      ],
+    });
+
+    const summary = await runImport(client, {
+      register,
+      plan: emptyPlan(),
+      planId: "plan-1",
+      accountResolutions: [{ csvName: "Checking", action: "existing", accountId: "acc-checking" }],
+      categoryResolutions: [{ categoryGroup: "General", category: "Dining", action: "create" }],
+    });
+
+    expect(summary.transactionsCreated).toBe(0);
+    expect(summary.transactionsMatchedToPlaid).toBe(1); // still avoided a duplicate
+    expect(transactions.size).toBe(1);
+    const [txn] = [...transactions.values()];
+    expect(txn.approved_at).toBe("2026-01-14T12:00:00Z"); // left exactly as the user set it
+  });
+
+  it("does not claim a Plaid transaction with a different amount — imports a normal new row instead", async () => {
+    const { client, accounts, transactions, seedTransaction } = makeClient();
+    accounts.set("acc-checking", {
+      id: "acc-checking",
+      name: "Checking",
+      type: "checking",
+      payment_category_id: null,
+      is_active: true,
+      created_at: "2026-01-01T00:00:00Z",
+    });
+    seedTransaction({
+      accountId: "acc-checking",
+      amountCents: -999, // different amount — no match
+      txnDate: "2026-01-14",
+      importedId: "plaid-txn-1",
+    });
+
+    const register = emptyRegister({
+      transactions: [
+        {
+          account: "Checking",
+          date: "2026-01-15",
+          payee: "Coffee Shop",
+          memo: "",
+          amountCents: -450,
+          cleared: true,
+          allocations: [{ categoryGroup: "General", category: "Dining", amountCents: -450 }],
+          dedupeIndex: 0,
+        },
+      ],
+    });
+
+    const summary = await runImport(client, {
+      register,
+      plan: emptyPlan(),
+      planId: "plan-1",
+      accountResolutions: [{ csvName: "Checking", action: "existing", accountId: "acc-checking" }],
+      categoryResolutions: [{ categoryGroup: "General", category: "Dining", action: "create" }],
+    });
+
+    expect(summary.transactionsCreated).toBe(1);
+    expect(summary.transactionsMatchedToPlaid).toBe(0);
+    expect(transactions.size).toBe(2); // the unrelated Plaid row plus the newly-imported csv: row
   });
 });
