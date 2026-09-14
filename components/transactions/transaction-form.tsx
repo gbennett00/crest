@@ -401,8 +401,10 @@ export function TransactionForm({
 
   const fields = (
     <>
-      {/* Account + Date */}
-      <div className="grid grid-cols-2 gap-2">
+      {/* Account + Date — one column on narrow phones: side by side at half
+          width, a native date input on iOS Safari won't shrink to fit and
+          forces the row (and the whole page) into horizontal scroll. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
         <div className="space-y-1.5 min-w-0">
           <Label htmlFor="txn-account" className="text-xs">
             {isTransfer ? "From" : "Account"}
