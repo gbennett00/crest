@@ -16,6 +16,13 @@
  * categorization (or transfer linkage). See `loadAdoptionCandidates` in
  * sync.ts for exactly which rows are eligible.
  *
+ * The same selection logic also runs in the opposite direction, when a YNAB
+ * CSV is imported *after* Plaid has already synced the overlapping history:
+ * lib/ynab-import/run.ts matches an incoming register row against existing
+ * Plaid-backed rows and applies its categorization onto the match (see
+ * claimPlaidTransaction in lib/ledger/operations.ts) instead of inserting a
+ * duplicate `csv:...` row.
+ *
  * This module is the pure selection logic; the DB-backed adoption lives in
  * `sync.ts`. See docs/plaid-integration-plan.md.
  */

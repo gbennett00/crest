@@ -233,6 +233,56 @@ export async function upsertTransaction(
 }
 
 /**
+ * Applies YNAB-import categorization onto an existing Plaid-backed transaction
+ * that a fuzzy match (account + amount + nearby date — see
+ * lib/ynab-import/run.ts and lib/plaid/match.ts's selectAdoptionMatch)
+ * selected as the same real-world purchase, instead of inserting a duplicate
+ * `csv:...` row. This is the reverse of the Plaid-side adoption in
+ * lib/plaid/sync.ts: there, an incoming Plaid txn takes over an existing
+ * YNAB-imported row's imported_id; here, the existing row is already
+ * Plaid-backed, so only its categorization is filled in — amount, date,
+ * payee, memo, cleared_at, and imported_id are left untouched so the row
+ * stays governed by Plaid (and any future sync) going forward.
+ *
+ * A no-op (claimed: false) when the row is already approved or the import
+ * row carries no allocations: an existing user or prior-import decision is
+ * never overwritten by a later CSV import, matching the "preserve manual
+ * edits on reimport" rule bulkUpsertTransactions follows for its own rows.
+ */
+export async function claimPlaidTransaction(
+  client: SupabaseClient,
+  transactionId: string,
+  allocations: TransactionAllocationInput[],
+): Promise<{ claimed: boolean }> {
+  if (allocations.length === 0) return { claimed: false };
+
+  const { data: existing, error } = await client
+    .from("transactions")
+    .select("amount_cents, approved_at")
+    .eq("id", transactionId)
+    .single();
+  if (error || !existing) {
+    throw new LedgerError("db_error", error?.message ?? "transaction not found");
+  }
+
+  const row = existing as { amount_cents: number; approved_at: string | null };
+  if (row.approved_at !== null) return { claimed: false };
+
+  const now = new Date().toISOString();
+  validateAllocations(row.amount_cents, allocations, now);
+
+  await replaceAllocations(client, transactionId, allocations);
+
+  const { error: updateError } = await client
+    .from("transactions")
+    .update({ approved_at: now })
+    .eq("id", transactionId);
+  if (updateError) throw new LedgerError("db_error", updateError.message);
+
+  return { claimed: true };
+}
+
+/**
  * Bulk variant of upsertTransaction: one round trip for the whole batch via
  * ledger_bulk_upsert_transactions, instead of one round trip per row. Intended
  * for large imports (see lib/ynab-import) — dedupes by (account_id,
