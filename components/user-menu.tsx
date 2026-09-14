@@ -21,14 +21,23 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
+  DropdownMenuPortal,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
 const ICON_SIZE = 15;
+
+const THEME_META = {
+  light: { label: "Light", Icon: Sun },
+  dark: { label: "Dark", Icon: Moon },
+  system: { label: "System", Icon: Laptop },
+} as const;
 
 export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
   const router = useRouter();
@@ -104,21 +113,39 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-44">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
-          Theme
-        </DropdownMenuLabel>
         {mounted && (
-          <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-            <DropdownMenuRadioItem value="light" className="gap-2">
-              <Sun size={ICON_SIZE} /> Light
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="dark" className="gap-2">
-              <Moon size={ICON_SIZE} /> Dark
-            </DropdownMenuRadioItem>
-            <DropdownMenuRadioItem value="system" className="gap-2">
-              <Laptop size={ICON_SIZE} /> System
-            </DropdownMenuRadioItem>
-          </DropdownMenuRadioGroup>
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="gap-2">
+              {(() => {
+                const current = THEME_META[(theme as keyof typeof THEME_META) ?? "system"] ?? THEME_META.system;
+                const CurrentIcon = current.Icon;
+                return (
+                  <>
+                    <CurrentIcon size={ICON_SIZE} />
+                    Theme
+                    <span className="ml-auto mr-1 text-xs text-muted-foreground">
+                      {current.label}
+                    </span>
+                  </>
+                );
+              })()}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              <DropdownMenuSubContent>
+                <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+                  <DropdownMenuRadioItem value="light" className="gap-2">
+                    <Sun size={ICON_SIZE} /> Light
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="dark" className="gap-2">
+                    <Moon size={ICON_SIZE} /> Dark
+                  </DropdownMenuRadioItem>
+                  <DropdownMenuRadioItem value="system" className="gap-2">
+                    <Laptop size={ICON_SIZE} /> System
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem

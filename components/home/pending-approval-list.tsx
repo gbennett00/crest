@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ListChecks, X } from "lucide-react";
 import { Money } from "@/components/money";
 import { Checkbox } from "@/components/ui/checkbox";
 import { ApproveForm, type CategoryOption } from "@/components/home/approve-form";
@@ -34,6 +35,7 @@ export function PendingApprovalList({
   accounts: AccountOption[];
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [selectMode, setSelectMode] = useState(false);
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -50,6 +52,11 @@ export function PendingApprovalList({
     setSelected(allSelected ? new Set() : new Set(pending.map((t) => t.id)));
   }
 
+  function exitSelectMode() {
+    setSelectMode(false);
+    setSelected(new Set());
+  }
+
   const selectedIds = [...selected];
   const selectedTotalCents = pending.reduce(
     (sum, t) => (selected.has(t.id) ? sum + t.amountCents : sum),
@@ -58,16 +65,36 @@ export function PendingApprovalList({
 
   return (
     <>
-      {/* Select-all control */}
+      {/* Select-all control — checkboxes stay hidden until "Select" is tapped,
+          so the list reads clean until the user actually wants to multi-select. */}
       <div className="flex items-center gap-2.5 px-4 py-2 border-b bg-muted/10">
-        <Checkbox
-          checked={allSelected}
-          onCheckedChange={toggleAll}
-          aria-label="Select all pending transactions"
-        />
-        <span className="text-xs text-muted-foreground">
-          {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-        </span>
+        {selectMode ? (
+          <>
+            <Checkbox
+              checked={allSelected}
+              onCheckedChange={toggleAll}
+              aria-label="Select all pending transactions"
+            />
+            <span className="text-xs text-muted-foreground flex-1">
+              {selected.size > 0 ? `${selected.size} selected` : "Select all"}
+            </span>
+            <button
+              type="button"
+              onClick={exitSelectMode}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+            >
+              <X size={13} /> Cancel
+            </button>
+          </>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setSelectMode(true)}
+            className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
+          >
+            <ListChecks size={13} /> Select
+          </button>
+        )}
       </div>
 
       <div className="divide-y">
@@ -79,13 +106,15 @@ export function PendingApprovalList({
               className={cn("py-3 px-4", isChecked && "bg-primary/5")}
             >
               <div className="flex items-start gap-3">
-                <div className="pt-0.5">
-                  <Checkbox
-                    checked={isChecked}
-                    onCheckedChange={() => toggle(txn.id)}
-                    aria-label={`Select ${txn.payee}`}
-                  />
-                </div>
+                {selectMode && (
+                  <div className="pt-0.5">
+                    <Checkbox
+                      checked={isChecked}
+                      onCheckedChange={() => toggle(txn.id)}
+                      aria-label={`Select ${txn.payee}`}
+                    />
+                  </div>
+                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
@@ -128,7 +157,7 @@ export function PendingApprovalList({
         accounts={accounts}
         primary={["approve", "categorize"]}
         menu={["move", "delete"]}
-        onClearSelection={() => setSelected(new Set())}
+        onClearSelection={exitSelectMode}
       />
     </>
   );

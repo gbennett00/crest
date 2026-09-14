@@ -71,7 +71,7 @@ function suggestMapping(
   return mapping;
 }
 
-export function LinkAccountButton() {
+export function LinkAccountButton({ iconOnly = false }: { iconOnly?: boolean }) {
   const [linkToken, setLinkToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -144,16 +144,28 @@ export function LinkAccountButton() {
 
   return (
     <div>
-      <Button
-        variant="outline"
-        size="sm"
-        className="gap-1.5"
-        onClick={() => open()}
-        disabled={!ready || isPending}
-      >
-        <Link2 size={14} />
-        {isPending && !pendingLink ? "Linking…" : "Link Bank Account"}
-      </Button>
+      {iconOnly ? (
+        <button
+          onClick={() => open()}
+          disabled={!ready || isPending}
+          aria-label="Link bank account"
+          title="Link bank account"
+          className="p-2 rounded-md text-muted-foreground hover:bg-accent hover:text-foreground transition-colors disabled:opacity-50"
+        >
+          <Link2 size={18} />
+        </button>
+      ) : (
+        <Button
+          variant="outline"
+          size="sm"
+          className="gap-1.5"
+          onClick={() => open()}
+          disabled={!ready || isPending}
+        >
+          <Link2 size={14} />
+          {isPending && !pendingLink ? "Linking…" : "Link Bank Account"}
+        </Button>
+      )}
       {error && !pendingLink && (
         <p className="text-xs text-destructive mt-1">{error}</p>
       )}

@@ -72,3 +72,18 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* On phone-width screens, nudge the small Tailwind text utilities up a notch
+   so the app reads more like a native app and less like a shrunk desktop
+   page. Same specificity as the utilities themselves, so source order (this
+   comes after `@tailwind utilities`) decides — no `!important` needed. */
+@media (max-width: 767px) {
+  .text-xs {
+    font-size: 0.8125rem; /* 13px, was 12px */
+    line-height: 1.15rem;
+  }
+  .text-sm {
+    font-size: 0.9375rem; /* 15px, was 14px */
+    line-height: 1.35rem;
+  }
+}
