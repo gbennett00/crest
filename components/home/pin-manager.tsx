@@ -1,11 +1,12 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Pin, X } from "lucide-react";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { togglePin } from "@/app/(app)/budget/actions";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import type { BudgetData } from "@/lib/budget/types";
 
 type PinEntry = {
@@ -52,7 +53,7 @@ function buildEntries(data: BudgetData): PinEntry[] {
 }
 
 export function PinManager({ data }: { data: BudgetData }) {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [, startTransition] = useTransition();
   const entries = useMemo(() => buildEntries(data), [data]);
@@ -69,12 +70,12 @@ export function PinManager({ data }: { data: BudgetData }) {
     setPinned((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }));
     startTransition(async () => {
       await togglePin(entry.id, entry.type);
+      invalidateAllLedgerQueries(queryClient);
     });
   }
 
   function close() {
     setOpen(false);
-    router.refresh();
   }
 
   // Group entries under their group name for display.

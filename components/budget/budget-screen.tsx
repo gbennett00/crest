@@ -6,7 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
-import { nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
+import { currentBudgetMonth, nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
 import { Input } from "@/components/ui/input";
 import { AssignedInput } from "./assigned-input";
 import {
@@ -19,11 +19,12 @@ import {
   useBudgetView,
   prefetchBudgetView,
   invalidateBudgetView,
-  type BudgetViewResponse,
 } from "@/lib/queries/budget";
 import {
   prefetchTransactionsByCategory,
 } from "@/lib/queries/transactions";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { useHasMounted } from "@/lib/use-has-mounted";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
 import { RtaBreakdownPopup } from "./rta-breakdown-popup";
@@ -64,8 +65,9 @@ const COLS = "grid grid-cols-[1fr_84px_92px] md:grid-cols-[1fr_80px_80px_92px]";
 
 const BUDGET_MONTH_RE = /^\d{4}-\d{2}-01$/;
 
-export function BudgetScreen({ initial }: { initial: BudgetViewResponse }) {
+export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
   const queryClient = useQueryClient();
+  const hasMounted = useHasMounted();
   const [, startTransition] = useTransition();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
@@ -74,10 +76,10 @@ export function BudgetScreen({ initial }: { initial: BudgetViewResponse }) {
 
   // Month lives in client state, not in Next's router — switching months (the
   // single most frequent interaction on this screen) reads straight from the
-  // query cache instead of round-tripping through the Server Component. The
+  // query cache instead of round-tripping through a Server Component. The
   // URL is kept in sync via the plain history API (below) so the address bar,
   // back/forward, and shared links keep working.
-  const [month, setMonth] = useState(initial.data.month);
+  const [month, setMonth] = useState(initialMonth ?? currentBudgetMonth());
 
   function monthHref(m: string) {
     return `/budget?month=${m}`;
@@ -101,10 +103,7 @@ export function BudgetScreen({ initial }: { initial: BudgetViewResponse }) {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const { data: response } = useBudgetView(
-    month,
-    month === initial.data.month ? initial : undefined,
-  );
+  const { data: response } = useBudgetView(month);
 
   // Warm the query cache for the neighbouring months so stepping to the
   // previous/next month (and coming back) renders from cache instead of a
@@ -121,6 +120,43 @@ export function BudgetScreen({ initial }: { initial: BudgetViewResponse }) {
       prefetchBudgetView(queryClient, nextMonth);
     }
   }, [queryClient, response, prevMonth, nextMonth]);
+
+  // Beyond the immediate neighbours, quietly warm roughly a year of budget
+  // history in the background (closest months first), throttled so it never
+  // competes with a foreground navigation for the same DB connection. This is
+  // the "YNAB caches your whole history on open" idea, scoped to the one
+  // screen where jumping to an arbitrary month (via the month picker) is
+  // common enough that a bare ±1 prefetch isn't enough — runs once per mount,
+  // not on every month change.
+  const didWarmHistory = useRef(false);
+  useEffect(() => {
+    if (didWarmHistory.current || !response) return;
+    didWarmHistory.current = true;
+    const { minMonth, maxMonth } = response.data;
+    let cancelled = false;
+    (async () => {
+      let back = month;
+      let fwd = month;
+      for (let i = 0; i < 11 && !cancelled; i++) {
+        back = previousBudgetMonth(back);
+        if (back < minMonth) break;
+        await prefetchBudgetView(queryClient, back);
+        await new Promise((r) => setTimeout(r, 150));
+      }
+      for (let i = 0; i < 2 && !cancelled; i++) {
+        fwd = nextBudgetMonth(fwd);
+        if (fwd > maxMonth) break;
+        await prefetchBudgetView(queryClient, fwd);
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // Deliberately runs once (guarded by the ref) — `month`/`response` are
+    // read at that first run, not re-triggered as they change afterward.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [response]);
 
   // On mobile, group-budgeted groups have nothing useful in their member rows
   // (per-category assigned/available are "—" and the Activity column is hidden),
@@ -147,7 +183,7 @@ export function BudgetScreen({ initial }: { initial: BudgetViewResponse }) {
     });
   }
 
-  if (!response) {
+  if (!hasMounted || !response) {
     return <BudgetSkeleton />;
   }
 
@@ -491,6 +527,7 @@ function CategoryRow({
       onClick={handleRowClick}
       onMouseEnter={handlePrefetch}
       onFocus={handlePrefetch}
+      onPointerDown={handlePrefetch}
       className={cn(
         COLS,
         "px-4 pl-8 py-2 border-b text-sm items-center cursor-pointer hover:bg-accent/40 transition-colors",
@@ -628,7 +665,7 @@ function InlineName({
       startTransition(async () => {
         if (type === "category") await renameCategory(id, trimmed);
         else await renameGroup(id, trimmed);
-        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+        invalidateAllLedgerQueries(queryClient);
         onDone();
       });
     } else {

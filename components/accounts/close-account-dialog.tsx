@@ -2,7 +2,9 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { closeAccountAction } from "@/app/(app)/accounts/actions";
 import { X, Archive } from "lucide-react";
 
@@ -21,6 +23,7 @@ export function CloseAccountDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -31,8 +34,8 @@ export function CloseAccountDialog({
       if (result.error) {
         setError(result.error);
       } else {
+        invalidateAllLedgerQueries(queryClient);
         router.push("/accounts");
-        router.refresh();
       }
     });
   }

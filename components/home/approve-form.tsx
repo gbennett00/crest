@@ -1,9 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useFormattedCents } from "@/components/money";
 import { approveWithCategory } from "@/app/(app)/actions";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { cn } from "@/lib/utils";
 
 export type CategoryOption = {
@@ -24,6 +26,7 @@ export function ApproveForm({
   categories,
 }: ApproveFormProps) {
   const formatCents = useFormattedCents();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(categories[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
@@ -41,6 +44,7 @@ export function ApproveForm({
     startTransition(async () => {
       const result = await approveWithCategory(transactionId, selected);
       if (result?.error) setError(result.error);
+      else invalidateAllLedgerQueries(queryClient);
     });
   }
 

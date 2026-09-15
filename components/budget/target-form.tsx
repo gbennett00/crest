@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -61,7 +62,7 @@ export function TargetButton({
         setError(result.error);
       } else {
         setOpen(false);
-        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+        invalidateAllLedgerQueries(queryClient);
       }
     });
   }
@@ -70,7 +71,7 @@ export function TargetButton({
     startTransition(async () => {
       await deleteTarget(entityId, entityType);
       setOpen(false);
-      queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+      invalidateAllLedgerQueries(queryClient);
     });
   }
 

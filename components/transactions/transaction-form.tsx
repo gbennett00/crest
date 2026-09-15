@@ -3,6 +3,7 @@
 import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -222,13 +223,15 @@ export function TransactionForm({
   }
 
   // A saved/deleted transaction can change any cached budget month's
-  // activity/available totals and any category's transaction list, so these
-  // client-side caches (see lib/queries/budget.ts, lib/queries/transactions.ts)
-  // need invalidating alongside the server's own revalidatePath — they're a
-  // separate cache Next's Server Action revalidation doesn't reach.
+  // activity/available totals, any category's transaction list, the owning
+  // account's register/balance, the accounts list, and the home dashboard —
+  // rather than enumerate all of them, invalidate the whole client-side
+  // ledger cache (see lib/queries/define-query.ts). It's cheap: this only
+  // marks currently-mounted queries stale, it doesn't eagerly refetch
+  // everything. This is a separate cache Next's Server Action revalidation
+  // doesn't reach.
   function invalidateLedgerCaches() {
-    queryClient.invalidateQueries({ queryKey: ["budget-view"] });
-    queryClient.invalidateQueries({ queryKey: ["transactions-by-category"] });
+    invalidateAllLedgerQueries(queryClient);
   }
 
   function doSave(formData: FormData) {

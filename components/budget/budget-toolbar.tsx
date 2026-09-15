@@ -2,6 +2,7 @@
 
 import { useRef, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { ArrowUpDown, Check, FolderPlus, ListPlus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -124,7 +125,7 @@ function AddCategoryModal({
       const result = await createCategory(formData);
       if (result?.error) setError(result.error);
       else {
-        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+        invalidateAllLedgerQueries(queryClient);
         onClose();
       }
     });
@@ -180,7 +181,7 @@ function AddGroupModal({ onClose }: { onClose: () => void }) {
       const result = await createGroup(formData);
       if (result?.error) setError(result.error);
       else {
-        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+        invalidateAllLedgerQueries(queryClient);
         onClose();
       }
     });

@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -116,7 +117,7 @@ export function AssignPopup({
     startTransition(async () => {
       const result = await bulkAssign(allAssignments, data.month);
       if (result?.success) {
-        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+        invalidateAllLedgerQueries(queryClient);
         onClose();
       } else {
         setError("Failed to save assignments.");

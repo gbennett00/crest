@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
   DndContext,
   PointerSensor,
@@ -54,7 +55,7 @@ export function BudgetReorder({ groups }: { groups: BudgetGroup[] }) {
     setItems(next);
     startTransition(async () => {
       await reorderGroups(next.map((g) => g.id));
-      queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+      invalidateAllLedgerQueries(queryClient);
     });
   }
 
@@ -70,7 +71,7 @@ export function BudgetReorder({ groups }: { groups: BudgetGroup[] }) {
     setItems(items.map((g) => (g.id === groupId ? { ...g, categories: cats } : g)));
     startTransition(async () => {
       await reorderCategories(groupId, cats.map((c) => c.id));
-      queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+      invalidateAllLedgerQueries(queryClient);
     });
   }
 

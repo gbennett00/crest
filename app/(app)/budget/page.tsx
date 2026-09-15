@@ -1,65 +1,31 @@
+"use client";
+
 import { Suspense } from "react";
-import { createClient } from "@/lib/supabase/server";
-import { currentBudgetMonth } from "@/lib/ledger";
-import { getBudgetView } from "@/lib/budget";
+import { useSearchParams } from "next/navigation";
 import { BudgetScreen } from "@/components/budget/budget-screen";
-import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
 const BUDGET_MONTH_RE = /^\d{4}-\d{2}-01$/;
 
-export default function BudgetPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string }>;
-}) {
+// This page has no server-side data fetch on purpose. It used to re-run
+// getBudgetView on every navigation here (including "back" from a category's
+// register), which meant a page you'd just been looking at still cost a
+// round-trip to reload. BudgetScreen now owns its data through the client
+// query cache (lib/queries/budget.ts) — a revisit renders straight from
+// cache, and only a genuinely cold cache (or a jump to an unfetched month)
+// shows the skeleton below.
+export default function BudgetPage() {
   return (
     <Suspense fallback={<BudgetSkeleton />}>
-      <BudgetContent searchParams={searchParams} />
+      <BudgetContent />
     </Suspense>
   );
 }
 
-async function BudgetContent({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string }>;
-}) {
-  const { month: rawMonth } = await searchParams;
-  const month = BUDGET_MONTH_RE.test(rawMonth ?? "") ? rawMonth! : currentBudgetMonth();
-
-  const supabase = await createClient();
-  const [data, accountsRes, categoriesRes] = await Promise.all([
-    getBudgetView(month),
-    supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
-    supabase
-      .from("categories")
-      .select("id, name, role, is_hidden, category_groups!group_id(name)")
-      .eq("is_hidden", false)
-      .order("name"),
-  ]);
-
-  const accounts: AccountOption[] = (accountsRes.data ?? []).map((a) => ({
-    id: a.id as string,
-    name: a.name as string,
-  }));
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const categories: CategoryOption[] = (categoriesRes.data ?? []).map((c: any) => ({
-    id: c.id as string,
-    name: c.role === "ready_to_assign" ? "Ready to Assign" : (c.name as string),
-    groupName: c.role === "ready_to_assign" ? "— Inflows —" : (((c.category_groups as { name: string } | null)?.name) ?? "Other"),
-  })).sort((a: CategoryOption, b: CategoryOption) => {
-    if (a.groupName === "— Inflows —") return -1;
-    if (b.groupName === "— Inflows —") return 1;
-    return 0;
-  });
-
-  // Seeds the client query cache (lib/queries/budget.ts) for this month so
-  // BudgetScreen renders instantly on first paint; every other month the user
-  // visits is fetched from /api/budget-view and cached client-side, so
-  // switching months (and coming back to this one) never re-triggers a
-  // server round-trip through this page.
-  return <BudgetScreen initial={{ data, accounts, categories }} />;
+function BudgetContent() {
+  const searchParams = useSearchParams();
+  const rawMonth = searchParams.get("month");
+  const initialMonth = rawMonth && BUDGET_MONTH_RE.test(rawMonth) ? rawMonth : undefined;
+  return <BudgetScreen initialMonth={initialMonth} />;
 }
 
 function BudgetSkeleton() {

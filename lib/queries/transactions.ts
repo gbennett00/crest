@@ -1,6 +1,7 @@
 "use client";
 
-import { useQuery, type QueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
+import { defineQuery } from "./define-query";
 
 export type CategoryTransactionRow = {
   id: string;
@@ -19,10 +20,6 @@ export type TransactionsByCategoryResponse = {
   txns: CategoryTransactionRow[];
 };
 
-export function transactionsByCategoryKey(categoryId: string, month: string | undefined) {
-  return ["transactions-by-category", categoryId, month ?? ""] as const;
-}
-
 async function fetchTransactionsByCategory(
   categoryId: string,
   month: string | undefined,
@@ -34,12 +31,10 @@ async function fetchTransactionsByCategory(
   return res.json();
 }
 
+const byCategoryQuery = defineQuery("transactions-by-category", fetchTransactionsByCategory);
+
 export function useTransactionsByCategory(categoryId: string, month: string | undefined) {
-  return useQuery({
-    queryKey: transactionsByCategoryKey(categoryId, month),
-    queryFn: () => fetchTransactionsByCategory(categoryId, month),
-    enabled: !!categoryId,
-  });
+  return byCategoryQuery.useResource([categoryId, month], { enabled: !!categoryId });
 }
 
 /** Warms the cache for a category register before the user clicks into it. */
@@ -48,8 +43,5 @@ export function prefetchTransactionsByCategory(
   categoryId: string,
   month: string | undefined,
 ) {
-  return queryClient.prefetchQuery({
-    queryKey: transactionsByCategoryKey(categoryId, month),
-    queryFn: () => fetchTransactionsByCategory(categoryId, month),
-  });
+  return byCategoryQuery.prefetch(queryClient, categoryId, month);
 }

@@ -2,8 +2,10 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { useFormattedCents } from "@/components/money";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
   reconcileMatched,
   reconcileWithAdjustmentAction,
@@ -31,6 +33,7 @@ export function ReconcileDialog({
   onClose: () => void;
 }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const formatCents = useFormattedCents();
 
   // A linked account has an authoritative bank balance to compare against, so we
@@ -73,6 +76,7 @@ export function ReconcileDialog({
         setError(result.error);
       } else {
         setStep("success");
+        invalidateAllLedgerQueries(queryClient);
         router.refresh();
       }
     });
@@ -87,6 +91,7 @@ export function ReconcileDialog({
         setError(result.error);
       } else {
         setStep("success");
+        invalidateAllLedgerQueries(queryClient);
         router.refresh();
       }
     });

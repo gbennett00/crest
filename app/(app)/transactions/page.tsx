@@ -2,12 +2,15 @@
 
 import { Suspense } from "react";
 import { useSearchParams } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import Link from "next/link";
 import { Money } from "@/components/money";
 import { ChevronLeft } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { useTransactionsByCategory } from "@/lib/queries/transactions";
+import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
+import { useHasMounted } from "@/lib/use-has-mounted";
 
 const MONTH_NAMES = [
   "January", "February", "March", "April", "May", "June",
@@ -26,11 +29,16 @@ function TransactionsContent() {
   const searchParams = useSearchParams();
   const categoryId = searchParams.get("category") ?? "";
   const monthFilter = searchParams.get("month") ?? undefined;
+  const queryClient = useQueryClient();
+  const hasMounted = useHasMounted();
 
   const { data: response, isPending } = useTransactionsByCategory(categoryId, monthFilter);
 
-  const categoryName = response?.categoryName ?? "Category";
-  const txns = response?.txns ?? [];
+  // Gated on hasMounted (see lib/use-has-mounted.ts) so this never differs
+  // from the server's necessarily-cache-blind first render, even when the
+  // query cache is already warm (e.g. from the row's hover-prefetch).
+  const categoryName = hasMounted ? (response?.categoryName ?? "Category") : "Category";
+  const txns = hasMounted ? (response?.txns ?? []) : [];
 
   const monthLabel = monthFilter
     ? `${MONTH_NAMES[+monthFilter.slice(5, 7) - 1]} ${monthFilter.slice(0, 4)}`
@@ -50,7 +58,7 @@ function TransactionsContent() {
         </div>
       </StickyHeader>
 
-      {isPending && !response ? (
+      {!hasMounted || (isPending && !response) ? (
         <div className="animate-pulse p-4 space-y-3">
           {Array.from({ length: 8 }).map((_, i) => (
             <div key={i} className="h-12 bg-muted rounded" />
@@ -73,8 +81,16 @@ function TransactionsContent() {
 
           const currentUrl = `/transactions?category=${categoryId}&month=${monthFilter ?? ""}`;
           const editHref = `/transactions/${txn.id}?back=${encodeURIComponent(currentUrl)}`;
+          const prefetch = () => prefetchTransactionDetail(queryClient, txn.id);
           return (
-            <Link key={`${txn.id}-${i}`} href={editHref} className="px-4 py-3 border-b flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors">
+            <Link
+              key={`${txn.id}-${i}`}
+              href={editHref}
+              onMouseEnter={prefetch}
+              onFocus={prefetch}
+              onPointerDown={prefetch}
+              className="px-4 py-3 border-b flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors"
+            >
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-1.5 flex-wrap">
                   {!isApproved && (

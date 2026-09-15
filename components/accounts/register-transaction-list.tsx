@@ -2,10 +2,12 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Lock, X } from "lucide-react";
 import { Money } from "@/components/money";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionsBar } from "@/components/transactions/bulk-actions-bar";
+import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
 import type {
   AccountOption,
   CategoryOption,
@@ -46,6 +48,7 @@ export function RegisterTransactionList({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
+  const queryClient = useQueryClient();
 
   // Every row is selectable — reconciled lines included. They just can't be
   // moved or deleted (the bar guards that); categorize/approve still apply.
@@ -134,6 +137,7 @@ export function RegisterTransactionList({
           {group.txns.map((txn) => {
             const isChecked = selected.has(txn.id);
             const editHref = `/transactions/${txn.id}?back=/accounts/${accountId}`;
+            const prefetch = () => prefetchTransactionDetail(queryClient, txn.id);
             const rowContent = (
               <>
                 <div className="min-w-0 flex-1">
@@ -209,7 +213,13 @@ export function RegisterTransactionList({
                     {rowContent}
                   </button>
                 ) : (
-                  <Link href={editHref} className={rowClass}>
+                  <Link
+                    href={editHref}
+                    onMouseEnter={prefetch}
+                    onFocus={prefetch}
+                    onPointerDown={prefetch}
+                    className={rowClass}
+                  >
                     {rowContent}
                   </Link>
                 )}

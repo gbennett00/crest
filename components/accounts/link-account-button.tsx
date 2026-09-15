@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useState, useTransition } from "react";
 import { usePlaidLink } from "react-plaid-link";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
   completeAccountLinking,
   createLinkToken,
@@ -78,6 +80,7 @@ export function LinkAccountButton({ iconOnly = false }: { iconOnly?: boolean }) 
   const [pendingLink, setPendingLink] = useState<PendingLink | null>(null);
   // Per plaidAccount.id, either "" (create new) or an existing account id to attach to.
   const [mapping, setMapping] = useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     let cancelled = false;
@@ -138,6 +141,7 @@ export function LinkAccountButton({ iconOnly = false }: { iconOnly?: boolean }) 
         setError(result.error);
         return;
       }
+      invalidateAllLedgerQueries(queryClient);
       setPendingLink(null);
     });
   }
