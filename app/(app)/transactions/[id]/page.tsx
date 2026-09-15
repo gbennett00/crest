@@ -1,10 +1,7 @@
 import { Suspense } from "react";
-import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { ChevronLeft } from "lucide-react";
 import { TransactionForm } from "@/components/transactions/transaction-form";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
-import { StickyHeader } from "@/components/ui/sticky-header";
 
 export default function EditTransactionPage({
   params,
@@ -110,21 +107,12 @@ async function EditTransactionContent({
   });
 
   return (
-    <div className="max-w-lg">
-      <StickyHeader className="px-4 py-3 flex items-center gap-3">
-        <Link href={backHref} className="text-muted-foreground hover:text-foreground">
-          <ChevronLeft size={20} />
-        </Link>
-        <h1 className="font-semibold text-sm">Edit Transaction</h1>
-      </StickyHeader>
-
-      <TransactionForm
-        txn={txn}
-        accounts={accounts}
-        accountNameById={accountNameById}
-        categories={categories}
-        backHref={backHref}
-      />
-    </div>
+    <TransactionForm
+      txn={txn}
+      accounts={accounts}
+      accountNameById={accountNameById}
+      categories={categories}
+      backHref={backHref}
+    />
   );
 }

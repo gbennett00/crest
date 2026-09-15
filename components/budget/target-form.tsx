@@ -148,11 +148,15 @@ export function TargetButton({
           {type === "by_date" && (
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Target date</Label>
+              {/* appearance-none strips iOS Safari's native chrome for this
+                  compound control, which otherwise lays itself out at an
+                  intrinsic width that ignores width/max-width and overflows
+                  this narrow popup. */}
               <Input
                 ref={dateRef}
                 type="date"
                 defaultValue={existingTarget?.targetDate ?? ""}
-                className="h-7 text-xs"
+                className="h-7 text-xs block w-full appearance-none"
               />
             </div>
           )}

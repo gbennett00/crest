@@ -5,16 +5,20 @@ import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
 import { LinkAccountButton } from "@/components/accounts/link-account-button";
 import { ClosedAccountsSection } from "@/components/accounts/closed-accounts-section";
-import { TransactionForm } from "@/components/transactions/transaction-form";
 import type { AccountData } from "@/components/accounts/account-card";
-import type { CategoryOption } from "@/components/transactions/transaction-form";
 import { Money } from "@/components/money";
 import { cn } from "@/lib/utils";
 
 export default function AccountsPage() {
   return (
     <div className="max-w-2xl p-4 space-y-5">
-      <h1 className="text-2xl font-bold tracking-tight">Accounts</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold tracking-tight">Accounts</h1>
+        <div className="flex items-center gap-1">
+          <AddAccountForm iconOnly />
+          <LinkAccountButton iconOnly />
+        </div>
+      </div>
       <Suspense fallback={<AccountsSkeleton />}>
         <AccountsContent />
       </Suspense>
@@ -25,7 +29,7 @@ export default function AccountsPage() {
 async function AccountsContent() {
   const supabase = await createClient();
 
-  const [accountsRes, balances, categoriesRes] = await Promise.all([
+  const [accountsRes, balances] = await Promise.all([
     supabase
       .from("accounts")
       .select("*")
@@ -33,31 +37,7 @@ async function AccountsContent() {
     // Per-account balances aggregated in Postgres (account_balances view)
     // instead of fetching every transaction in the app to sum in JS.
     loadAccountBalances(supabase),
-    supabase
-      .from("categories")
-      .select("id, name, group_id, role, is_hidden, category_groups!group_id(name)")
-      .eq("is_hidden", false)
-      .order("name"),
   ]);
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const categories: CategoryOption[] = (categoriesRes.data ?? []).map((c: any) => ({
-    id: c.id as string,
-    name: c.role === "ready_to_assign" ? "Ready to Assign" : (c.name as string),
-    groupName: c.role === "ready_to_assign" ? "— Inflows —" : (((c.category_groups as { name: string } | null)?.name) ?? "Other"),
-  })).sort((a: CategoryOption, b: CategoryOption) => {
-    if (a.groupName === "— Inflows —") return -1;
-    if (b.groupName === "— Inflows —") return 1;
-    return 0;
-  });
-
-  // Only active accounts can receive new transactions.
-  const accountOptions = (accountsRes.data ?? [])
-    .filter((a) => a.is_active)
-    .map((a) => ({
-      id: a.id as string,
-      name: a.name as string,
-    }));
 
   const accounts: AccountData[] = (accountsRes.data ?? []).map((acc) => ({
     id: acc.id as string,
@@ -80,27 +60,14 @@ async function AccountsContent() {
 
   if (accounts.length === 0) {
     return (
-      <div className="space-y-4">
-        <div className="flex gap-2 flex-wrap">
-          <AddAccountForm />
-          <LinkAccountButton />
-        </div>
-        <TransactionForm accounts={accountOptions} categories={categories} />
-        <p className="text-sm text-muted-foreground py-8 text-center">
-          No accounts yet. Add one above or link a bank account to get started.
-        </p>
-      </div>
+      <p className="text-sm text-muted-foreground py-8 text-center">
+        No accounts yet. Use the buttons above to add one or link a bank account.
+      </p>
     );
   }
 
   return (
     <div className="space-y-4">
-      <div className="flex gap-2 flex-wrap">
-        <AddAccountForm />
-        <LinkAccountButton />
-      </div>
-      <TransactionForm accounts={accountOptions} categories={categories} />
-
       {/* Cash accounts */}
       {cashAccounts.length > 0 && (
         <AccountGroup

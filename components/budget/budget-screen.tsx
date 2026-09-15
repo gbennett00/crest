@@ -24,6 +24,7 @@ import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
 import { StickyHeader } from "@/components/ui/sticky-header";
+import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type {
   BudgetCategory,
@@ -31,6 +32,10 @@ import type {
   BudgetGroup,
   TargetData,
 } from "@/lib/budget/types";
+import type {
+  AccountOption,
+  CategoryOption as TxnCategoryOption,
+} from "@/components/transactions/transaction-form";
 
 // View-model types live in @/lib/budget/types so server data-loaders and client
 // components can share them without crossing the server/client boundary.
@@ -42,14 +47,24 @@ export type { BudgetCategory, BudgetData, BudgetGroup, TargetData };
 // ---------------------------------------------------------------------------
 
 // Activity is the 3rd column and is hidden on small screens (hidden md:block on
-// each activity cell removes it from the grid entirely there).
-const COLS = "grid grid-cols-[1fr_68px_76px] md:grid-cols-[1fr_68px_68px_76px]";
+// each activity cell removes it from the grid entirely there). The last two
+// (Assigned/Available) columns are wide enough for large formatted amounts
+// (e.g. "-$54,249.16") to stay on one line instead of wrapping at the minus sign.
+const COLS = "grid grid-cols-[1fr_84px_92px] md:grid-cols-[1fr_80px_80px_92px]";
 
 // ---------------------------------------------------------------------------
 // Main component
 // ---------------------------------------------------------------------------
 
-export function BudgetScreen({ data }: { data: BudgetData }) {
+export function BudgetScreen({
+  data,
+  accounts,
+  categories,
+}: {
+  data: BudgetData;
+  accounts: AccountOption[];
+  categories: TxnCategoryOption[];
+}) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const [, startTransition] = useTransition();
@@ -259,6 +274,8 @@ export function BudgetScreen({ data }: { data: BudgetData }) {
           )}
         </>
       )}
+
+      <HomeAddTransaction accounts={accounts} categories={categories} />
     </div>
   );
 }
@@ -298,7 +315,7 @@ function GroupHeaderRow({
       onClick={() => { if (!renaming) onToggle(); }}
       className={cn(
         COLS,
-        "px-4 py-2 border-b bg-primary/5 hover:bg-primary/10 text-sm font-medium items-center cursor-pointer transition-colors",
+        "px-4 py-2 border-b bg-primary/5 hover:bg-primary/10 dark:bg-primary/15 dark:hover:bg-primary/25 text-sm font-medium items-center cursor-pointer transition-colors",
       )}
     >
       <div className="flex items-center gap-1.5 min-w-0">
@@ -341,10 +358,10 @@ function GroupHeaderRow({
           <AssignedInput value={assigned} onSave={onAssignGroup} />
         </div>
       ) : (
-        <span className="text-right">{formatCents(assigned)}</span>
+        <span className="text-right whitespace-nowrap">{formatCents(assigned)}</span>
       )}
 
-      <span className="hidden md:block text-right text-muted-foreground">
+      <span className="hidden md:block text-right text-muted-foreground whitespace-nowrap">
         {formatCents(activity)}
       </span>
       {overspent ? (
@@ -352,7 +369,7 @@ function GroupHeaderRow({
           <button
             type="button"
             onClick={() => setCoverOpen(true)}
-            className="text-right font-medium tabular-nums text-destructive hover:underline"
+            className="text-right font-medium tabular-nums whitespace-nowrap text-destructive hover:underline"
           >
             {formatCents(available)}
           </button>
@@ -459,7 +476,7 @@ function CategoryRow({
         <span className="text-right text-muted-foreground text-xs">—</span>
       )}
 
-      <span className="hidden md:block text-right text-muted-foreground">
+      <span className="hidden md:block text-right text-muted-foreground whitespace-nowrap">
         {isCC ? (
           <span
             className={cn(
@@ -482,7 +499,7 @@ function CategoryRow({
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setCoverOpen(true); }}
-              className="text-right font-medium tabular-nums text-destructive hover:underline"
+              className="text-right font-medium tabular-nums whitespace-nowrap text-destructive hover:underline"
             >
               {formatCents(cat.availableCents)}
             </button>
@@ -614,7 +631,7 @@ function RtaBanner({
         </p>
         <p
           className={cn(
-            "text-2xl font-bold tabular-nums mt-0.5",
+            "text-2xl font-bold tabular-nums whitespace-nowrap mt-0.5",
             overAssigned ? "text-destructive" : "text-primary",
           )}
         >
@@ -683,7 +700,7 @@ function AvailableCell({ cents }: { cents: number }) {
   return (
     <span
       className={cn(
-        "text-right font-medium tabular-nums",
+        "text-right font-medium tabular-nums whitespace-nowrap",
         cents < 0
           ? "text-destructive"
           : cents === 0

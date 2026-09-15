@@ -20,7 +20,7 @@ import {
   deleteTransactionAction,
   saveTransaction,
 } from "@/app/(app)/transactions/actions";
-import { Plus, X } from "lucide-react";
+import { ChevronLeft, Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
 
@@ -302,29 +302,33 @@ export function TransactionForm({
     const toName = nameOf(txn.transferAccountId);
     const out = txn.amountCents < 0;
     return (
-      <div className="p-4 space-y-4 max-w-lg">
-        <div className="rounded-lg border p-4 space-y-2 bg-muted/20">
-          <p className="text-sm font-medium">Transfer</p>
-          <p className="text-sm text-muted-foreground">
-            {out ? `${fromName} → ${toName}` : `${toName} → ${fromName}`}
-          </p>
-          <p className="text-base font-semibold tabular-nums">
-            ${(Math.abs(txn.amountCents) / 100).toFixed(2)}
-          </p>
-          <p className="text-xs text-muted-foreground">{txn.txnDate}</p>
-        </div>
-        <p className="text-sm text-muted-foreground">
-          Editing existing transfers isn&apos;t supported yet.
-        </p>
-        {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex items-center gap-2">
-          <Button
+      <div className="max-w-lg">
+        <div className="sticky top-0 z-10 bg-background border-b px-4 py-3 flex items-center gap-3">
+          <button
             type="button"
-            variant="outline"
             onClick={() => router.push(backHref ?? "/accounts")}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Back"
           >
-            Back
-          </Button>
+            <ChevronLeft size={20} />
+          </button>
+          <h1 className="font-semibold text-sm">Edit Transaction</h1>
+        </div>
+        <div className="p-4 space-y-4">
+          <div className="rounded-lg border p-4 space-y-2 bg-muted/20">
+            <p className="text-sm font-medium">Transfer</p>
+            <p className="text-sm text-muted-foreground">
+              {out ? `${fromName} → ${toName}` : `${toName} → ${fromName}`}
+            </p>
+            <p className="text-base font-semibold tabular-nums">
+              ${(Math.abs(txn.amountCents) / 100).toFixed(2)}
+            </p>
+            <p className="text-xs text-muted-foreground">{txn.txnDate}</p>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            Editing existing transfers isn&apos;t supported yet.
+          </p>
+          {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             type="button"
             variant="destructive"
@@ -333,8 +337,8 @@ export function TransactionForm({
           >
             Delete
           </Button>
+          {deleteDialog}
         </div>
-        {deleteDialog}
       </div>
     );
   }
@@ -397,9 +401,11 @@ export function TransactionForm({
 
   const fields = (
     <>
-      {/* Account + Date */}
-      <div className="grid grid-cols-2 gap-2">
-        <div className="space-y-1.5">
+      {/* Account + Date — one column on narrow phones: side by side at half
+          width, a native date input on iOS Safari won't shrink to fit and
+          forces the row (and the whole page) into horizontal scroll. */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+        <div className="space-y-1.5 min-w-0">
           <Label htmlFor="txn-account" className="text-xs">
             {isTransfer ? "From" : "Account"}
           </Label>
@@ -408,7 +414,7 @@ export function TransactionForm({
             name="accountId"
             defaultValue={txn?.accountId ?? defaultAccountId ?? ""}
             required
-            className={selectClass}
+            className={cn(selectClass, "min-w-0")}
           >
             <option value="" disabled>
               Select…
@@ -420,17 +426,21 @@ export function TransactionForm({
             ))}
           </select>
         </div>
-        <div className="space-y-1.5">
+        <div className="space-y-1.5 min-w-0">
           <Label htmlFor="txn-date" className="text-xs">
             Date
           </Label>
+          {/* appearance-none strips iOS Safari's native chrome for this
+              compound control (day/month/year segments + calendar icon),
+              which otherwise lays itself out at an intrinsic width that
+              ignores width/max-width entirely and overflows the field. */}
           <Input
             id="txn-date"
             name="txnDate"
             type="date"
             defaultValue={txn?.txnDate ?? today}
             required
-            className="h-9"
+            className="h-9 block w-full appearance-none"
           />
         </div>
       </div>
@@ -704,45 +714,62 @@ export function TransactionForm({
     </AlertDialog>
   );
 
-  // ---- Edit mode: full-page form with a sticky Save/Cancel header ----
+  // ---- Edit mode: full-page form with a single sticky header (back/title
+  // plus Delete/Cancel/Save) so there's no second sticky bar competing for the
+  // same offset — that mismatch used to let the button row overlap the fields
+  // below it once the page scrolled.
   if (isEdit) {
     return (
       <form
         id="edit-txn-form"
         ref={formRef}
         onSubmit={handleSubmit}
-        className="p-4 space-y-4 max-w-lg"
+        className="max-w-lg"
       >
         <input type="hidden" name="txnId" value={txn!.id} />
 
-        <div className="sticky top-[109px] z-10 bg-background -mx-4 px-4 pb-3 pt-1 border-b flex items-center justify-between gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            className="h-8 px-3 text-sm text-destructive hover:text-destructive"
-            disabled={isPending}
-            onClick={() => setShowDeleteConfirm(true)}
-          >
-            Delete
-          </Button>
-          <div className="flex items-center gap-2">
+        <div className="sticky top-0 z-10 bg-background border-b">
+          <div className="px-4 py-3 flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => router.push(backHref ?? "/accounts")}
+              className="text-muted-foreground hover:text-foreground"
+              aria-label="Back"
+            >
+              <ChevronLeft size={20} />
+            </button>
+            <h1 className="font-semibold text-sm flex-1">Edit Transaction</h1>
+          </div>
+          <div className="px-4 pb-3 flex items-center justify-between gap-2">
             <Button
               type="button"
               variant="ghost"
-              className="h-8 px-3 text-sm"
-              onClick={() => router.push(backHref ?? "/accounts")}
+              className="h-8 px-3 text-sm text-destructive hover:text-destructive"
+              disabled={isPending}
+              onClick={() => setShowDeleteConfirm(true)}
             >
-              Cancel
+              Delete
             </Button>
-            <Button type="submit" className="h-8 px-4" disabled={isPending}>
-              {isPending ? "Saving…" : "Save"}
-            </Button>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant="ghost"
+                className="h-8 px-3 text-sm"
+                onClick={() => router.push(backHref ?? "/accounts")}
+              >
+                Cancel
+              </Button>
+              <Button type="submit" className="h-8 px-4" disabled={isPending}>
+                {isPending ? "Saving…" : "Save"}
+              </Button>
+            </div>
           </div>
         </div>
 
-        {fields}
-
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="p-4 space-y-4">
+          {fields}
+          {error && <p className="text-sm text-destructive">{error}</p>}
+        </div>
         {reconcileDialog}
         {deleteDialog}
       </form>
