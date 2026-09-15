@@ -3,13 +3,14 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { BarChart2, Home, Landmark } from "lucide-react";
+import { BarChart2, Home, Landmark, PieChart } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
   { href: "/budget", label: "Plan", Icon: BarChart2, exact: false },
   { href: "/accounts", label: "Accounts", Icon: Landmark, exact: false },
+  { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
 
 // Warm the Router Cache for the three top-level routes on mount so switching

@@ -495,6 +495,19 @@ When a user initiates account reconciliation:
 
 ---
 
+## REPORTS
+
+A spending-breakdown view (`/reports`), built entirely on read models that already exist for budgeting — no new derived/stored money values.
+
+* **Periods**: this month, last 3 months, last 6 months, this year, any prior calendar year with spending, all time. Ranges are `[from, to)` in budget-month terms (`lib/reports/period.ts`); the prior-years list comes from distinct years present in `category_monthly_activity`.
+* **Data source**: `category_monthly_activity` (the same approved-ledger read model the budget screen uses) summed across the period's months per category. A category is "spending" for the period only if its net activity is negative (pure refunds/credits net to zero and are excluded). This keeps report totals consistent with budget activity by construction.
+* **Category/group selection**: multi-select over categories, with a group checkbox as a bulk select/deselect-all for its member categories (tri-state: unchecked / indeterminate / checked). No selection means "all categories."
+* **Saved views** ("Fixed Bills", "Fun Money", etc.) are a **client-only convenience** — stored in `localStorage`, never the database. They're just a named category-id list; nothing about them needs to sync across devices or survive a lost browser profile.
+* **Chart**: a donut of the selected categories' spend, sharing color-by-rank with the list below it. No separate legend — the category list under the chart *is* the legend, so nothing duplicates the name/amount/percent it already shows. Beyond 7 slices the tail is folded into one "Other" slice in the chart only; the list below always shows every category individually.
+* **Drill-down**: clicking a category opens a slide-over panel listing its transactions for the active period, reusing the account register's exact "Select" → checkbox rows → sticky bulk-action-bar interaction (same `BulkActionsBar`, same categorize/move/approve/delete actions) rather than a new selection pattern.
+
+---
+
 ## TRANSACTION IMPORT + PLAID
 
 Plaid is in scope for MVP.
