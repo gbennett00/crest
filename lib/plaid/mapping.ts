@@ -46,7 +46,12 @@ export function plaidTxnToUpsertInput(
   return {
     accountId: crestAccountId,
     amountCents: plaidAmountToCents(txn.amount),
-    txnDate: txn.date,
+    // `date` is the date the transaction occurred while pending, but Plaid
+    // rewrites it to the (often later) posting date once the transaction
+    // clears. `authorized_date` stays fixed at the original date through
+    // that transition, so prefer it — falling back to `date` for the rare
+    // txn that never carries an authorized_date.
+    txnDate: txn.authorized_date ?? txn.date,
     payee: txn.merchant_name ?? txn.name,
     memo: null,
     importedId: txn.transaction_id,

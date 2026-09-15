@@ -149,4 +149,18 @@ describe("plaidTxnToUpsertInput", () => {
     const result = plaidTxnToUpsertInput(txn as never, "crest-acct-uuid");
     expect(result.amountCents).toBe(10000);
   });
+
+  it("prefers authorized_date over date so posting doesn't shift the txn date", () => {
+    // Plaid rewrites `date` to the posting date once a pending txn clears,
+    // which can land days after the purchase actually happened.
+    const txn = { ...baseTxn, date: "2026-06-18", authorized_date: "2026-06-15" };
+    const result = plaidTxnToUpsertInput(txn as never, "crest-acct-uuid");
+    expect(result.txnDate).toBe("2026-06-15");
+  });
+
+  it("falls back to date when authorized_date is null", () => {
+    const txn = { ...baseTxn, date: "2026-06-15", authorized_date: null };
+    const result = plaidTxnToUpsertInput(txn as never, "crest-acct-uuid");
+    expect(result.txnDate).toBe("2026-06-15");
+  });
 });
