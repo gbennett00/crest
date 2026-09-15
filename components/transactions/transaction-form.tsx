@@ -2,6 +2,7 @@
 
 import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -77,6 +78,7 @@ export function TransactionForm({
 }) {
   const isEdit = !!txn;
   const router = useRouter();
+  const queryClient = useQueryClient();
   const formRef = useRef<HTMLFormElement>(null);
   const pendingForm = useRef<FormData | null>(null);
 
@@ -219,18 +221,31 @@ export function TransactionForm({
     return formData;
   }
 
+  // A saved/deleted transaction can change any cached budget month's
+  // activity/available totals and any category's transaction list, so these
+  // client-side caches (see lib/queries/budget.ts, lib/queries/transactions.ts)
+  // need invalidating alongside the server's own revalidatePath — they're a
+  // separate cache Next's Server Action revalidation doesn't reach.
+  function invalidateLedgerCaches() {
+    queryClient.invalidateQueries({ queryKey: ["budget-view"] });
+    queryClient.invalidateQueries({ queryKey: ["transactions-by-category"] });
+  }
+
   function doSave(formData: FormData) {
     startTransition(async () => {
       const result = await saveTransaction(formData);
       if (result?.error) {
         setError(result.error);
       } else if (isEdit) {
+        invalidateLedgerCaches();
         router.push(backHref ?? "/accounts");
         router.refresh();
       } else if (onSuccess) {
+        invalidateLedgerCaches();
         onSuccess();
         resetAfterCreate();
       } else {
+        invalidateLedgerCaches();
         setOpen(false);
         resetAfterCreate();
       }
@@ -244,6 +259,7 @@ export function TransactionForm({
         setError(result.error);
         setShowDeleteConfirm(false);
       } else {
+        invalidateLedgerCaches();
         router.push(backHref ?? "/accounts");
         router.refresh();
       }

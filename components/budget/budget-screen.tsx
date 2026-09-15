@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState, useTransition } from "react";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
@@ -14,6 +15,15 @@ import {
   renameCategory,
   renameGroup,
 } from "@/app/(app)/budget/actions";
+import {
+  useBudgetView,
+  prefetchBudgetView,
+  invalidateBudgetView,
+  type BudgetViewResponse,
+} from "@/lib/queries/budget";
+import {
+  prefetchTransactionsByCategory,
+} from "@/lib/queries/transactions";
 import { TargetButton } from "./target-form";
 import { AssignPopup } from "./assign-popup";
 import { RtaBreakdownPopup } from "./rta-breakdown-popup";
@@ -32,10 +42,6 @@ import type {
   BudgetGroup,
   TargetData,
 } from "@/lib/budget/types";
-import type {
-  AccountOption,
-  CategoryOption as TxnCategoryOption,
-} from "@/components/transactions/transaction-form";
 
 // View-model types live in @/lib/budget/types so server data-loaders and client
 // components can share them without crossing the server/client boundary.
@@ -56,22 +62,65 @@ const COLS = "grid grid-cols-[1fr_84px_92px] md:grid-cols-[1fr_80px_80px_92px]";
 // Main component
 // ---------------------------------------------------------------------------
 
-export function BudgetScreen({
-  data,
-  accounts,
-  categories,
-}: {
-  data: BudgetData;
-  accounts: AccountOption[];
-  categories: TxnCategoryOption[];
-}) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
+const BUDGET_MONTH_RE = /^\d{4}-\d{2}-01$/;
+
+export function BudgetScreen({ initial }: { initial: BudgetViewResponse }) {
+  const queryClient = useQueryClient();
   const [, startTransition] = useTransition();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
   const [reordering, setReordering] = useState(false);
+
+  // Month lives in client state, not in Next's router — switching months (the
+  // single most frequent interaction on this screen) reads straight from the
+  // query cache instead of round-tripping through the Server Component. The
+  // URL is kept in sync via the plain history API (below) so the address bar,
+  // back/forward, and shared links keep working.
+  const [month, setMonth] = useState(initial.data.month);
+
+  function monthHref(m: string) {
+    return `/budget?month=${m}`;
+  }
+
+  function navigate(m: string) {
+    if (m === month) return;
+    window.history.pushState(null, "", monthHref(m));
+    setMonth(m);
+  }
+
+  // Browser back/forward moves the URL without going through navigate(); sync
+  // month state to match.
+  useEffect(() => {
+    function onPopState() {
+      const params = new URLSearchParams(window.location.search);
+      const urlMonth = params.get("month");
+      if (urlMonth && BUDGET_MONTH_RE.test(urlMonth)) setMonth(urlMonth);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
+
+  const { data: response } = useBudgetView(
+    month,
+    month === initial.data.month ? initial : undefined,
+  );
+
+  // Warm the query cache for the neighbouring months so stepping to the
+  // previous/next month (and coming back) renders from cache instead of a
+  // fresh network round-trip. Bounded by [minMonth, maxMonth] so we never
+  // prefetch an out-of-range month.
+  const prevMonth = response ? previousBudgetMonth(response.data.month) : null;
+  const nextMonth = response ? nextBudgetMonth(response.data.month) : null;
+  useEffect(() => {
+    if (!response) return;
+    if (prevMonth && prevMonth >= response.data.minMonth) {
+      prefetchBudgetView(queryClient, prevMonth);
+    }
+    if (nextMonth && nextMonth <= response.data.maxMonth) {
+      prefetchBudgetView(queryClient, nextMonth);
+    }
+  }, [queryClient, response, prevMonth, nextMonth]);
 
   // On mobile, group-budgeted groups have nothing useful in their member rows
   // (per-category assigned/available are "—" and the Activity column is hidden),
@@ -79,38 +128,16 @@ export function BudgetScreen({
   // mismatch; users can still expand them.
   const didInitCollapse = useRef(false);
   useEffect(() => {
-    if (didInitCollapse.current) return;
+    if (didInitCollapse.current || !response) return;
     didInitCollapse.current = true;
     if (window.matchMedia("(max-width: 767px)").matches) {
       setCollapsed(
         new Set(
-          data.groups.filter((g) => g.budgetMode === "group").map((g) => g.id),
+          response.data.groups.filter((g) => g.budgetMode === "group").map((g) => g.id),
         ),
       );
     }
-  }, [data.groups]);
-
-  function monthHref(month: string) {
-    const params = new URLSearchParams(searchParams.toString());
-    params.set("month", month);
-    return `/budget?${params.toString()}`;
-  }
-
-  function navigate(month: string) {
-    router.push(monthHref(month));
-  }
-
-  // Warm the Router Cache for the neighbouring months so stepping to the
-  // previous/next month renders from cache instead of a fresh ~1s server load.
-  // Bounded by [minMonth, maxMonth] so we never prefetch an out-of-range month.
-  const prevMonth = previousBudgetMonth(data.month);
-  const nextMonth = nextBudgetMonth(data.month);
-  useEffect(() => {
-    if (prevMonth >= data.minMonth) router.prefetch(monthHref(prevMonth));
-    if (nextMonth <= data.maxMonth) router.prefetch(monthHref(nextMonth));
-    // monthHref reads live searchParams; prevMonth/nextMonth capture the month.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [router, prevMonth, nextMonth, data.minMonth, data.maxMonth]);
+  }, [response]);
 
   function toggle(groupId: string) {
     setCollapsed((prev) => {
@@ -119,6 +146,12 @@ export function BudgetScreen({
       return next;
     });
   }
+
+  if (!response) {
+    return <BudgetSkeleton />;
+  }
+
+  const { data, accounts, categories } = response;
 
   const displayGroups = data.groups.filter(
     (g) =>
@@ -249,6 +282,7 @@ export function BudgetScreen({
                     onAssignGroup={(cents) =>
                       startTransition(async () => {
                         await assignGroup(group.id, data.month, cents);
+                        invalidateBudgetView(queryClient, data.month);
                       })
                     }
                   />
@@ -264,6 +298,7 @@ export function BudgetScreen({
                         onAssign={(cents) =>
                           startTransition(async () => {
                             await assignCategory(cat.id, data.month, cents);
+                            invalidateBudgetView(queryClient, data.month);
                           })
                         }
                       />
@@ -276,6 +311,22 @@ export function BudgetScreen({
       )}
 
       <HomeAddTransaction accounts={accounts} categories={categories} />
+    </div>
+  );
+}
+
+// Shown only when a month is navigated to before its query-cache prefetch
+// lands (e.g. jumping via the month picker rather than stepping prev/next).
+function BudgetSkeleton() {
+  return (
+    <div className="animate-pulse p-4 space-y-3">
+      <div className="h-11 bg-muted rounded" />
+      <div className="h-20 bg-muted rounded-lg" />
+      <div className="space-y-2">
+        {Array.from({ length: 6 }).map((_, i) => (
+          <div key={i} className="h-10 bg-muted rounded" />
+        ))}
+      </div>
     </div>
   );
 }
@@ -409,6 +460,7 @@ function CategoryRow({
 }) {
   const formatCents = useFormattedCents();
   const router = useRouter();
+  const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [ccOpen, setCcOpen] = useState(false);
@@ -426,11 +478,19 @@ function CategoryRow({
     else router.push(`/transactions?category=${cat.id}&month=${month}`);
   }
 
+  // Warms the register's query cache before the click lands, so the
+  // transactions page (a separate route) also renders instantly.
+  function handlePrefetch() {
+    if (!isCC) prefetchTransactionsByCategory(queryClient, cat.id, month);
+  }
+
   return (
     <div
       role="button"
       tabIndex={0}
       onClick={handleRowClick}
+      onMouseEnter={handlePrefetch}
+      onFocus={handlePrefetch}
       className={cn(
         COLS,
         "px-4 pl-8 py-2 border-b text-sm items-center cursor-pointer hover:bg-accent/40 transition-colors",
@@ -556,6 +616,7 @@ function InlineName({
   onDone: () => void;
 }) {
   const [, startTransition] = useTransition();
+  const queryClient = useQueryClient();
 
   if (!editing) {
     return <span className="truncate min-w-0">{name}</span>;
@@ -567,6 +628,7 @@ function InlineName({
       startTransition(async () => {
         if (type === "category") await renameCategory(id, trimmed);
         else await renameGroup(id, trimmed);
+        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
         onDone();
       });
     } else {

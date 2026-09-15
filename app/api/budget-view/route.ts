@@ -1,30 +1,17 @@
-import { Suspense } from "react";
+import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { currentBudgetMonth } from "@/lib/ledger";
 import { getBudgetView } from "@/lib/budget";
-import { BudgetScreen } from "@/components/budget/budget-screen";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
 const BUDGET_MONTH_RE = /^\d{4}-\d{2}-01$/;
 
-export default function BudgetPage({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string }>;
-}) {
-  return (
-    <Suspense fallback={<BudgetSkeleton />}>
-      <BudgetContent searchParams={searchParams} />
-    </Suspense>
-  );
-}
-
-async function BudgetContent({
-  searchParams,
-}: {
-  searchParams: Promise<{ month?: string }>;
-}) {
-  const { month: rawMonth } = await searchParams;
+// Same query the budget page's Server Component runs, exposed as JSON so the
+// client-side query cache (see lib/queries/budget.ts) can fetch a month
+// on-demand — for cache misses, background revalidation, and the prefetch of
+// neighbouring months — without a full RSC round-trip.
+export async function GET(request: NextRequest) {
+  const rawMonth = request.nextUrl.searchParams.get("month") ?? undefined;
   const month = BUDGET_MONTH_RE.test(rawMonth ?? "") ? rawMonth! : currentBudgetMonth();
 
   const supabase = await createClient();
@@ -54,24 +41,5 @@ async function BudgetContent({
     return 0;
   });
 
-  // Seeds the client query cache (lib/queries/budget.ts) for this month so
-  // BudgetScreen renders instantly on first paint; every other month the user
-  // visits is fetched from /api/budget-view and cached client-side, so
-  // switching months (and coming back to this one) never re-triggers a
-  // server round-trip through this page.
-  return <BudgetScreen initial={{ data, accounts, categories }} />;
-}
-
-function BudgetSkeleton() {
-  return (
-    <div className="animate-pulse p-4 space-y-3">
-      <div className="h-11 bg-muted rounded" />
-      <div className="h-20 bg-muted rounded-lg" />
-      <div className="space-y-2">
-        {Array.from({ length: 6 }).map((_, i) => (
-          <div key={i} className="h-10 bg-muted rounded" />
-        ))}
-      </div>
-    </div>
-  );
+  return NextResponse.json({ data, accounts, categories });
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -40,7 +40,7 @@ export function CoverOverspendingPopup({
   onClose: () => void;
 }) {
   const formatCents = useFormattedCents();
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -92,7 +92,7 @@ export function CoverOverspendingPopup({
     startTransition(async () => {
       const result = await bulkAssign(assignments, data.month);
       if (result?.success) {
-        router.refresh();
+        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
         onClose();
       } else {
         setError("Failed to cover overspending.");

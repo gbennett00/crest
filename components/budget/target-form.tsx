@@ -1,7 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -28,7 +28,7 @@ export function TargetButton({
   onOpenChange?: (open: boolean) => void;
   showTrigger?: boolean;
 }) {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const amountRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
   const [openState, setOpenState] = useState(false);
@@ -61,7 +61,7 @@ export function TargetButton({
         setError(result.error);
       } else {
         setOpen(false);
-        router.refresh();
+        queryClient.invalidateQueries({ queryKey: ["budget-view"] });
       }
     });
   }
@@ -70,7 +70,7 @@ export function TargetButton({
     startTransition(async () => {
       await deleteTarget(entityId, entityType);
       setOpen(false);
-      router.refresh();
+      queryClient.invalidateQueries({ queryKey: ["budget-view"] });
     });
   }
 
