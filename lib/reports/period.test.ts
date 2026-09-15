@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { getPeriodRange, yearFromPeriodKey, yearPeriodKey } from "./period";
+import {
+  formatMonthLabel,
+  getPeriodRange,
+  lastNMonths,
+  monthFromPeriodKey,
+  monthPeriodKey,
+  yearFromPeriodKey,
+  yearPeriodKey,
+} from "./period";
 
 describe("getPeriodRange", () => {
   it("this month", () => {
@@ -58,6 +66,14 @@ describe("getPeriodRange", () => {
     });
   });
 
+  it("an arbitrary specific month", () => {
+    expect(getPeriodRange("m2026-07", "2026-09-01")).toEqual({
+      from: "2026-07-01",
+      to: "2026-08-01",
+      label: "July 2026",
+    });
+  });
+
   it("falls back to this month for an unrecognized key", () => {
     expect(getPeriodRange("bogus", "2026-09-01")).toEqual({
       from: "2026-09-01",
@@ -75,5 +91,40 @@ describe("yearFromPeriodKey / yearPeriodKey", () => {
   it("returns null for a non-year key", () => {
     expect(yearFromPeriodKey("month")).toBeNull();
     expect(yearFromPeriodKey("all")).toBeNull();
+  });
+});
+
+describe("monthFromPeriodKey / monthPeriodKey", () => {
+  it("round-trips a budget month", () => {
+    expect(monthFromPeriodKey(monthPeriodKey("2026-07-01"))).toBe("2026-07-01");
+  });
+
+  it("returns null for a non-month key", () => {
+    expect(monthFromPeriodKey("month")).toBeNull();
+    expect(monthFromPeriodKey("y2024")).toBeNull();
+  });
+});
+
+describe("formatMonthLabel", () => {
+  it("formats a budget month", () => {
+    expect(formatMonthLabel("2026-01-01")).toBe("January 2026");
+    expect(formatMonthLabel("2023-12-01")).toBe("December 2023");
+  });
+});
+
+describe("lastNMonths", () => {
+  it("returns count consecutive months ending at today, oldest first", () => {
+    expect(lastNMonths(6, "2026-02-01")).toEqual([
+      "2025-09-01",
+      "2025-10-01",
+      "2025-11-01",
+      "2025-12-01",
+      "2026-01-01",
+      "2026-02-01",
+    ]);
+  });
+
+  it("returns just today for count 1", () => {
+    expect(lastNMonths(1, "2026-09-01")).toEqual(["2026-09-01"]);
   });
 });

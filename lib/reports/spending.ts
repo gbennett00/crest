@@ -108,14 +108,28 @@ export async function computeCategoryBreakdown(
   return aggregateSpending((activityRes.data ?? []) as ActivityRow[], categoryMeta);
 }
 
-/** Distinct calendar years with any net spending, newest first — for the "past years" picker. */
-export async function listYearsWithSpending(client: SupabaseClient): Promise<number[]> {
+export type ActivityPeriods = {
+  /** Every budget month (YYYY-MM-01) with net spending, newest first. */
+  months: string[];
+  /** Every calendar year with net spending, newest first. */
+  years: number[];
+};
+
+/** Distinct months/years with any net spending — for the period picker. */
+export async function listActivityPeriods(client: SupabaseClient): Promise<ActivityPeriods> {
   const { data } = await client
     .from("category_monthly_activity")
     .select("month")
     .lt("activity_cents", 0);
 
+  const months = new Set<string>();
   const years = new Set<number>();
-  for (const row of (data ?? []) as { month: string }[]) years.add(+row.month.slice(0, 4));
-  return [...years].sort((a, b) => b - a);
+  for (const row of (data ?? []) as { month: string }[]) {
+    months.add(row.month);
+    years.add(+row.month.slice(0, 4));
+  }
+  return {
+    months: [...months].sort((a, b) => (a < b ? 1 : -1)),
+    years: [...years].sort((a, b) => b - a),
+  };
 }

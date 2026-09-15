@@ -1,6 +1,10 @@
 export {
   DEFAULT_PERIOD_KEY,
+  formatMonthLabel,
   getPeriodRange,
+  lastNMonths,
+  monthFromPeriodKey,
+  monthPeriodKey,
   yearFromPeriodKey,
   yearPeriodKey,
   type PeriodKey,
@@ -9,7 +13,19 @@ export {
 export {
   aggregateSpending,
   computeCategoryBreakdown,
-  listYearsWithSpending,
+  listActivityPeriods,
+  type ActivityPeriods,
   type CategoryBreakdown,
   type CategoryBreakdownRow,
 } from "./spending";
+export {
+  aggregateIncomeVsSpending,
+  incomeVsSpendingInsight,
+  loadIncomeVsSpending,
+  type MonthlyIncomeSpending,
+} from "./income-vs-spending";
+export {
+  computeNetWorthSeries,
+  loadNetWorthSeries,
+  type NetWorthPoint,
+} from "./net-worth";

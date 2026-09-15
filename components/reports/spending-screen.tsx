@@ -1,6 +1,8 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { ChevronLeft } from "lucide-react";
 import { PeriodSelector } from "./period-selector";
 import { ReportsFilterBar } from "./reports-filter-bar";
 import { SpendingDonut } from "./spending-donut";
@@ -27,12 +29,13 @@ function buildHref(params: {
   if (params.categoryIds.length > 0) search.set("categories", params.categoryIds.join(","));
   if (params.drillId) search.set("drill", params.drillId);
   const qs = search.toString();
-  return qs ? `/reports?${qs}` : "/reports";
+  return qs ? `/reports/spending?${qs}` : "/reports/spending";
 }
 
-export function ReportsScreen({
+export function SpendingScreen({
   periodKey,
   years,
+  months,
   periodLabel,
   selectedCategoryIds,
   groups,
@@ -45,6 +48,7 @@ export function ReportsScreen({
 }: {
   periodKey: string;
   years: number[];
+  months: string[];
   periodLabel: string;
   selectedCategoryIds: string[];
   groups: ReportGroup[];
@@ -72,12 +76,19 @@ export function ReportsScreen({
 
   return (
     <div className="max-w-3xl mx-auto px-4 md:px-10 py-6 md:py-8">
-      <h1 className="text-xl md:text-2xl font-semibold tracking-tight mb-5">Reports</h1>
+      <Link
+        href="/reports"
+        className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground mb-2"
+      >
+        <ChevronLeft size={14} /> Reports
+      </Link>
+      <h1 className="text-xl md:text-2xl font-semibold tracking-tight mb-5">Spending</h1>
 
       <div className="space-y-3">
         <PeriodSelector
           periodKey={periodKey}
           years={years}
+          months={months}
           onSelect={(key) => go({ period: key, drillId: null })}
         />
         <ReportsFilterBar
