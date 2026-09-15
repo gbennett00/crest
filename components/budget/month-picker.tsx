@@ -109,7 +109,7 @@ export function MonthPicker({
         <div
           role="dialog"
           aria-label="Select month"
-          className="absolute left-1/2 top-full z-20 mt-1 w-64 -translate-x-1/2 rounded-lg border bg-background p-2 shadow-lg"
+          className="absolute left-1/2 top-full z-20 mt-1 w-64 -translate-x-1/2 rounded-lg border bg-popover p-2 shadow-lg"
         >
           {/* Year stepper */}
           <div className="flex items-center justify-between px-1 pb-2">

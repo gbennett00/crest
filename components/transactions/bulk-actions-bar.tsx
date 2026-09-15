@@ -201,7 +201,7 @@ export function BulkActionsBar({
   return (
     <>
       <div className="fixed inset-x-0 bottom-16 md:bottom-4 z-40 flex justify-center px-3 pointer-events-none">
-        <div className="pointer-events-auto w-full max-w-md rounded-xl border bg-background shadow-2xl overflow-hidden">
+        <div className="pointer-events-auto w-full max-w-md rounded-xl border bg-popover shadow-2xl overflow-hidden">
           {/* Picker row (approve / categorize / move) */}
           {pickerMode && (
             <div className="flex flex-col gap-2 px-3 pt-3">

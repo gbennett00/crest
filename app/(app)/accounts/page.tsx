@@ -102,7 +102,7 @@ function AccountGroup({
   accounts: AccountData[];
 }) {
   return (
-    <div className="border rounded-xl overflow-hidden">
+    <div className="border rounded-xl overflow-hidden bg-card">
       <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/30">
         <h2 className="text-sm font-semibold">{title}</h2>
         <span
