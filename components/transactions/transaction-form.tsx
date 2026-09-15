@@ -426,17 +426,21 @@ export function TransactionForm({
             ))}
           </select>
         </div>
-        <div className="space-y-1.5 min-w-0">
+        <div className="space-y-1.5 min-w-0 max-w-full overflow-hidden">
           <Label htmlFor="txn-date" className="text-xs">
             Date
           </Label>
+          {/* iOS Safari's date input ignores `width: 100%` in some layouts
+              and renders at its own intrinsic width regardless of container
+              size — max-w-full is a hard clamp it does respect, and the
+              wrapper's overflow-hidden catches anything that still bleeds. */}
           <Input
             id="txn-date"
             name="txnDate"
             type="date"
             defaultValue={txn?.txnDate ?? today}
             required
-            className="h-9"
+            className="h-9 max-w-full"
           />
         </div>
       </div>

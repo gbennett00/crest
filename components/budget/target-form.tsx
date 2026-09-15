@@ -146,13 +146,15 @@ export function TargetButton({
 
           {/* Target date for by_date */}
           {type === "by_date" && (
-            <div className="space-y-1">
+            <div className="space-y-1 max-w-full overflow-hidden">
               <Label className="text-xs text-muted-foreground">Target date</Label>
+              {/* max-w-full: iOS Safari's date input can ignore width:100%
+                  and render at its own intrinsic width in a narrow popup. */}
               <Input
                 ref={dateRef}
                 type="date"
                 defaultValue={existingTarget?.targetDate ?? ""}
-                className="h-7 text-xs"
+                className="h-7 text-xs max-w-full"
               />
             </div>
           )}
