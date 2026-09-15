@@ -19,7 +19,7 @@ export function HomeAddTransaction({
       {/* Floating button */}
       <button
         onClick={() => setOpen(true)}
-        className="fixed bottom-20 right-4 md:bottom-6 z-30 flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-full shadow-lg font-semibold text-sm hover:opacity-90 transition-opacity"
+        className="fixed bottom-[calc(5rem+env(safe-area-inset-bottom))] right-4 md:bottom-6 z-30 flex items-center gap-2 bg-primary text-primary-foreground px-4 py-2.5 rounded-full shadow-lg font-semibold text-sm hover:opacity-90 transition-opacity"
       >
         <Plus size={16} />
         Add Transaction
