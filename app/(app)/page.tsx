@@ -114,7 +114,7 @@ async function HomeContent() {
       )}
 
       {/* Pinned categories — always shown so the pin manager is reachable */}
-      <div className="border rounded-xl overflow-hidden">
+      <div className="border rounded-xl overflow-hidden bg-card">
         <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/20">
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold">Pinned</h2>
@@ -181,7 +181,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div id={id} className="border rounded-xl overflow-hidden">
+    <div id={id} className="border rounded-xl overflow-hidden bg-card">
       <div
         className={cn(
           "flex items-center gap-2 px-4 py-2.5 border-b",
