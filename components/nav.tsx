@@ -3,8 +3,13 @@
 import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { BarChart2, Home, Landmark, PieChart } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { currentBudgetMonth } from "@/lib/ledger";
+import { prefetchHomeView } from "@/lib/queries/home";
+import { prefetchBudgetView } from "@/lib/queries/budget";
+import { prefetchAccountsList } from "@/lib/queries/accounts";
 
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
@@ -13,14 +18,21 @@ const NAV_LINKS = [
   { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
 
-// Warm the Router Cache for the three top-level routes on mount so switching
-// tabs is instant. router.prefetch is idempotent, so calling it from whichever
-// nav is mounted (sidebar on desktop, bottom nav on mobile) is harmless.
+// Warm both Next's Router Cache (the route's JS/shell) and the client query
+// cache (the route's actual data — see lib/queries/*) for the top-level tabs
+// on mount, so switching tabs is instant even on the very first tap, not just
+// on a revisit. Both calls are idempotent/deduped against already-fresh
+// cache entries, so calling this from whichever nav is mounted (sidebar on
+// desktop, bottom nav on mobile) is harmless.
 function useEagerPrefetch() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   useEffect(() => {
     for (const { href } of NAV_LINKS) router.prefetch(href);
-  }, [router]);
+    prefetchHomeView(queryClient);
+    prefetchBudgetView(queryClient, currentBudgetMonth());
+    prefetchAccountsList(queryClient);
+  }, [router, queryClient]);
 }
 
 export function BottomNav() {

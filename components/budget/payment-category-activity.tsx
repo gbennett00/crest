@@ -1,12 +1,13 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { assignCategory } from "@/app/(app)/budget/actions";
+import { budgetViewKey } from "@/lib/queries/budget";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type { BudgetCategory } from "@/lib/budget/types";
 
@@ -63,7 +64,7 @@ export function PaymentCategoryActivity({
   showTrigger?: boolean;
 }) {
   const formatCents = useFormattedCents();
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;
   const setOpen = onOpenChange ?? setOpenState;
@@ -77,7 +78,7 @@ export function PaymentCategoryActivity({
     startTransition(async () => {
       await assignCategory(cat.id, month, cat.assignedCents + shortfall);
       setOpen(false);
-      router.refresh();
+      queryClient.invalidateQueries({ queryKey: budgetViewKey(month) });
     });
   }
 

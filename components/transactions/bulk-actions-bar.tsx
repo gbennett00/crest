@@ -1,6 +1,8 @@
 "use client";
 
 import { useMemo, useState, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
   Check,
   FolderInput,
@@ -135,6 +137,7 @@ export function BulkActionsBar({
   const [account, setAccount] = useState(moveTargets[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
+  const queryClient = useQueryClient();
 
   if (selectedIds.length === 0) return null;
 
@@ -151,6 +154,7 @@ export function BulkActionsBar({
         setError(result.error);
         return;
       }
+      invalidateAllLedgerQueries(queryClient);
       reset();
       onClearSelection();
     });

@@ -1,6 +1,5 @@
-import { Suspense } from "react";
-import { createClient } from "@/lib/supabase/server";
-import { loadAccountBalances } from "@/lib/ledger";
+"use client";
+
 import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
 import { LinkAccountButton } from "@/components/accounts/link-account-button";
@@ -8,7 +7,12 @@ import { ClosedAccountsSection } from "@/components/accounts/closed-accounts-sec
 import type { AccountData } from "@/components/accounts/account-card";
 import { Money } from "@/components/money";
 import { cn } from "@/lib/utils";
+import { useAccountsList } from "@/lib/queries/accounts";
+import { useHasMounted } from "@/lib/use-has-mounted";
 
+// No server-side data fetch here on purpose — see app/(app)/budget/page.tsx
+// for why. AccountsContent owns its data through the client query cache
+// (lib/queries/accounts.ts), so a revisit renders straight from cache.
 export default function AccountsPage() {
   return (
     <div className="max-w-2xl p-4 space-y-5">
@@ -19,39 +23,24 @@ export default function AccountsPage() {
           <LinkAccountButton iconOnly />
         </div>
       </div>
-      <Suspense fallback={<AccountsSkeleton />}>
-        <AccountsContent />
-      </Suspense>
+      <AccountsContent />
     </div>
   );
 }
 
-async function AccountsContent() {
-  const supabase = await createClient();
+function AccountsContent() {
+  const hasMounted = useHasMounted();
+  const { data: response, isPending } = useAccountsList();
 
-  const [accountsRes, balances] = await Promise.all([
-    supabase
-      .from("accounts")
-      .select("*")
-      .order("name"),
-    // Per-account balances aggregated in Postgres (account_balances view)
-    // instead of fetching every transaction in the app to sum in JS.
-    loadAccountBalances(supabase),
-  ]);
+  if (!hasMounted || (isPending && !response)) {
+    return <AccountsSkeleton />;
+  }
 
-  const accounts: AccountData[] = (accountsRes.data ?? []).map((acc) => ({
-    id: acc.id as string,
-    name: acc.name as string,
-    type: acc.type as "checking" | "savings" | "credit",
-    workingBalanceCents: balances.get(acc.id as string)?.workingCents ?? 0,
-    isLinked: acc.is_linked as boolean,
-    isActive: acc.is_active as boolean,
-  }));
+  const accounts: AccountData[] = response?.accounts ?? [];
 
   const activeAccounts = accounts.filter((a) => a.isActive);
   const closedAccounts = accounts.filter((a) => !a.isActive);
 
-  // Group active accounts by type; closed accounts get their own section.
   const cashAccounts = activeAccounts.filter((a) => a.type === "checking" || a.type === "savings");
   const creditAccounts = activeAccounts.filter((a) => a.type === "credit");
 
@@ -70,20 +59,12 @@ async function AccountsContent() {
     <div className="space-y-4">
       {/* Cash accounts */}
       {cashAccounts.length > 0 && (
-        <AccountGroup
-          title="Cash"
-          total={cashTotal}
-          accounts={cashAccounts}
-        />
+        <AccountGroup title="Cash" total={cashTotal} accounts={cashAccounts} />
       )}
 
       {/* Credit accounts */}
       {creditAccounts.length > 0 && (
-        <AccountGroup
-          title="Credit"
-          total={creditTotal}
-          accounts={creditAccounts}
-        />
+        <AccountGroup title="Credit" total={creditTotal} accounts={creditAccounts} />
       )}
 
       {/* Closed accounts (collapsed, at the very bottom) */}
