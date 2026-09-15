@@ -1,8 +1,10 @@
+"use client";
+
 import { Landmark } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import type { NetWorthPoint } from "@/lib/reports";
-import { formatCompactCents } from "./chart-format";
+import { useFormattedCompactCents } from "./chart-format";
 import { cn } from "@/lib/utils";
 
 const MONTH_ABBR = [
@@ -15,6 +17,7 @@ const CHART_HEIGHT = 144; // px
 export function NetWorthCard({ series }: { series: NetWorthPoint[] }) {
   const current = series[series.length - 1];
   const maxNet = Math.max(1, ...series.map((p) => p.netCents));
+  const formatCompact = useFormattedCompactCents();
 
   const linePoints = series
     .map((p, i) => {
@@ -87,8 +90,8 @@ export function NetWorthCard({ series }: { series: NetWorthPoint[] }) {
             className="flex flex-col justify-between text-[11px] text-muted-foreground shrink-0 w-10 text-right"
             style={{ height: CHART_HEIGHT }}
           >
-            <span>{formatCompactCents(maxNet)}</span>
-            <span>{formatCompactCents(maxNet / 2)}</span>
+            <span>{formatCompact(maxNet)}</span>
+            <span>{formatCompact(maxNet / 2)}</span>
             <span>$0</span>
           </div>
         </div>

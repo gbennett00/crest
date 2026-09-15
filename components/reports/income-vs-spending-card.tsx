@@ -1,7 +1,9 @@
+"use client";
+
 import { BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { MonthlyIncomeSpending } from "@/lib/reports";
-import { formatCompactCents } from "./chart-format";
+import { useFormattedCompactCents } from "./chart-format";
 
 const MONTH_ABBR = [
   "Jan", "Feb", "Mar", "Apr", "May", "Jun",
@@ -19,6 +21,7 @@ export function IncomeVsSpendingCard({
 }) {
   const maxCents = Math.max(1, ...rows.flatMap((r) => [r.incomeCents, r.spendingCents]));
   const hasActivity = rows.some((r) => r.incomeCents > 0 || r.spendingCents > 0);
+  const formatCompact = useFormattedCompactCents();
 
   return (
     <Card>
@@ -48,7 +51,7 @@ export function IncomeVsSpendingCard({
                         style={{ height: `${(r.incomeCents / maxCents) * 100}%` }}
                       />
                       <div
-                        className="w-2.5 md:w-3 rounded-t-sm bg-primary"
+                        className="w-2.5 md:w-3 rounded-t-sm bg-blue-500"
                         style={{ height: `${(r.spendingCents / maxCents) * 100}%` }}
                       />
                     </div>
@@ -59,8 +62,8 @@ export function IncomeVsSpendingCard({
                 className="flex flex-col justify-between text-[11px] text-muted-foreground shrink-0 w-10 text-right"
                 style={{ height: CHART_HEIGHT }}
               >
-                <span>{formatCompactCents(maxCents)}</span>
-                <span>{formatCompactCents(maxCents / 2)}</span>
+                <span>{formatCompact(maxCents)}</span>
+                <span>{formatCompact(maxCents / 2)}</span>
                 <span>$0</span>
               </div>
             </div>
@@ -76,7 +79,7 @@ export function IncomeVsSpendingCard({
                 <span className="w-2.5 h-2.5 rounded-[3px] bg-green-500" /> Income
               </div>
               <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="w-2.5 h-2.5 rounded-[3px] bg-primary" /> Spending
+                <span className="w-2.5 h-2.5 rounded-[3px] bg-blue-500" /> Spending
               </div>
             </div>
           </>

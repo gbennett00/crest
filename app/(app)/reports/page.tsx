@@ -37,9 +37,9 @@ async function DashboardContent() {
     <div className="max-w-3xl mx-auto px-4 md:px-10 py-6 md:py-8 space-y-4">
       <h1 className="text-xl md:text-2xl font-semibold tracking-tight">Reports</h1>
 
-      <IncomeVsSpendingCard rows={incomeVsSpending} insight={incomeVsSpendingInsight(incomeVsSpending)} />
-      <NetWorthCard series={netWorthSeries} />
       <SpendingSummaryCard rows={thisMonthBreakdown.rows} totalCents={thisMonthBreakdown.totalCents} />
+      <NetWorthCard series={netWorthSeries} />
+      <IncomeVsSpendingCard rows={incomeVsSpending} insight={incomeVsSpendingInsight(incomeVsSpending)} />
     </div>
   );
 }
