@@ -77,7 +77,7 @@ export function NetWorthCard({ series }: { series: NetWorthPoint[] }) {
               ))}
             </div>
             <svg
-              className="absolute inset-0 w-full h-full overflow-visible"
+              className="absolute inset-0 w-full h-full overflow-visible pointer-events-none"
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
             >
