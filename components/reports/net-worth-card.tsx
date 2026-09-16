@@ -2,7 +2,7 @@
 
 import { Landmark } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
-import { Money } from "@/components/money";
+import { Money, useFormattedCents } from "@/components/money";
 import type { NetWorthPoint } from "@/lib/reports";
 import { useFormattedCompactCents } from "./chart-format";
 import { cn } from "@/lib/utils";
@@ -18,6 +18,7 @@ export function NetWorthCard({ series }: { series: NetWorthPoint[] }) {
   const current = series[series.length - 1];
   const maxNet = Math.max(1, ...series.map((p) => p.netCents));
   const formatCompact = useFormattedCompactCents();
+  const formatCents = useFormattedCents();
 
   const linePoints = series
     .map((p, i) => {
@@ -61,18 +62,22 @@ export function NetWorthCard({ series }: { series: NetWorthPoint[] }) {
             </div>
             <div className="absolute inset-0 flex items-end gap-3 px-0.5">
               {series.map((p, i) => (
-                <div
-                  key={p.month}
-                  className={cn(
-                    "flex-1 rounded-t-sm",
-                    i === series.length - 1 ? "bg-primary" : "bg-primary/40",
-                  )}
-                  style={{ height: `${Math.max(0, Math.min(1, p.netCents / maxNet)) * 100}%` }}
-                />
+                <div key={p.month} tabIndex={0} className="group relative flex-1 h-full outline-none">
+                  <div className="pointer-events-none absolute top-0 left-1/2 -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] font-medium opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus:opacity-100">
+                    {formatCents(p.netCents)}
+                  </div>
+                  <div
+                    className={cn(
+                      "absolute bottom-0 w-full rounded-t-sm",
+                      i === series.length - 1 ? "bg-primary" : "bg-primary/40",
+                    )}
+                    style={{ height: `${Math.max(0, Math.min(1, p.netCents / maxNet)) * 100}%` }}
+                  />
+                </div>
               ))}
             </div>
             <svg
-              className="absolute inset-0 w-full h-full overflow-visible"
+              className="absolute inset-0 w-full h-full overflow-visible pointer-events-none"
               viewBox="0 0 100 100"
               preserveAspectRatio="none"
             >
