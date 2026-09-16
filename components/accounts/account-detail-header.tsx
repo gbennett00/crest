@@ -2,8 +2,9 @@
 
 import { useState, useTransition } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, MoreHorizontal, Scale, Archive, RotateCcw } from "lucide-react";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,7 +38,7 @@ export function AccountDetailHeader({
   canClose: boolean;
   closeBlockReason?: string;
 }) {
-  const router = useRouter();
+  const queryClient = useQueryClient();
   const [reconcileOpen, setReconcileOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [isReopening, startReopen] = useTransition();
@@ -45,7 +46,7 @@ export function AccountDetailHeader({
   function handleReopen() {
     startReopen(async () => {
       await reopenAccountAction(accountId);
-      router.refresh();
+      invalidateAllLedgerQueries(queryClient);
     });
   }
 
