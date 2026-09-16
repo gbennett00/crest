@@ -72,7 +72,14 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
           endpoint: json.endpoint,
           keys: json.keys,
         });
-        if (error) throw new Error(error);
+        if (error) {
+          // The browser already holds this PushManager subscription even
+          // though the server never got a matching row — leaving it in
+          // place would make the toggle read as "enabled" on every future
+          // visit with nothing server-side to actually deliver to.
+          await sub.unsubscribe();
+          throw new Error(error);
+        }
         setSubscribed(true);
       } else {
         const sub = await getExistingSubscription();
