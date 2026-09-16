@@ -3,6 +3,7 @@
 import { BarChart3 } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import type { MonthlyIncomeSpending } from "@/lib/reports";
+import { useFormattedCents } from "@/components/money";
 import { useFormattedCompactCents } from "./chart-format";
 
 const MONTH_ABBR = [
@@ -22,6 +23,7 @@ export function IncomeVsSpendingCard({
   const maxCents = Math.max(1, ...rows.flatMap((r) => [r.incomeCents, r.spendingCents]));
   const hasActivity = rows.some((r) => r.incomeCents > 0 || r.spendingCents > 0);
   const formatCompact = useFormattedCompactCents();
+  const formatCents = useFormattedCents();
 
   return (
     <Card>
@@ -45,7 +47,19 @@ export function IncomeVsSpendingCard({
                 </div>
                 <div className="absolute inset-0 flex items-end gap-3 px-0.5">
                   {rows.map((r) => (
-                    <div key={r.month} className="flex-1 flex items-end justify-center gap-1 h-full">
+                    <div
+                      key={r.month}
+                      tabIndex={0}
+                      className="group relative flex-1 flex items-end justify-center gap-1 h-full outline-none"
+                    >
+                      <div className="pointer-events-none absolute bottom-full left-1/2 mb-1 flex -translate-x-1/2 flex-col items-center gap-0.5 whitespace-nowrap rounded-md border bg-popover px-2 py-1 text-[11px] opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus:opacity-100">
+                        <span className="font-medium text-green-600 dark:text-green-400">
+                          Income {formatCents(r.incomeCents)}
+                        </span>
+                        <span className="font-medium text-blue-600 dark:text-blue-400">
+                          Spending {formatCents(r.spendingCents)}
+                        </span>
+                      </div>
                       <div
                         className="w-2.5 md:w-3 rounded-t-sm bg-green-500"
                         style={{ height: `${(r.incomeCents / maxCents) * 100}%` }}
