@@ -1,129 +1,295 @@
 "use client";
 
-import { Suspense } from "react";
-import { useSearchParams } from "next/navigation";
-import { useQueryClient } from "@tanstack/react-query";
+import { Suspense, useEffect, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { Money } from "@/components/money";
-import { ChevronLeft } from "lucide-react";
-import { cn } from "@/lib/utils";
+import { ChevronLeft, Search, X } from "lucide-react";
 import { StickyHeader } from "@/components/ui/sticky-header";
-import { useTransactionsByCategory } from "@/lib/queries/transactions";
-import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
+import { Input } from "@/components/ui/input";
+import { AllTransactionsList } from "@/components/transactions/all-transactions-list";
+import { useAllTransactions, type TransactionsFilters } from "@/lib/queries/transactions";
 import { useHasMounted } from "@/lib/use-has-mounted";
+import { cn } from "@/lib/utils";
+import type { CategoryOption } from "@/components/transactions/transaction-form";
 
-const MONTH_NAMES = [
-  "January", "February", "March", "April", "May", "June",
-  "July", "August", "September", "October", "November", "December",
-];
+type FiltersState = {
+  q: string;
+  account: string;
+  category: string;
+  dateFrom: string;
+  dateTo: string;
+  amount: string;
+};
+
+const EMPTY_FILTERS: FiltersState = {
+  q: "",
+  account: "",
+  category: "",
+  dateFrom: "",
+  dateTo: "",
+  amount: "",
+};
+
+function readFiltersFromParams(params: URLSearchParams): FiltersState {
+  return {
+    q: params.get("q") ?? "",
+    account: params.get("account") ?? "",
+    category: params.get("category") ?? "",
+    dateFrom: params.get("dateFrom") ?? "",
+    dateTo: params.get("dateTo") ?? "",
+    amount: params.get("amount") ?? "",
+  };
+}
+
+function filtersToQueryString(f: FiltersState): string {
+  const params = new URLSearchParams();
+  if (f.q) params.set("q", f.q);
+  if (f.account) params.set("account", f.account);
+  if (f.category) params.set("category", f.category);
+  if (f.dateFrom) params.set("dateFrom", f.dateFrom);
+  if (f.dateTo) params.set("dateTo", f.dateTo);
+  if (f.amount) params.set("amount", f.amount);
+  return params.toString();
+}
+
+function toResourceFilters(f: FiltersState): TransactionsFilters {
+  return {
+    q: f.q || undefined,
+    accountId: f.account || undefined,
+    categoryId: f.category || undefined,
+    dateFrom: f.dateFrom || undefined,
+    dateTo: f.dateTo || undefined,
+    amount: f.amount || undefined,
+  };
+}
+
+function selectClass(extra?: string) {
+  return cn(
+    "rounded-md border border-input bg-background px-2.5 py-1.5 text-sm",
+    "focus:outline-none focus:ring-1 focus:ring-ring",
+    extra,
+  );
+}
+
+function GroupedCategoryFilter({
+  value,
+  onChange,
+  categories,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  categories: CategoryOption[];
+}) {
+  const grouped = useMemo(() => {
+    const g: Record<string, CategoryOption[]> = {};
+    for (const c of categories) (g[c.groupName] ??= []).push(c);
+    return g;
+  }, [categories]);
+
+  return (
+    <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={selectClass("min-w-0")}
+      aria-label="Filter by category"
+    >
+      <option value="">All categories</option>
+      {Object.entries(grouped).map(([group, cats]) => (
+        <optgroup key={group} label={group}>
+          {cats.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.name}
+            </option>
+          ))}
+        </optgroup>
+      ))}
+    </select>
+  );
+}
 
 export default function TransactionsPage() {
   return (
-    <Suspense fallback={<div className="animate-pulse p-4 space-y-3">{Array.from({ length: 8 }).map((_, i) => <div key={i} className="h-12 bg-muted rounded" />)}</div>}>
+    <Suspense fallback={<TransactionsSkeleton />}>
       <TransactionsContent />
     </Suspense>
   );
 }
 
 function TransactionsContent() {
+  const router = useRouter();
+  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const categoryId = searchParams.get("category") ?? "";
-  const monthFilter = searchParams.get("month") ?? undefined;
-  const queryClient = useQueryClient();
   const hasMounted = useHasMounted();
 
-  const { data: response, isPending } = useTransactionsByCategory(categoryId, monthFilter);
+  // Frozen at first render: the budget screen's category drill-down always
+  // arrives with both `category` and `dateFrom` set, and is the only entry
+  // point that wants a "back to budget" chevron instead of the plain header.
+  const [initialCategory] = useState(() => searchParams.get("category"));
+  const [initialDateFrom] = useState(() => searchParams.get("dateFrom"));
+  const cameFromBudget = !!initialCategory && !!initialDateFrom;
+  // /budget expects the full `YYYY-MM-01` DATE form (see BUDGET_MONTH_RE in
+  // app/(app)/budget/page.tsx), not a bare `YYYY-MM`.
+  const backHref = cameFromBudget ? `/budget?month=${initialDateFrom!.slice(0, 7)}-01` : null;
 
-  // Gated on hasMounted (see lib/use-has-mounted.ts) so this never differs
-  // from the server's necessarily-cache-blind first render, even when the
-  // query cache is already warm (e.g. from the row's hover-prefetch).
-  const categoryName = hasMounted ? (response?.categoryName ?? "Category") : "Category";
+  // `draft` is what the controls show and updates on every keystroke/change.
+  // `committed` only catches up ~300ms after `draft` goes quiet, and is what
+  // actually drives the URL and the query — so typing feels instant without
+  // firing a request (or a URL write) per keystroke. Routing every field
+  // through one draft/commit pair (instead of a debounce timer per field)
+  // means there's a single writer for the URL, so two filters changed in
+  // quick succession can never race and clobber each other.
+  const [draft, setDraft] = useState<FiltersState>(() => readFiltersFromParams(searchParams));
+  const [committed, setCommitted] = useState<FiltersState>(draft);
+
+  useEffect(() => {
+    const handle = setTimeout(() => setCommitted(draft), 300);
+    return () => clearTimeout(handle);
+  }, [draft]);
+
+  useEffect(() => {
+    const qs = filtersToQueryString(committed);
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [committed]);
+
+  const { data: response, isPending } = useAllTransactions(toResourceFilters(committed));
+
   const txns = hasMounted ? (response?.txns ?? []) : [];
+  const accountOptions = hasMounted ? (response?.accountOptions ?? []) : [];
+  const categoryOptions = hasMounted ? (response?.categoryOptions ?? []) : [];
+  const hasMore = hasMounted && !!response?.hasMore;
 
-  const monthLabel = monthFilter
-    ? `${MONTH_NAMES[+monthFilter.slice(5, 7) - 1]} ${monthFilter.slice(0, 4)}`
-    : "All time";
+  const hasActiveFilters =
+    !!committed.q ||
+    !!committed.account ||
+    !!committed.category ||
+    !!committed.dateFrom ||
+    !!committed.dateTo ||
+    !!committed.amount;
 
-  const backHref = monthFilter ? `/budget?month=${monthFilter}` : "/budget";
+  function clearFilters() {
+    setDraft(EMPTY_FILTERS);
+    setCommitted(EMPTY_FILTERS);
+  }
+
+  const currentUrl = `${pathname}${filtersToQueryString(committed) ? `?${filtersToQueryString(committed)}` : ""}`;
 
   return (
     <div className="max-w-2xl">
-      <StickyHeader className="px-4 py-3 flex items-center gap-3">
-        <Link href={backHref} className="text-muted-foreground hover:text-foreground">
-          <ChevronLeft size={20} />
-        </Link>
-        <div className="min-w-0">
-          <h1 className="font-semibold text-sm truncate">{categoryName}</h1>
-          <p className="text-xs text-muted-foreground">{monthLabel}</p>
+      <StickyHeader className="px-4 py-3">
+        <div className="flex items-center gap-3 mb-3">
+          {backHref && (
+            <Link href={backHref} className="text-muted-foreground hover:text-foreground shrink-0">
+              <ChevronLeft size={20} />
+            </Link>
+          )}
+          <h1 className="font-semibold text-sm">Transactions</h1>
+        </div>
+
+        <div className="relative">
+          <Search
+            size={15}
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
+          />
+          <Input
+            value={draft.q}
+            onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))}
+            placeholder="Search payee or memo…"
+            className="pl-8"
+            aria-label="Search payee or memo"
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2 mt-2">
+          <select
+            value={draft.account}
+            onChange={(e) => setDraft((d) => ({ ...d, account: e.target.value }))}
+            className={selectClass()}
+            aria-label="Filter by account"
+          >
+            <option value="">All accounts</option>
+            {accountOptions.map((a) => (
+              <option key={a.id} value={a.id}>
+                {a.name}
+              </option>
+            ))}
+          </select>
+
+          <GroupedCategoryFilter
+            value={draft.category}
+            onChange={(v) => setDraft((d) => ({ ...d, category: v }))}
+            categories={categoryOptions}
+          />
+
+          <input
+            type="date"
+            value={draft.dateFrom}
+            onChange={(e) => setDraft((d) => ({ ...d, dateFrom: e.target.value }))}
+            className={selectClass()}
+            aria-label="From date"
+          />
+          <span className="text-xs text-muted-foreground">to</span>
+          <input
+            type="date"
+            value={draft.dateTo}
+            onChange={(e) => setDraft((d) => ({ ...d, dateTo: e.target.value }))}
+            className={selectClass()}
+            aria-label="To date"
+          />
+
+          <input
+            type="text"
+            inputMode="decimal"
+            value={draft.amount}
+            onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))}
+            placeholder="Amount"
+            className={selectClass("w-24")}
+            aria-label="Filter by amount"
+          />
+
+          {hasActiveFilters && (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground ml-auto"
+            >
+              <X size={13} /> Clear filters
+            </button>
+          )}
         </div>
       </StickyHeader>
 
       {!hasMounted || (isPending && !response) ? (
-        <div className="animate-pulse p-4 space-y-3">
-          {Array.from({ length: 8 }).map((_, i) => (
-            <div key={i} className="h-12 bg-muted rounded" />
-          ))}
-        </div>
+        <TransactionsSkeleton />
       ) : txns.length === 0 ? (
-        <p className="text-center text-sm text-muted-foreground py-16">No transactions.</p>
+        <p className="text-center text-sm text-muted-foreground py-16">
+          {hasActiveFilters ? "No transactions match your filters." : "No transactions yet."}
+        </p>
       ) : (
-        txns.map((txn, i) => {
-          const isApproved = !!txn.approved_at;
-          const accountsData = Array.isArray(txn.accounts) ? txn.accounts[0] : txn.accounts;
-          const accountName = accountsData?.name ?? "Unknown";
-
-          // The category's share of this transaction (summed in case a split
-          // allocated to the same category more than once).
-          const categoryAmountCents = (txn.transaction_allocations ?? []).reduce(
-            (s, a) => s + a.amount_cents,
-            0,
-          );
-
-          const currentUrl = `/transactions?category=${categoryId}&month=${monthFilter ?? ""}`;
-          const editHref = `/transactions/${txn.id}?back=${encodeURIComponent(currentUrl)}`;
-          const prefetch = () => prefetchTransactionDetail(queryClient, txn.id);
-          return (
-            <Link
-              key={`${txn.id}-${i}`}
-              href={editHref}
-              onMouseEnter={prefetch}
-              onFocus={prefetch}
-              onPointerDown={prefetch}
-              className="px-4 py-3 border-b flex items-center justify-between gap-2 hover:bg-muted/30 transition-colors"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {!isApproved && (
-                    <span className="text-xs bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400 px-1.5 py-0.5 rounded font-medium shrink-0">
-                      Pending
-                    </span>
-                  )}
-                  <span className="text-sm font-medium">{txn.payee || "—"}</span>
-                </div>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  {formatDate(txn.txn_date)} · {accountName}
-                </p>
-              </div>
-              <span
-                className={cn(
-                  "text-sm font-medium tabular-nums shrink-0",
-                  categoryAmountCents < 0 ? "text-destructive" : "text-green-600 dark:text-green-400",
-                )}
-              >
-                <Money cents={categoryAmountCents} />
-              </span>
-            </Link>
-          );
-        })
+        <>
+          <AllTransactionsList
+            transactions={txns}
+            categories={categoryOptions}
+            accounts={accountOptions}
+            backHref={currentUrl}
+          />
+          {hasMore && (
+            <p className="text-center text-xs text-muted-foreground py-4">
+              Showing the most recent {txns.length} matching transactions. Narrow your filters to see more.
+            </p>
+          )}
+        </>
       )}
     </div>
   );
 }
 
-function formatDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
+function TransactionsSkeleton() {
+  return (
+    <div className="animate-pulse p-4 space-y-3">
+      {Array.from({ length: 8 }).map((_, i) => (
+        <div key={i} className="h-12 bg-muted rounded" />
+      ))}
+    </div>
+  );
 }
