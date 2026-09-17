@@ -26,6 +26,7 @@ import type {
   CreateOpeningBalanceInput,
   CreateTransactionInput,
   CreateTransferInput,
+  LinkTransferPairInput,
   ReconciliationCheckInput,
   ReconciliationCheckResult,
   TransactionAllocationInput,
@@ -613,6 +614,84 @@ export async function createTransfer(
     inflowTransactionId: row.inflow_transaction_id as string,
     created: (row.created as boolean | undefined) ?? true,
   };
+}
+
+/**
+ * Links two existing transactions together as the two legs of a transfer,
+ * instead of creating new rows. Used when converting a single-sided
+ * transaction into a transfer finds an existing unlinked transaction on the
+ * destination account that's plausibly the other leg already — most
+ * commonly a credit card payment that Plaid synced independently on both
+ * the checking and card accounts (see selectTransferLinkMatch). Linking the
+ * two existing rows avoids leaving the adopted one behind as an unlinked
+ * duplicate.
+ */
+export async function linkTransferPair(
+  client: SupabaseClient,
+  input: LinkTransferPairInput,
+) {
+  assertNonZeroAmount(input.amountCents);
+  assertTxnDate(input.txnDate);
+
+  const { data, error } = await client.rpc("ledger_link_transfer", {
+    p_transaction_id: input.transactionId,
+    p_counterpart_transaction_id: input.counterpartTransactionId,
+    p_amount_cents: input.amountCents,
+    p_txn_date: input.txnDate,
+    p_memo: input.memo ?? null,
+    p_cleared_at: input.clearedAt ?? null,
+  });
+
+  if (error) {
+    throw new LedgerError("db_error", error.message);
+  }
+
+  const row = Array.isArray(data) ? data[0] : data;
+  if (!row) {
+    throw new LedgerError("db_error", "link transfer RPC returned no rows");
+  }
+
+  return {
+    outflowTransactionId: row.outflow_transaction_id as string,
+    inflowTransactionId: row.inflow_transaction_id as string,
+  };
+}
+
+/**
+ * Loads unlinked transactions (`transfer_account_id IS NULL`) in the given
+ * account — candidates a transaction being converted into a transfer might
+ * adopt as its other leg. See selectTransferLinkMatch for the selection
+ * logic and linkTransferPair for how a match is applied.
+ *
+ * The opening-balance line and reconciliation adjustments are excluded even
+ * though they're unlinked: they're synthetic register lines with a fixed
+ * accounting role (funding Ready to Assign / correcting the register to a
+ * bank balance), not real transfer legs, and linking one away would corrupt
+ * that.
+ */
+export async function findTransferLinkCandidates(
+  client: SupabaseClient,
+  accountId: string,
+): Promise<{ id: string; amountCents: number; txnDate: string }[]> {
+  const { data, error } = await client
+    .from("transactions")
+    .select("id, amount_cents, txn_date, imported_id, payee")
+    .eq("account_id", accountId)
+    .is("transfer_account_id", null)
+    // imported_id is nullable (manual entries); .neq() would silently drop
+    // those rows too since SQL NULL <> '...' is NULL, not true.
+    .or(`imported_id.is.null,imported_id.neq.${OPENING_BALANCE_IMPORTED_ID}`)
+    .neq("payee", RECONCILIATION_ADJUSTMENT_PAYEE);
+
+  if (error) {
+    throw new LedgerError("db_error", error.message);
+  }
+
+  return (data ?? []).map((row) => ({
+    id: row.id as string,
+    amountCents: row.amount_cents as number,
+    txnDate: row.txn_date as string,
+  }));
 }
 
 export async function getReadyToAssignCategoryId(

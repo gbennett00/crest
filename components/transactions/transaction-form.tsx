@@ -527,6 +527,13 @@ export function TransactionForm({
               </option>
             ))}
           </select>
+          {isEdit && !txn?.transferAccountId && (
+            <p className="text-xs text-muted-foreground">
+              If a matching transaction already exists on that account (e.g. a
+              credit card payment Plaid synced on both sides), it’ll be
+              linked as the other leg instead of creating a duplicate.
+            </p>
+          )}
         </div>
       ) : (
         <div className="space-y-1.5">

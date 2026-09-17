@@ -9,6 +9,7 @@ import {
   createTransaction,
   createTransfer,
   deleteTransactionWithCounterpart,
+  linkTransferPair,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
   reopenAccount,
@@ -865,6 +866,104 @@ describe("createTransfer", () => {
       "ledger_create_transfer",
       expect.objectContaining({ p_imported_id: null }),
     );
+  });
+});
+
+describe("linkTransferPair", () => {
+  function makeLinkMock() {
+    const rpc = vi.fn().mockResolvedValue({
+      data: { outflow_transaction_id: "out-1", inflow_transaction_id: "in-1" },
+      error: null,
+    });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+    return { client, rpc };
+  }
+
+  it("passes the transaction and counterpart ids and the edited fields through", async () => {
+    const { client, rpc } = makeLinkMock();
+
+    const result = await linkTransferPair(client, {
+      transactionId: "txn-1",
+      amountCents: -5000,
+      txnDate: "2026-01-15",
+      memo: "Card payment",
+      clearedAt: "2026-01-15T00:00:00Z",
+      counterpartTransactionId: "txn-2",
+    });
+
+    expect(rpc).toHaveBeenCalledWith("ledger_link_transfer", {
+      p_transaction_id: "txn-1",
+      p_counterpart_transaction_id: "txn-2",
+      p_amount_cents: -5000,
+      p_txn_date: "2026-01-15",
+      p_memo: "Card payment",
+      p_cleared_at: "2026-01-15T00:00:00Z",
+    });
+    expect(result).toEqual({
+      outflowTransactionId: "out-1",
+      inflowTransactionId: "in-1",
+    });
+  });
+
+  it("defaults memo and clearedAt to null when omitted", async () => {
+    const { client, rpc } = makeLinkMock();
+
+    await linkTransferPair(client, {
+      transactionId: "txn-1",
+      amountCents: -5000,
+      txnDate: "2026-01-15",
+      counterpartTransactionId: "txn-2",
+    });
+
+    expect(rpc).toHaveBeenCalledWith(
+      "ledger_link_transfer",
+      expect.objectContaining({ p_memo: null, p_cleared_at: null }),
+    );
+  });
+
+  it("rejects a zero amount before calling the RPC", async () => {
+    const { client, rpc } = makeLinkMock();
+
+    await expect(
+      linkTransferPair(client, {
+        transactionId: "txn-1",
+        amountCents: 0,
+        txnDate: "2026-01-15",
+        counterpartTransactionId: "txn-2",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_amount" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects a malformed date before calling the RPC", async () => {
+    const { client, rpc } = makeLinkMock();
+
+    await expect(
+      linkTransferPair(client, {
+        transactionId: "txn-1",
+        amountCents: -5000,
+        txnDate: "01/15/2026",
+        counterpartTransactionId: "txn-2",
+      }),
+    ).rejects.toMatchObject({ code: "invalid_date" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("surfaces the RPC error (e.g. mismatched or already-linked legs) as a LedgerError", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: null,
+      error: { message: "transfer legs must have equal and opposite amounts (got -5000 and 4000)" },
+    });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+
+    await expect(
+      linkTransferPair(client, {
+        transactionId: "txn-1",
+        amountCents: -5000,
+        txnDate: "2026-01-15",
+        counterpartTransactionId: "txn-2",
+      }),
+    ).rejects.toMatchObject({ code: "db_error" });
   });
 });
 
