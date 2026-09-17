@@ -39,7 +39,7 @@ export type TransactionEditData = {
   allocations: AllocationData[];
 };
 
-export type AccountOption = { id: string; name: string };
+export type AccountOption = { id: string; name: string; onBudget?: boolean };
 export type CategoryOption = { id: string; name: string; groupName: string };
 
 type Direction = "outflow" | "inflow" | "transfer";
@@ -101,10 +101,17 @@ export function TransactionForm({
   const [direction, setDirection] = useState<Direction>(initialDirection);
   const [amount, setAmount] = useState(initialAmount);
   const [cleared, setCleared] = useState(txn ? !!txn.clearedAt : true);
+  const [accountId, setAccountId] = useState(
+    txn?.accountId ?? defaultAccountId ?? "",
+  );
 
   const isTransfer = direction === "transfer";
   const sign = direction === "inflow" ? 1 : -1;
   const totalAbsCents = Math.round((parseFloat(amount) || 0) * 100);
+  // Tracking accounts are never categorized — no category/split UI for them.
+  // Unknown accounts (onBudget omitted) default to on-budget.
+  const isOffBudget =
+    accounts.find((a) => a.id === accountId)?.onBudget === false;
 
   // ---- Split state (absolute dollars; sign re-applied on submit) ----
   const [isSplit, setIsSplit] = useState((txn?.allocations.length ?? 0) > 1);
@@ -165,6 +172,7 @@ export function TransactionForm({
 
   function resetAfterCreate() {
     setDirection("outflow");
+    setAccountId(defaultAccountId ?? "");
     setAmount("");
     setCleared(true);
     setIsSplit(false);
@@ -178,7 +186,9 @@ export function TransactionForm({
     formData.set("direction", direction);
     formData.set("cleared", String(cleared));
 
-    if (!isTransfer) {
+    if (!isTransfer && isOffBudget) {
+      formData.set("allocations", "[]");
+    } else if (!isTransfer) {
       if (isSplit) {
         if (splits.some((s) => !s.categoryId)) {
           setError("Every split needs a category.");
@@ -412,7 +422,8 @@ export function TransactionForm({
           <select
             id="txn-account"
             name="accountId"
-            defaultValue={txn?.accountId ?? defaultAccountId ?? ""}
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
             required
             className={cn(selectClass, "min-w-0")}
           >
@@ -509,6 +520,10 @@ export function TransactionForm({
             ))}
           </select>
         </div>
+      ) : isOffBudget ? (
+        <p className="text-xs text-muted-foreground">
+          Tracking account — no category needed.
+        </p>
       ) : (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">

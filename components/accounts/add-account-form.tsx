@@ -11,11 +11,11 @@ import { cn } from "@/lib/utils";
 
 // Trigger renders as a plain icon button (for inline placement next to a page
 // title) when `iconOnly` is set; the form itself always opens in a modal.
+type AccountFormType = "checking" | "savings" | "credit" | "asset" | "liability";
+
 export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
   const [open, setOpen] = useState(false);
-  const [type, setType] = useState<"checking" | "savings" | "credit">(
-    "checking",
-  );
+  const [type, setType] = useState<AccountFormType>("checking");
   const [accountName, setAccountName] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -89,23 +89,35 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
               id="acc-type"
               name="type"
               value={type}
-              onChange={(e) =>
-                setType(e.target.value as "checking" | "savings" | "credit")
-              }
+              onChange={(e) => setType(e.target.value as AccountFormType)}
               className={cn(
                 "w-full rounded-md border border-input bg-background px-3 py-2 text-sm",
                 "focus:outline-none focus:ring-1 focus:ring-ring",
               )}
             >
-              <option value="checking">Checking</option>
-              <option value="savings">Savings</option>
-              <option value="credit">Credit Card</option>
+              <optgroup label="Budget">
+                <option value="checking">Checking</option>
+                <option value="savings">Savings</option>
+                <option value="credit">Credit Card</option>
+              </optgroup>
+              <optgroup label="Tracking">
+                <option value="asset">Asset (e.g. investment, property)</option>
+                <option value="liability">Liability (e.g. loan, mortgage)</option>
+              </optgroup>
             </select>
+            {(type === "asset" || type === "liability") && (
+              <p className="text-xs text-muted-foreground">
+                Tracking accounts show up in net worth but not the budget —
+                their transactions are never categorized.
+              </p>
+            )}
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="acc-balance" className="text-xs">
-              {type === "credit" ? "Current Balance Owed ($)" : "Opening Balance ($)"}
+              {type === "credit" || type === "liability"
+                ? "Current Balance Owed ($)"
+                : "Opening Balance ($)"}
             </Label>
             <Input
               id="acc-balance"
@@ -115,7 +127,7 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
               placeholder="0.00"
               className="h-9"
             />
-            {type === "credit" && (
+            {(type === "credit" || type === "liability") && (
               <p className="text-xs text-muted-foreground">
                 Enter the amount you currently owe. Use a positive number.
               </p>

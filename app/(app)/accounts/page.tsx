@@ -42,7 +42,7 @@ async function AccountsContent() {
   const accounts: AccountData[] = (accountsRes.data ?? []).map((acc) => ({
     id: acc.id as string,
     name: acc.name as string,
-    type: acc.type as "checking" | "savings" | "credit",
+    type: acc.type as "checking" | "savings" | "credit" | "asset" | "liability",
     workingBalanceCents: balances.get(acc.id as string)?.workingCents ?? 0,
     isLinked: acc.is_linked as boolean,
     isActive: acc.is_active as boolean,
@@ -54,9 +54,13 @@ async function AccountsContent() {
   // Group active accounts by type; closed accounts get their own section.
   const cashAccounts = activeAccounts.filter((a) => a.type === "checking" || a.type === "savings");
   const creditAccounts = activeAccounts.filter((a) => a.type === "credit");
+  const trackingAccounts = activeAccounts.filter(
+    (a) => a.type === "asset" || a.type === "liability",
+  );
 
   const cashTotal = cashAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
   const creditTotal = creditAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
+  const trackingTotal = trackingAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
 
   if (accounts.length === 0) {
     return (
@@ -83,6 +87,15 @@ async function AccountsContent() {
           title="Credit"
           total={creditTotal}
           accounts={creditAccounts}
+        />
+      )}
+
+      {/* Tracking accounts — net worth only, never the budget */}
+      {trackingAccounts.length > 0 && (
+        <AccountGroup
+          title="Tracking"
+          total={trackingTotal}
+          accounts={trackingAccounts}
         />
       )}
 

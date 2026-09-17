@@ -6,7 +6,7 @@ import { ChevronRight, Link2 } from "lucide-react";
 export type AccountData = {
   id: string;
   name: string;
-  type: "checking" | "savings" | "credit";
+  type: "checking" | "savings" | "credit" | "asset" | "liability";
   workingBalanceCents: number;
   isLinked: boolean;
   isActive: boolean;
@@ -16,6 +16,8 @@ const TYPE_LABELS: Record<string, string> = {
   checking: "Checking",
   savings: "Savings",
   credit: "Credit",
+  asset: "Asset",
+  liability: "Liability",
 };
 
 export function AccountCard({ account }: { account: AccountData }) {

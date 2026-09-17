@@ -61,7 +61,7 @@ async function RegisterContent({
       // Active accounts power the Add-Transaction form's account picker.
       supabase
         .from("accounts")
-        .select("id, name")
+        .select("id, name, on_budget")
         .eq("is_active", true)
         .order("name"),
     ]);
@@ -142,9 +142,9 @@ async function RegisterContent({
     : "All transactions";
 
   // Options for the floating Add-Transaction form.
-  const accountOptions = ((accountsRes.data ?? []) as { id: string; name: string }[]).map(
-    (a) => ({ id: a.id, name: a.name }),
-  );
+  const accountOptions = (
+    (accountsRes.data ?? []) as { id: string; name: string; on_budget: boolean }[]
+  ).map((a) => ({ id: a.id, name: a.name, onBudget: a.on_budget }));
   const categoryOptions = (
     (categoriesRes.data ?? []) as unknown as Array<{
       id: string;

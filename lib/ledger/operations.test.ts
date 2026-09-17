@@ -6,6 +6,7 @@ import {
   bulkUpsertTransactions,
   closeAccount,
   createAccount,
+  createOpeningBalance,
   createTransaction,
   createTransfer,
   deleteTransactionWithCounterpart,
@@ -129,6 +130,19 @@ describe("createTransaction — split enforcement", () => {
         txnDate: "2026-01-15",
         approvedAt: APPROVED_AT,
         allocations: [{ categoryId: "cat-rta", amountCents: 10000 }],
+      }),
+    ).resolves.toBeDefined();
+  });
+
+  it("accepts an approved transaction with no allocations when the caller marks the account off-budget", async () => {
+    const client = makeMockClient(txnRow({ approved_at: APPROVED_AT }));
+    await expect(
+      createTransaction(client, {
+        accountId: "acc-tracking",
+        amountCents: -5000,
+        txnDate: "2026-01-15",
+        approvedAt: APPROVED_AT,
+        accountOnBudget: false,
       }),
     ).resolves.toBeDefined();
   });
@@ -313,6 +327,17 @@ describe("updateTransaction — conditional split enforcement", () => {
     const client = makeMockClient(txnRow({ approved_at: APPROVED_AT }));
     await expect(
       updateTransaction(client, { id: "txn-1", payee: "New Store Name" }),
+    ).resolves.toBeDefined();
+  });
+
+  it("does not require allocations when changing amount on an approved transaction the caller marks off-budget", async () => {
+    const client = makeMockClient(txnRow({ approved_at: APPROVED_AT }));
+    await expect(
+      updateTransaction(client, {
+        id: "txn-1",
+        amountCents: -8000,
+        accountOnBudget: false,
+      }),
     ).resolves.toBeDefined();
   });
 
@@ -821,6 +846,89 @@ describe("createAccount", () => {
     expect(insert).toHaveBeenCalledWith(
       expect.objectContaining({ plan_id: "plan-1", name: "Checking", type: "checking" }),
     );
+  });
+});
+
+describe("createOpeningBalance", () => {
+  // Table-aware mock: "accounts" resolves on_budget, "categories" resolves the
+  // Ready to Assign id, "transactions" backs the upsertTransaction dance
+  // (no existing row -> insert -> [replace allocations ->] approve).
+  function makeMock(onBudget: boolean) {
+    const insertedPayloads: Record<string, unknown>[] = [];
+    const rpcCalls: { name: string; args: unknown }[] = [];
+
+    function proxyFor(handlers: Record<string, unknown>): Record<string, unknown> {
+      return new Proxy(handlers, {
+        get(target, prop) {
+          if (prop in target) return target[prop as string];
+          return () => proxyFor(handlers);
+        },
+      });
+    }
+
+    const accountsProxy = proxyFor({
+      single: vi.fn().mockResolvedValue({ data: { on_budget: onBudget }, error: null }),
+    });
+    const categoriesProxy = proxyFor({
+      maybeSingle: vi.fn().mockResolvedValue({ data: { id: "rta-cat" }, error: null }),
+    });
+    const transactionsProxy = proxyFor({
+      maybeSingle: vi.fn().mockResolvedValue({ data: null, error: null }),
+      insert: (payload: Record<string, unknown>) => {
+        insertedPayloads.push(payload);
+        return proxyFor({
+          single: vi.fn().mockResolvedValue({
+            data: { id: "opening-txn", ...payload },
+            error: null,
+          }),
+        });
+      },
+      update: (payload: Record<string, unknown>) => {
+        insertedPayloads.push(payload);
+        return proxyFor({
+          single: vi.fn().mockResolvedValue({
+            data: { id: "opening-txn", ...payload },
+            error: null,
+          }),
+        });
+      },
+    });
+
+    const client = {
+      from: vi.fn((table: string) => {
+        if (table === "accounts") return accountsProxy;
+        if (table === "categories") return categoriesProxy;
+        return transactionsProxy;
+      }),
+      rpc: vi.fn((name: string, args: unknown) => {
+        rpcCalls.push({ name, args });
+        return Promise.resolve({ error: null });
+      }),
+    } as unknown as SupabaseClient;
+
+    return { client, insertedPayloads, rpcCalls };
+  }
+
+  it("splits to Ready to Assign for an on-budget account", async () => {
+    const { client, rpcCalls } = makeMock(true);
+
+    await createOpeningBalance(client, { accountId: "acc-1", amountCents: 50000 });
+
+    const replaceCall = rpcCalls.find((c) => c.name === "ledger_replace_allocations");
+    expect(replaceCall?.args).toMatchObject({
+      p_allocations: [{ category_id: "rta-cat", amount_cents: 50000 }],
+    });
+  });
+
+  it("carries no allocation for an off-budget (tracking) account", async () => {
+    const { client, rpcCalls, insertedPayloads } = makeMock(false);
+
+    await createOpeningBalance(client, { accountId: "acc-2", amountCents: -120000 });
+
+    expect(rpcCalls.some((c) => c.name === "ledger_replace_allocations")).toBe(false);
+    // Inserted already-approved with no deferred-approval dance (single insert
+    // carries approved_at straight away since there's no allocation to wait for).
+    expect(insertedPayloads[0]).toMatchObject({ approved_at: expect.any(String) });
   });
 });
 

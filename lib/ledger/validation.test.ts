@@ -62,6 +62,21 @@ describe("validateAllocations", () => {
       ),
     ).not.toThrow();
   });
+
+  it("allows an approved transaction with no splits on an off-budget (tracking) account", () => {
+    expect(() =>
+      validateAllocations(-5000, [], "2026-05-01T00:00:00Z", false),
+    ).not.toThrow();
+    expect(() =>
+      validateAllocations(-5000, undefined, "2026-05-01T00:00:00Z", false),
+    ).not.toThrow();
+  });
+
+  it("still requires splits when approved and the account is on-budget (default)", () => {
+    expect(() =>
+      validateAllocations(-5000, [], "2026-05-01T00:00:00Z", true),
+    ).toThrow(LedgerError);
+  });
 });
 
 describe("sumAllocationCents", () => {

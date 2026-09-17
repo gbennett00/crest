@@ -97,6 +97,19 @@ export async function saveTransaction(formData: FormData) {
 
   const hasAllocations = allocations.length > 0;
 
+  // Tracking accounts are never categorized — the form hides the category
+  // field for them, so always approve immediately with no allocation rather
+  // than reading "no category" as "leave pending" (that reading is correct
+  // for on-budget accounts, where it means "approve later").
+  const { data: acctRow } = await supabase
+    .from("accounts")
+    .select("on_budget")
+    .eq("id", accountId)
+    .single();
+  const onBudget = (acctRow as { on_budget: boolean } | null)?.on_budget ?? true;
+  const approvedAt = onBudget ? (hasAllocations ? now : null) : now;
+  const finalAllocations = onBudget ? allocations : [];
+
   try {
     if (txnId) {
       // An empty allocations array un-approves the transaction (back to pending).
@@ -108,8 +121,9 @@ export async function saveTransaction(formData: FormData) {
         payee,
         memo,
         clearedAt,
-        approvedAt: hasAllocations ? now : null,
-        allocations,
+        approvedAt,
+        allocations: finalAllocations,
+        accountOnBudget: onBudget,
       });
     } else {
       await createTransaction(supabase, {
@@ -119,8 +133,9 @@ export async function saveTransaction(formData: FormData) {
         payee,
         memo: memo || undefined,
         clearedAt,
-        approvedAt: hasAllocations ? now : null,
-        allocations: hasAllocations ? allocations : undefined,
+        accountOnBudget: onBudget,
+        approvedAt,
+        allocations: onBudget && hasAllocations ? allocations : undefined,
       });
     }
     revalidateAll();
@@ -189,9 +204,12 @@ function allocationsCoverAmount(row: BulkTxnRow): boolean {
  * to its amount keeps them; an uncategorized line is given the single fallback
  * `categoryId` (full amount) so it can be approved in one gesture, mirroring the
  * per-row Approve control. Reconciled lines can be approved (locking concerns
- * amount/cleared state, not categorization). Transfer legs are skipped — they
- * carry no category and are created already approved. An uncategorized line is
- * skipped when no fallback category is supplied.
+ * amount/cleared state, not categorization). An already-approved transfer leg
+ * is skipped — it carries no category and was created that way on purpose.
+ * A still-*pending* transfer leg (the on-budget side of a mixed on-budget /
+ * tracking-account transfer — see ledger_create_transfer) is not skipped: it
+ * needs a category exactly like a normal uncategorized line. An uncategorized
+ * line is skipped when no fallback category is supplied.
  */
 export async function bulkApproveTransactions(
   txnIds: string[],
@@ -208,7 +226,7 @@ export async function bulkApproveTransactions(
     let skipped = 0;
 
     for (const row of rows) {
-      if (row.transfer_account_id) {
+      if (row.transfer_account_id && row.approved_at) {
         skipped++;
         continue;
       }
@@ -244,7 +262,10 @@ export async function bulkApproveTransactions(
  * Assign a single category (full amount) to a batch of transactions. Approval
  * state is left as-is: an already-approved line stays approved with the new
  * single split; a pending line stays pending but becomes categorized.
- * Reconciled lines can be categorized; transfer legs (no category) are skipped.
+ * Reconciled lines can be categorized; an already-approved transfer leg (no
+ * category, created that way on purpose) is skipped. A still-pending transfer
+ * leg — the on-budget side of a mixed on-budget/tracking-account transfer —
+ * is categorized like any other pending line.
  */
 export async function bulkCategorizeTransactions(
   txnIds: string[],
@@ -261,7 +282,7 @@ export async function bulkCategorizeTransactions(
     let skipped = 0;
 
     for (const row of rows) {
-      if (row.transfer_account_id) {
+      if (row.transfer_account_id && row.approved_at) {
         skipped++;
         continue;
       }
