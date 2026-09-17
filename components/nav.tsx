@@ -11,6 +11,7 @@ import { prefetchHomeView } from "@/lib/queries/home";
 import { prefetchBudgetView } from "@/lib/queries/budget";
 import { prefetchAccountsList } from "@/lib/queries/accounts";
 import { prefetchAllTransactions } from "@/lib/queries/transactions";
+import { prefetchReportsDashboard } from "@/lib/queries/reports";
 
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
@@ -35,6 +36,7 @@ function useEagerPrefetch() {
     prefetchBudgetView(queryClient, currentBudgetMonth());
     prefetchAccountsList(queryClient);
     prefetchAllTransactions(queryClient, {});
+    prefetchReportsDashboard(queryClient);
   }, [router, queryClient]);
 }
 

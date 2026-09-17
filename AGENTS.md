@@ -90,8 +90,8 @@ slower; **reads and screen switches should feel instant.**
    touch — there's no hover on mobile). See `CategoryRow` in
    `budget-screen.tsx`, `AccountCard`, or the transaction rows in
    `register-transaction-list.tsx` / `transactions/page.tsx`. The nav bar
-   (`components/nav.tsx`) also eagerly warms Home/Budget/Accounts on mount so
-   the very first tab switch is instant, not just the second.
+   (`components/nav.tsx`) also eagerly warms Home/Budget/Accounts/Transactions/Reports
+   on mount so the very first tab switch is instant, not just the second.
 5. **Every mutation invalidates the cache it affects.** A Server Action's own
    `revalidatePath` only touches Next's RSC cache — it does *not* reach this
    client-side cache, so skipping this step means the UI goes stale and stays
@@ -112,11 +112,13 @@ slower; **reads and screen switches should feel instant.**
 
 ### When *not* to do this
 
-Reports (`app/(app)/reports/*`) and other low-traffic, rarely-revisited pages
-are still plain Server Components fetching on each request — that's fine.
-Only convert a page once it's actually a "hub" users bounce in and out of
-repeatedly; a page visited once per session doesn't benefit from a client
-cache and it's not worth the extra API-route indirection.
+Every top-level nav destination (Home, Budget, Accounts + register, Reports
+dashboard + spending, Transactions + edit) goes through this pattern now. A
+one-off flow like `app/(app)/import/*` (the YNAB import wizard) is still a
+plain Server Component fetching on each request — that's fine. Only convert
+a page once it's actually a "hub" users bounce in and out of repeatedly; a
+page visited once per session doesn't benefit from a client cache and it's
+not worth the extra API-route indirection.
 
 <!-- BEGIN:nextjs-agent-rules -->
 
