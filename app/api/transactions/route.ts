@@ -23,27 +23,52 @@ export type AllTransactionsResponse = {
   categoryOptions: CategoryOption[];
 };
 
-// No full-text index on payee/memo and no pagination UI anywhere else in the
-// app (the account register hard-caps at 200 the same way) — a generous flat
-// window keeps this simple and fast enough at personal-budgeting scale.
-// `hasMore` tells the UI to hint that filters can narrow things down.
+// No full-text index on payee/memo/category and no pagination UI anywhere
+// else in the app (the account register hard-caps at 200 the same way) — a
+// generous flat window keeps this simple and fast enough at
+// personal-budgeting scale. `hasMore` tells the UI to hint that filters can
+// narrow things down.
 const PAGE_LIMIT = 300;
 
-// PostgREST's `.or()` filter syntax treats `,`, `(`, `)` as structural —
-// wrapping the value in double quotes lets those through literally, so long
-// as any embedded backslash/quote is escaped first.
-function quoteForOrFilter(value: string): string {
-  return `"${value.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+type SearchScope = "all" | "payee" | "category" | "memo";
+
+function matchesScope(
+  txn: {
+    payee: string | null;
+    memo: string | null;
+    transaction_allocations?: { categories: { name: string } | null }[];
+  },
+  needle: string,
+  scope: SearchScope,
+): boolean {
+  const payee = (txn.payee ?? "").toLowerCase();
+  const memo = (txn.memo ?? "").toLowerCase();
+  const categoryNames = (txn.transaction_allocations ?? []).map((a) =>
+    (a.categories?.name ?? "").toLowerCase(),
+  );
+  switch (scope) {
+    case "payee":
+      return payee.includes(needle);
+    case "memo":
+      return memo.includes(needle);
+    case "category":
+      return categoryNames.some((n) => n.includes(needle));
+    case "all":
+    default:
+      return payee.includes(needle) || memo.includes(needle) || categoryNames.some((n) => n.includes(needle));
+  }
 }
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const q = params.get("q")?.trim() || "";
+  const scopeParam = params.get("scope") || "all";
+  const scope: SearchScope =
+    scopeParam === "payee" || scopeParam === "category" || scopeParam === "memo" ? scopeParam : "all";
   const accountId = params.get("account") || "";
   const categoryId = params.get("category") || "";
   const dateFrom = params.get("dateFrom") || "";
   const dateTo = params.get("dateTo") || "";
-  const amount = params.get("amount")?.trim() || "";
 
   const supabase = await createClient();
 
@@ -61,16 +86,6 @@ export async function GET(request: NextRequest) {
   if (accountId) query = query.eq("account_id", accountId);
   if (dateFrom) query = query.gte("txn_date", dateFrom);
   if (dateTo) query = query.lte("txn_date", dateTo);
-  if (q) {
-    const term = quoteForOrFilter(`%${q}%`);
-    query = query.or(`payee.ilike.${term},memo.ilike.${term}`);
-  }
-  if (amount) {
-    const cents = Math.round(Math.abs(parseFloat(amount)) * 100);
-    if (!isNaN(cents) && cents > 0) {
-      query = query.or(`amount_cents.eq.${cents},amount_cents.eq.${-cents}`);
-    }
-  }
 
   const [txnsRes, categoriesRes, accountsRes] = await Promise.all([
     query,
@@ -95,6 +110,10 @@ export async function GET(request: NextRequest) {
         (a: { category_id: string }) => a.category_id === categoryId,
       ),
     );
+  }
+  if (q) {
+    const needle = q.toLowerCase();
+    rows = rows.filter((t) => matchesScope(t, needle, scope));
   }
 
   const hasMore = rows.length > PAGE_LIMIT;

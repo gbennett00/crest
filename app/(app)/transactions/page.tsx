@@ -1,65 +1,73 @@
 "use client";
 
-import { Suspense, useEffect, useMemo, useState } from "react";
-import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { usePathname, useSearchParams } from "next/navigation";
 import Link from "next/link";
-import { ChevronLeft, Search, X } from "lucide-react";
+import { ChevronLeft, X } from "lucide-react";
 import { StickyHeader } from "@/components/ui/sticky-header";
-import { Input } from "@/components/ui/input";
 import { AllTransactionsList } from "@/components/transactions/all-transactions-list";
-import { useAllTransactions, type TransactionsFilters } from "@/lib/queries/transactions";
+import { SearchComboBox } from "@/components/transactions/search-combobox";
+import {
+  useAllTransactions,
+  type SearchScope,
+  type TransactionsFilters,
+} from "@/lib/queries/transactions";
 import { useHasMounted } from "@/lib/use-has-mounted";
 import { cn } from "@/lib/utils";
-import type { CategoryOption } from "@/components/transactions/transaction-form";
 
 type FiltersState = {
   q: string;
+  scope: SearchScope;
   account: string;
   category: string;
   dateFrom: string;
   dateTo: string;
-  amount: string;
 };
 
 const EMPTY_FILTERS: FiltersState = {
   q: "",
+  scope: "all",
   account: "",
   category: "",
   dateFrom: "",
   dateTo: "",
-  amount: "",
 };
 
+function isSearchScope(v: string): v is SearchScope {
+  return v === "all" || v === "payee" || v === "category" || v === "memo";
+}
+
 function readFiltersFromParams(params: URLSearchParams): FiltersState {
+  const scope = params.get("scope") ?? "all";
   return {
     q: params.get("q") ?? "",
+    scope: isSearchScope(scope) ? scope : "all",
     account: params.get("account") ?? "",
     category: params.get("category") ?? "",
     dateFrom: params.get("dateFrom") ?? "",
     dateTo: params.get("dateTo") ?? "",
-    amount: params.get("amount") ?? "",
   };
 }
 
 function filtersToQueryString(f: FiltersState): string {
   const params = new URLSearchParams();
   if (f.q) params.set("q", f.q);
+  if (f.q && f.scope !== "all") params.set("scope", f.scope);
   if (f.account) params.set("account", f.account);
   if (f.category) params.set("category", f.category);
   if (f.dateFrom) params.set("dateFrom", f.dateFrom);
   if (f.dateTo) params.set("dateTo", f.dateTo);
-  if (f.amount) params.set("amount", f.amount);
   return params.toString();
 }
 
 function toResourceFilters(f: FiltersState): TransactionsFilters {
   return {
     q: f.q || undefined,
+    scope: f.q ? f.scope : undefined,
     accountId: f.account || undefined,
     categoryId: f.category || undefined,
     dateFrom: f.dateFrom || undefined,
     dateTo: f.dateTo || undefined,
-    amount: f.amount || undefined,
   };
 }
 
@@ -68,42 +76,6 @@ function selectClass(extra?: string) {
     "rounded-md border border-input bg-background px-2.5 py-1.5 text-sm",
     "focus:outline-none focus:ring-1 focus:ring-ring",
     extra,
-  );
-}
-
-function GroupedCategoryFilter({
-  value,
-  onChange,
-  categories,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  categories: CategoryOption[];
-}) {
-  const grouped = useMemo(() => {
-    const g: Record<string, CategoryOption[]> = {};
-    for (const c of categories) (g[c.groupName] ??= []).push(c);
-    return g;
-  }, [categories]);
-
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={selectClass("min-w-0")}
-      aria-label="Filter by category"
-    >
-      <option value="">All categories</option>
-      {Object.entries(grouped).map(([group, cats]) => (
-        <optgroup key={group} label={group}>
-          {cats.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
   );
 }
 
@@ -116,7 +88,6 @@ export default function TransactionsPage() {
 }
 
 function TransactionsContent() {
-  const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const hasMounted = useHasMounted();
@@ -146,11 +117,29 @@ function TransactionsContent() {
     return () => clearTimeout(handle);
   }, [draft]);
 
+  // Filters live in client state, not in Next's router (same reasoning as
+  // `month` in budget-screen.tsx): going through `router.replace` re-enters
+  // this route's Suspense boundary on every commit, which briefly shows the
+  // fallback and resets the filter controls mid-edit. The plain history API
+  // updates the address bar without touching the router, so the inputs never
+  // unmount. `replaceState` (not `pushState`) so a burst of typing doesn't
+  // spam browser history with one entry per debounced keystroke.
   useEffect(() => {
     const qs = filtersToQueryString(committed);
-    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [committed]);
+    window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
+  }, [committed, pathname]);
+
+  // Browser back/forward moves the URL without going through the state
+  // setters above; sync filters to match.
+  useEffect(() => {
+    function onPopState() {
+      const next = readFiltersFromParams(new URLSearchParams(window.location.search));
+      setDraft(next);
+      setCommitted(next);
+    }
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, []);
 
   const { data: response, isPending } = useAllTransactions(toResourceFilters(committed));
 
@@ -160,12 +149,7 @@ function TransactionsContent() {
   const hasMore = hasMounted && !!response?.hasMore;
 
   const hasActiveFilters =
-    !!committed.q ||
-    !!committed.account ||
-    !!committed.category ||
-    !!committed.dateFrom ||
-    !!committed.dateTo ||
-    !!committed.amount;
+    !!committed.q || !!committed.account || !!committed.category || !!committed.dateFrom || !!committed.dateTo;
 
   function clearFilters() {
     setDraft(EMPTY_FILTERS);
@@ -186,19 +170,16 @@ function TransactionsContent() {
           <h1 className="font-semibold text-sm">Transactions</h1>
         </div>
 
-        <div className="relative">
-          <Search
-            size={15}
-            className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground pointer-events-none"
-          />
-          <Input
-            value={draft.q}
-            onChange={(e) => setDraft((d) => ({ ...d, q: e.target.value }))}
-            placeholder="Search payee or memo…"
-            className="pl-8"
-            aria-label="Search payee or memo"
-          />
-        </div>
+        <SearchComboBox
+          q={draft.q}
+          scope={draft.scope}
+          categoryId={draft.category}
+          categoryOptions={categoryOptions}
+          onQueryChange={(q) => setDraft((d) => ({ ...d, q, category: "" }))}
+          onScopeSelect={(scope) => setDraft((d) => ({ ...d, scope, category: "" }))}
+          onCategorySelect={(id) => setDraft((d) => ({ ...d, category: id, q: "", scope: "all" }))}
+          onClear={() => setDraft((d) => ({ ...d, q: "", scope: "all", category: "" }))}
+        />
 
         <div className="flex flex-wrap items-center gap-2 mt-2">
           <select
@@ -215,12 +196,6 @@ function TransactionsContent() {
             ))}
           </select>
 
-          <GroupedCategoryFilter
-            value={draft.category}
-            onChange={(v) => setDraft((d) => ({ ...d, category: v }))}
-            categories={categoryOptions}
-          />
-
           <input
             type="date"
             value={draft.dateFrom}
@@ -235,16 +210,6 @@ function TransactionsContent() {
             onChange={(e) => setDraft((d) => ({ ...d, dateTo: e.target.value }))}
             className={selectClass()}
             aria-label="To date"
-          />
-
-          <input
-            type="text"
-            inputMode="decimal"
-            value={draft.amount}
-            onChange={(e) => setDraft((d) => ({ ...d, amount: e.target.value }))}
-            placeholder="Amount"
-            className={selectClass("w-24")}
-            aria-label="Filter by amount"
           />
 
           {hasActiveFilters && (
