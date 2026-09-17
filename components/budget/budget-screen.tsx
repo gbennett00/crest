@@ -21,7 +21,8 @@ import {
   invalidateBudgetView,
 } from "@/lib/queries/budget";
 import {
-  prefetchTransactionsByCategory,
+  prefetchAllTransactions,
+  monthToDateRange,
 } from "@/lib/queries/transactions";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { useHasMounted } from "@/lib/use-has-mounted";
@@ -511,13 +512,19 @@ function CategoryRow({
   function handleRowClick() {
     if (renaming) return;
     if (isCC) setCcOpen((o) => !o);
-    else router.push(`/transactions?category=${cat.id}&month=${month}`);
+    else {
+      const { dateFrom, dateTo } = monthToDateRange(month);
+      router.push(`/transactions?category=${cat.id}&dateFrom=${dateFrom}&dateTo=${dateTo}`);
+    }
   }
 
-  // Warms the register's query cache before the click lands, so the
-  // transactions page (a separate route) also renders instantly.
+  // Warms the query cache before the click lands, so the transactions page
+  // (a separate route) also renders instantly.
   function handlePrefetch() {
-    if (!isCC) prefetchTransactionsByCategory(queryClient, cat.id, month);
+    if (!isCC) {
+      const { dateFrom, dateTo } = monthToDateRange(month);
+      prefetchAllTransactions(queryClient, { categoryId: cat.id, dateFrom, dateTo });
+    }
   }
 
   return (
