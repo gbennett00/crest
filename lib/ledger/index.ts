@@ -51,6 +51,7 @@ export {
   deleteTransaction,
   deleteTransactionWithCounterpart,
   evaluateReconciliation,
+  findTransferLinkCandidates,
   getAccount,
   getAccountBalanceSummary,
   getCategoryActivity,
@@ -60,6 +61,7 @@ export {
   getReadyToAssignAvailable,
   getReadyToAssignCategoryId,
   getTransactionAllocations,
+  linkTransferPair,
   listAccounts,
   loadAccountBalance,
   loadAccountBalances,
@@ -84,6 +86,7 @@ export type {
   CreateOpeningBalanceInput,
   CreateTransactionInput,
   CreateTransferInput,
+  LinkTransferPairInput,
   ReconciliationCheckInput,
   ReconciliationCheckResult,
   TransactionAllocationInput,
@@ -94,3 +97,8 @@ export type {
   UpsertGroupBudgetInput,
   UpsertTransactionInput,
 } from "./types";
+export {
+  selectTransferLinkMatch,
+  TRANSFER_LINK_WINDOW_DAYS,
+  type TransferLinkCandidate,
+} from "./transfer-match";

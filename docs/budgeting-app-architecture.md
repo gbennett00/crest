@@ -410,6 +410,24 @@ Rules:
 * off-budget / tracking accounts are not yet supported; if added, transfers to
   them would be categorized like spending and this section must be revisited
 
+**Linking an existing transaction as a transfer.** When the user converts an
+existing single-sided transaction into a transfer (the `transaction-form`
+"Transfer" direction on an edit), Plaid may have already synced the other
+leg independently — most commonly a credit card payment, reported as an
+ordinary outflow on the checking account and an ordinary inflow on the card,
+with no notion of the Crest transfer linkage. Recreating both legs from
+scratch via `ledger_create_transfer` would leave that existing row behind as
+an unlinked duplicate, double-counting the payment. `saveTransaction`
+(app/(app)/transactions/actions.ts) guards against this: before recreating,
+it looks in the destination account for an existing unlinked transaction
+with the exact opposite amount and a nearby date (`selectTransferLinkMatch`,
+lib/ledger/transfer-match.ts) and, if found, adopts it via the
+`ledger_link_transfer` SQL function instead of creating a new counterpart.
+That function applies the being-converted row's edited amount/date/memo/
+cleared state, clears any allocations either leg had picked up, and sets
+`transfer_account_id` on both rows atomically. Falls back to the normal
+delete + `ledger_create_transfer` path when no match exists.
+
 ---
 
 ## CREDIT CARD LOGIC

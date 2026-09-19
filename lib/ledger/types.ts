@@ -86,6 +86,17 @@ export type CreateTransferInput = {
   importedId?: string | null;
 };
 
+export type LinkTransferPairInput = {
+  /** The transaction being converted; its edited fields are applied atomically with the link. */
+  transactionId: string;
+  amountCents: Cents;
+  txnDate: string;
+  memo?: string | null;
+  clearedAt?: string | null;
+  /** Existing unlinked transaction being adopted as the other leg. */
+  counterpartTransactionId: string;
+};
+
 export type TransactionAmountLine = {
   amountCents: Cents;
   clearedAt: string | null;

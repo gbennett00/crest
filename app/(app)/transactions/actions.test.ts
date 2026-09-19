@@ -7,29 +7,57 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 
 // Supabase server client: loadBulkTxns() does
 //   supabase.from("transactions").select(...).in("id", ids)
-// so `.in()` must resolve to { data, error }. `mockRows` is swapped per test.
+// and saveTransaction's transfer branch does
+//   supabase.from("transactions").select("account_id").eq("id", txnId).maybeSingle()
+// so both `.in()` and `.eq().maybeSingle()` must resolve. `mockRows` and
+// `mockCurrentAccountRow` are swapped per test.
 let mockRows: unknown[] = [];
+let mockCurrentAccountRow: { account_id: string } | null = null;
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
     from: () => ({
       select: () => ({
         in: () => Promise.resolve({ data: mockRows, error: null }),
+        eq: () => ({
+          maybeSingle: () =>
+            Promise.resolve({ data: mockCurrentAccountRow, error: null }),
+        }),
       }),
     }),
   })),
 }));
 
-// Ledger: keep the real LedgerError, spy on the write path. The spies are
-// created via vi.hoisted so they exist before the hoisted vi.mock factory runs.
-const { updateTransaction, deleteTransactionWithCounterpart } = vi.hoisted(() => ({
+// Ledger: keep the real LedgerError and selectTransferLinkMatch, spy on the
+// write path. The spies are created via vi.hoisted so they exist before the
+// hoisted vi.mock factory runs.
+const {
+  updateTransaction,
+  deleteTransactionWithCounterpart,
+  createTransfer,
+  deleteTransaction,
+  findTransferLinkCandidates,
+  linkTransferPair,
+} = vi.hoisted(() => ({
   updateTransaction:
     vi.fn<(client: unknown, input: UpdateTransactionInput) => Promise<unknown>>(),
   deleteTransactionWithCounterpart:
     vi.fn<(client: unknown, id: string) => Promise<void>>(),
+  createTransfer: vi.fn(),
+  deleteTransaction: vi.fn(),
+  findTransferLinkCandidates: vi.fn(),
+  linkTransferPair: vi.fn(),
 }));
 vi.mock("@/lib/ledger", async (importActual) => {
   const actual = await importActual<typeof import("@/lib/ledger")>();
-  return { ...actual, updateTransaction, deleteTransactionWithCounterpart };
+  return {
+    ...actual,
+    updateTransaction,
+    deleteTransactionWithCounterpart,
+    createTransfer,
+    deleteTransaction,
+    findTransferLinkCandidates,
+    linkTransferPair,
+  };
 });
 
 import { LedgerError } from "@/lib/ledger";
@@ -38,7 +66,14 @@ import {
   bulkCategorizeTransactions,
   bulkDeleteTransactions,
   bulkMoveTransactions,
+  saveTransaction,
 } from "./actions";
+
+function transferFormData(fields: Record<string, string>): FormData {
+  const fd = new FormData();
+  for (const [k, v] of Object.entries(fields)) fd.set(k, v);
+  return fd;
+}
 
 type Row = {
   id: string;
@@ -64,7 +99,12 @@ function row(overrides: Partial<Row> = {}): Row {
 beforeEach(() => {
   updateTransaction.mockClear();
   deleteTransactionWithCounterpart.mockReset();
+  createTransfer.mockReset();
+  deleteTransaction.mockReset();
+  findTransferLinkCandidates.mockReset();
+  linkTransferPair.mockReset();
   mockRows = [];
+  mockCurrentAccountRow = null;
 });
 
 // ---------------------------------------------------------------------------
@@ -287,5 +327,143 @@ describe("bulkDeleteTransactions", () => {
     const res = await bulkDeleteTransactions(["a"]);
     expect(res.error).toBe("boom");
     expect(res.updated).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// saveTransaction — converting a single-sided line into a transfer
+// ---------------------------------------------------------------------------
+
+describe("saveTransaction — transfer conversion", () => {
+  function baseFields(overrides: Record<string, string> = {}) {
+    return {
+      txnId: "txn-1",
+      direction: "transfer",
+      accountId: "acc-checking",
+      toAccountId: "acc-card",
+      txnDate: "2026-01-15",
+      amount: "50.00",
+      cleared: "true",
+      payee: "",
+      memo: "",
+      ...overrides,
+    };
+  }
+
+  it("links to an existing unlinked counterpart instead of creating a new leg", async () => {
+    mockCurrentAccountRow = { account_id: "acc-checking" };
+    findTransferLinkCandidates.mockResolvedValue([
+      { id: "candidate-1", amountCents: 5000, txnDate: "2026-01-16" },
+    ]);
+    linkTransferPair.mockResolvedValue({
+      outflowTransactionId: "txn-1",
+      inflowTransactionId: "candidate-1",
+    });
+
+    const res = await saveTransaction(transferFormData(baseFields()));
+
+    expect(res).toEqual({ success: true });
+    expect(findTransferLinkCandidates).toHaveBeenCalledWith(
+      expect.anything(),
+      "acc-card",
+    );
+    expect(linkTransferPair).toHaveBeenCalledWith(expect.anything(), {
+      transactionId: "txn-1",
+      amountCents: -5000,
+      txnDate: "2026-01-15",
+      memo: null,
+      clearedAt: expect.any(String),
+      counterpartTransactionId: "candidate-1",
+    });
+    expect(deleteTransaction).not.toHaveBeenCalled();
+    expect(createTransfer).not.toHaveBeenCalled();
+  });
+
+  it("falls back to delete + recreate when no counterpart matches", async () => {
+    mockCurrentAccountRow = { account_id: "acc-checking" };
+    findTransferLinkCandidates.mockResolvedValue([
+      // Same account, but wrong amount — not a match.
+      { id: "candidate-1", amountCents: 1234, txnDate: "2026-01-15" },
+    ]);
+    deleteTransaction.mockResolvedValue(undefined);
+    createTransfer.mockResolvedValue({
+      outflowTransactionId: "new-out",
+      inflowTransactionId: "new-in",
+      created: true,
+    });
+
+    const res = await saveTransaction(transferFormData(baseFields()));
+
+    expect(res).toEqual({ success: true });
+    expect(linkTransferPair).not.toHaveBeenCalled();
+    expect(deleteTransaction).toHaveBeenCalledWith(expect.anything(), "txn-1");
+    expect(createTransfer).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        fromAccountId: "acc-checking",
+        toAccountId: "acc-card",
+        amountCents: 5000,
+        txnDate: "2026-01-15",
+      }),
+    );
+  });
+
+  it("skips the counterpart lookup and falls back when the account is also changing", async () => {
+    // The line currently lives on a different account than the form now
+    // specifies — a simultaneous move, handled by delete + recreate as before.
+    mockCurrentAccountRow = { account_id: "acc-old" };
+    deleteTransaction.mockResolvedValue(undefined);
+    createTransfer.mockResolvedValue({
+      outflowTransactionId: "new-out",
+      inflowTransactionId: "new-in",
+      created: true,
+    });
+
+    const res = await saveTransaction(transferFormData(baseFields()));
+
+    expect(res).toEqual({ success: true });
+    expect(findTransferLinkCandidates).not.toHaveBeenCalled();
+    expect(linkTransferPair).not.toHaveBeenCalled();
+    expect(deleteTransaction).toHaveBeenCalledWith(expect.anything(), "txn-1");
+    expect(createTransfer).toHaveBeenCalled();
+  });
+
+  it("creates a transfer directly with no lookup when there's no existing line to convert", async () => {
+    createTransfer.mockResolvedValue({
+      outflowTransactionId: "new-out",
+      inflowTransactionId: "new-in",
+      created: true,
+    });
+
+    const res = await saveTransaction(
+      transferFormData(baseFields({ txnId: "" })),
+    );
+
+    expect(res).toEqual({ success: true });
+    expect(findTransferLinkCandidates).not.toHaveBeenCalled();
+    expect(deleteTransaction).not.toHaveBeenCalled();
+    expect(createTransfer).toHaveBeenCalled();
+  });
+
+  it("requires the To account to differ from the From account", async () => {
+    const res = await saveTransaction(
+      transferFormData(baseFields({ toAccountId: "acc-checking" })),
+    );
+    expect(res).toEqual({ error: "From and To accounts must differ" });
+    expect(findTransferLinkCandidates).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a ledger error from linkTransferPair", async () => {
+    mockCurrentAccountRow = { account_id: "acc-checking" };
+    findTransferLinkCandidates.mockResolvedValue([
+      { id: "candidate-1", amountCents: 5000, txnDate: "2026-01-15" },
+    ]);
+    linkTransferPair.mockRejectedValue(
+      new LedgerError("db_error", "transaction is already part of a transfer"),
+    );
+
+    const res = await saveTransaction(transferFormData(baseFields()));
+
+    expect(res).toEqual({ error: "transaction is already part of a transfer" });
   });
 });
