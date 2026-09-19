@@ -10,7 +10,7 @@ import { useFormattedCents } from "@/components/money";
 import { parseMoneyExpression } from "@/lib/format";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
-import type { TargetData } from "@/lib/budget/types";
+import { targetNeedCents } from "@/lib/budget/compute";
 import type { BudgetData } from "./budget-screen";
 
 const MONTH_NAMES = [
@@ -26,23 +26,6 @@ function formatMonth(month: string) {
 
 type Entry = BudgetEntry;
 const buildEntries = buildBudgetEntries;
-
-function targetNeed(target: TargetData, draftAssigned: number, currentAvailable: number, draftDelta: number): number {
-  const draftAvailable = currentAvailable + draftDelta;
-  if (target.type === "fill_up_to") {
-    // Fill so that available >= target amount
-    return Math.max(0, target.amountCents - draftAvailable);
-  }
-  if (target.type === "set_aside") {
-    // Assign target amount this month
-    return Math.max(0, target.amountCents - draftAssigned);
-  }
-  if (target.type === "by_date") {
-    // For simplicity, treat as a monthly set-aside
-    return Math.max(0, target.amountCents - draftAssigned);
-  }
-  return 0;
-}
 
 export function AssignPopup({
   data,
@@ -87,7 +70,8 @@ export function AssignPopup({
       if (!entry.target || remaining <= 0) continue;
       const current = newDrafts[entry.key] ?? entry.originalAssigned;
       const delta = current - entry.originalAssigned;
-      const need = targetNeed(entry.target, current, entry.currentAvailable, delta);
+      const draftAvailable = entry.currentAvailable + delta;
+      const need = targetNeedCents(entry.target, data.month, current, draftAvailable);
       if (need <= 0) continue;
       const assign = Math.min(need, remaining);
       newDrafts[entry.key] = current + assign;

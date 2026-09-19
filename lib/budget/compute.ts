@@ -503,6 +503,52 @@ export function buildBudgetGroups(params: {
   return { groups: builtGroups, priorCashOverspendCents, previousMonthCashOverspendCents };
 }
 
+/**
+ * Number of budget months from `month` up to (and including) the month
+ * containing `targetDate` — i.e. how many monthly contributions remain to
+ * reach the target on time. A target date in the current month or earlier
+ * leaves exactly one contribution: this month.
+ */
+export function monthsUntilTarget(month: string, targetDate: string): number {
+  const [cy, cm] = month.split("-").map(Number);
+  const [ty, tm] = targetDate.split("-").map(Number);
+  const diff = (ty * 12 + (tm - 1)) - (cy * 12 + (cm - 1));
+  return Math.max(1, diff);
+}
+
+/**
+ * Cents still needed this month to stay on track for `target`, given a
+ * (possibly draft) assigned amount and available balance for the viewed
+ * month. Used by "Assign by Targets" to distribute Ready to Assign.
+ *
+ *  - `fill_up_to`: top up available to the target amount.
+ *  - `set_aside`: assign the target amount every month, regardless of
+ *    rolled-forward available.
+ *  - `by_date`: like `fill_up_to` (fill the shortfall in available, not just
+ *    this month's assignment), but spread evenly across the months
+ *    remaining until the target date rather than demanded in one month.
+ */
+export function targetNeedCents(
+  target: TargetData,
+  month: string,
+  assignedCents: number,
+  availableCents: number,
+): number {
+  if (target.type === "fill_up_to") {
+    return Math.max(0, target.amountCents - availableCents);
+  }
+  if (target.type === "set_aside") {
+    return Math.max(0, target.amountCents - assignedCents);
+  }
+  if (target.type === "by_date") {
+    const shortfall = Math.max(0, target.amountCents - availableCents);
+    if (shortfall <= 0 || !target.targetDate) return 0;
+    const monthsLeft = monthsUntilTarget(month, target.targetDate);
+    return Math.ceil(shortfall / monthsLeft);
+  }
+  return 0;
+}
+
 /** Find the Ready-to-Assign category id within already-fetched group data. */
 export function findReadyToAssignId(groups: RawGroup[]): string | null {
   for (const g of groups) {
