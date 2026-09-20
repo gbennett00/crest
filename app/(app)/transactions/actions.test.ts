@@ -8,14 +8,31 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // Supabase server client: loadBulkTxns() does
 //   supabase.from("transactions").select(...).in("id", ids)
 // so `.in()` must resolve to { data, error }. `mockRows` is swapped per test.
+// bulkMoveTransactions also does
+//   supabase.from("accounts").select("on_budget").eq("id", accountId).single()
+// to learn the move target's on_budget status — `mockAccountRow` is swapped
+// per test (defaults to an on-budget account, today's behavior).
 let mockRows: unknown[] = [];
+let mockAccountRow: { on_budget: boolean } | null = { on_budget: true };
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
-    from: () => ({
-      select: () => ({
-        in: () => Promise.resolve({ data: mockRows, error: null }),
-      }),
-    }),
+    from: (table: string) => {
+      if (table === "accounts") {
+        return {
+          select: () => ({
+            eq: () => ({
+              single: () =>
+                Promise.resolve({ data: mockAccountRow, error: null }),
+            }),
+          }),
+        };
+      }
+      return {
+        select: () => ({
+          in: () => Promise.resolve({ data: mockRows, error: null }),
+        }),
+      };
+    },
   })),
 }));
 
@@ -65,6 +82,7 @@ beforeEach(() => {
   updateTransaction.mockClear();
   deleteTransactionWithCounterpart.mockReset();
   mockRows = [];
+  mockAccountRow = { on_budget: true };
 });
 
 // ---------------------------------------------------------------------------
@@ -236,14 +254,42 @@ describe("bulkMoveTransactions", () => {
     expect(updateTransaction).not.toHaveBeenCalled();
   });
 
-  it("moves an ordinary line to the target account", async () => {
+  it("moves an ordinary line to an on-budget target account", async () => {
     mockRows = [row({ id: "a" })];
     const res = await bulkMoveTransactions(["a"], "acc-9");
     expect(res).toEqual({ updated: 1, skipped: 0 });
     expect(updateTransaction.mock.calls[0][1]).toEqual({
       id: "a",
       accountId: "acc-9",
+      accountOnBudget: true,
     });
+  });
+
+  it("clears allocations when moving an approved, categorized line onto a tracking (off-budget) account", async () => {
+    mockAccountRow = { on_budget: false };
+    mockRows = [
+      row({
+        id: "a",
+        approved_at: "2026-01-01T00:00:00Z",
+        transaction_allocations: [{ category_id: "cat-1", amount_cents: -5000 }],
+      }),
+    ];
+    const res = await bulkMoveTransactions(["a"], "acc-tracking");
+    expect(res).toEqual({ updated: 1, skipped: 0 });
+    expect(updateTransaction.mock.calls[0][1]).toEqual({
+      id: "a",
+      accountId: "acc-tracking",
+      accountOnBudget: false,
+      allocations: [],
+    });
+  });
+
+  it("errors out without touching any row when the target account can't be found", async () => {
+    mockAccountRow = null;
+    mockRows = [row({ id: "a" })];
+    const res = await bulkMoveTransactions(["a"], "acc-missing");
+    expect(res.error).toBeTruthy();
+    expect(updateTransaction).not.toHaveBeenCalled();
   });
 
   it("skips transfer legs (moving one side would orphan its mirror)", async () => {

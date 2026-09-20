@@ -8,10 +8,13 @@ import { Modal } from "@/components/ui/modal";
 import { createManualAccount } from "@/app/(app)/accounts/actions";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TRACKING_ACCOUNT_TYPES } from "@/lib/ledger/types";
 
 // Trigger renders as a plain icon button (for inline placement next to a page
 // title) when `iconOnly` is set; the form itself always opens in a modal.
 type AccountFormType = "checking" | "savings" | "credit" | "asset" | "liability";
+const isTrackingType = (t: AccountFormType) =>
+  (TRACKING_ACCOUNT_TYPES as readonly string[]).includes(t);
 
 export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
   const [open, setOpen] = useState(false);
@@ -105,7 +108,7 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
                 <option value="liability">Liability (e.g. loan, mortgage)</option>
               </optgroup>
             </select>
-            {(type === "asset" || type === "liability") && (
+            {isTrackingType(type) && (
               <p className="text-xs text-muted-foreground">
                 Tracking accounts show up in net worth but not the budget —
                 their transactions are never categorized.

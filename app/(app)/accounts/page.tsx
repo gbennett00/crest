@@ -1,6 +1,6 @@
 import { Suspense } from "react";
 import { createClient } from "@/lib/supabase/server";
-import { loadAccountBalances } from "@/lib/ledger";
+import { loadAccountBalances, TRACKING_ACCOUNT_TYPES } from "@/lib/ledger";
 import { AccountCard } from "@/components/accounts/account-card";
 import { AddAccountForm } from "@/components/accounts/add-account-form";
 import { LinkAccountButton } from "@/components/accounts/link-account-button";
@@ -54,8 +54,8 @@ async function AccountsContent() {
   // Group active accounts by type; closed accounts get their own section.
   const cashAccounts = activeAccounts.filter((a) => a.type === "checking" || a.type === "savings");
   const creditAccounts = activeAccounts.filter((a) => a.type === "credit");
-  const trackingAccounts = activeAccounts.filter(
-    (a) => a.type === "asset" || a.type === "liability",
+  const trackingAccounts = activeAccounts.filter((a) =>
+    (TRACKING_ACCOUNT_TYPES as readonly string[]).includes(a.type),
   );
 
   const cashTotal = cashAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);

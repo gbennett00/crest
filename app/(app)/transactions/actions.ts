@@ -306,6 +306,16 @@ export async function bulkCategorizeTransactions(
  * Move a batch of transactions to a different account. Transfer legs are
  * skipped (moving one side would orphan its mirror) and reconciled lines are
  * skipped (locked). Lines already in the target account are a no-op skip.
+ *
+ * Moving onto a tracking (off-budget) account must clear any allocations the
+ * line carries — tracking accounts are never categorized (see
+ * docs/budgeting-app-architecture.md § ACCOUNTS). Without this, an approved,
+ * categorized transaction moved onto a tracking account would keep its
+ * allocation: `enforce_approved_transaction_has_allocations` exempts
+ * off-budget accounts (so the DB doesn't catch it), and
+ * `category_monthly_activity` filters only on `approved_at`, so that stale
+ * allocation would keep counting toward a budget category's activity even
+ * though the account is supposed to be excluded from the budget entirely.
  */
 export async function bulkMoveTransactions(
   txnIds: string[],
@@ -317,6 +327,16 @@ export async function bulkMoveTransactions(
   const supabase = await createClient();
 
   try {
+    const { data: targetAccount, error: targetError } = await supabase
+      .from("accounts")
+      .select("on_budget")
+      .eq("id", accountId)
+      .single();
+    if (targetError || !targetAccount) {
+      return { updated: 0, skipped: 0, error: "Account not found" };
+    }
+    const targetOnBudget = (targetAccount as { on_budget: boolean }).on_budget;
+
     const rows = await loadBulkTxns(supabase, txnIds);
     let updated = 0;
     let skipped = 0;
@@ -330,6 +350,8 @@ export async function bulkMoveTransactions(
       await updateTransaction(supabase, {
         id: row.id,
         accountId,
+        accountOnBudget: targetOnBudget,
+        ...(targetOnBudget ? {} : { allocations: [] }),
       });
       updated++;
     }
