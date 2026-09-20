@@ -6,44 +6,41 @@ import Link from "next/link";
 import { ChevronLeft, X } from "lucide-react";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { AllTransactionsList } from "@/components/transactions/all-transactions-list";
-import { SearchComboBox } from "@/components/transactions/search-combobox";
-import {
-  useAllTransactions,
-  type SearchScope,
-  type TransactionsFilters,
-} from "@/lib/queries/transactions";
+import { SearchBox } from "@/components/transactions/search-box";
+import { FiltersMenu } from "@/components/transactions/filters-menu";
+import { useAllTransactions, type TransactionsFilters } from "@/lib/queries/transactions";
 import { useHasMounted } from "@/lib/use-has-mounted";
 import { cn } from "@/lib/utils";
 
 type FiltersState = {
   q: string;
-  scope: SearchScope;
   account: string;
+  // Only ever arrives via URL (the budget screen's category drill-down) —
+  // there's no direct UI control for it, just the chip that shows/clears it.
   category: string;
+  amountMin: string;
+  amountMax: string;
   dateFrom: string;
   dateTo: string;
 };
 
 const EMPTY_FILTERS: FiltersState = {
   q: "",
-  scope: "all",
   account: "",
   category: "",
+  amountMin: "",
+  amountMax: "",
   dateFrom: "",
   dateTo: "",
 };
 
-function isSearchScope(v: string): v is SearchScope {
-  return v === "all" || v === "payee" || v === "category" || v === "memo";
-}
-
 function readFiltersFromParams(params: URLSearchParams): FiltersState {
-  const scope = params.get("scope") ?? "all";
   return {
     q: params.get("q") ?? "",
-    scope: isSearchScope(scope) ? scope : "all",
     account: params.get("account") ?? "",
     category: params.get("category") ?? "",
+    amountMin: params.get("amountMin") ?? "",
+    amountMax: params.get("amountMax") ?? "",
     dateFrom: params.get("dateFrom") ?? "",
     dateTo: params.get("dateTo") ?? "",
   };
@@ -52,9 +49,10 @@ function readFiltersFromParams(params: URLSearchParams): FiltersState {
 function filtersToQueryString(f: FiltersState): string {
   const params = new URLSearchParams();
   if (f.q) params.set("q", f.q);
-  if (f.q && f.scope !== "all") params.set("scope", f.scope);
   if (f.account) params.set("account", f.account);
   if (f.category) params.set("category", f.category);
+  if (f.amountMin) params.set("amountMin", f.amountMin);
+  if (f.amountMax) params.set("amountMax", f.amountMax);
   if (f.dateFrom) params.set("dateFrom", f.dateFrom);
   if (f.dateTo) params.set("dateTo", f.dateTo);
   return params.toString();
@@ -63,9 +61,10 @@ function filtersToQueryString(f: FiltersState): string {
 function toResourceFilters(f: FiltersState): TransactionsFilters {
   return {
     q: f.q || undefined,
-    scope: f.q ? f.scope : undefined,
     accountId: f.account || undefined,
     categoryId: f.category || undefined,
+    amountMin: f.amountMin || undefined,
+    amountMax: f.amountMax || undefined,
     dateFrom: f.dateFrom || undefined,
     dateTo: f.dateTo || undefined,
   };
@@ -149,12 +148,30 @@ function TransactionsContent() {
   const hasMore = hasMounted && !!response?.hasMore;
 
   const hasActiveFilters =
-    !!committed.q || !!committed.account || !!committed.category || !!committed.dateFrom || !!committed.dateTo;
+    !!committed.q ||
+    !!committed.account ||
+    !!committed.category ||
+    !!committed.amountMin ||
+    !!committed.amountMax ||
+    !!committed.dateFrom ||
+    !!committed.dateTo;
 
   function clearFilters() {
     setDraft(EMPTY_FILTERS);
     setCommitted(EMPTY_FILTERS);
   }
+
+  // The category chip's own "x" clears just that field, immediately (not
+  // debounced) — it's a discrete click, not something that benefits from
+  // waiting out a typing pause.
+  function clearCategory() {
+    setDraft((d) => ({ ...d, category: "" }));
+    setCommitted((c) => ({ ...c, category: "" }));
+  }
+
+  const categoryChipName = committed.category
+    ? (categoryOptions.find((c) => c.id === committed.category)?.name ?? "Category")
+    : null;
 
   const currentUrl = `${pathname}${filtersToQueryString(committed) ? `?${filtersToQueryString(committed)}` : ""}`;
 
@@ -170,31 +187,8 @@ function TransactionsContent() {
           <h1 className="font-semibold text-sm">Transactions</h1>
         </div>
 
-        <SearchComboBox
-          q={draft.q}
-          scope={draft.scope}
-          categoryId={draft.category}
-          categoryOptions={categoryOptions}
-          onQueryChange={(q) => setDraft((d) => ({ ...d, q, category: "" }))}
-          onScopeSelect={(scope) => setDraft((d) => ({ ...d, scope, category: "" }))}
-          onCategorySelect={(id) => setDraft((d) => ({ ...d, category: id, q: "", scope: "all" }))}
-          onClear={() => setDraft((d) => ({ ...d, q: "", scope: "all", category: "" }))}
-        />
-
-        <div className="flex flex-wrap items-center gap-2 mt-2">
-          <select
-            value={draft.account}
-            onChange={(e) => setDraft((d) => ({ ...d, account: e.target.value }))}
-            className={selectClass()}
-            aria-label="Filter by account"
-          >
-            <option value="">All accounts</option>
-            {accountOptions.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.name}
-              </option>
-            ))}
-          </select>
+        <div className="flex items-center gap-2 flex-wrap">
+          <SearchBox value={draft.q} onChange={(q) => setDraft((d) => ({ ...d, q }))} />
 
           <input
             type="date"
@@ -212,6 +206,16 @@ function TransactionsContent() {
             aria-label="To date"
           />
 
+          <FiltersMenu
+            accountId={draft.account}
+            amountMin={draft.amountMin}
+            amountMax={draft.amountMax}
+            accountOptions={accountOptions}
+            onAccountChange={(v) => setDraft((d) => ({ ...d, account: v }))}
+            onAmountMinChange={(v) => setDraft((d) => ({ ...d, amountMin: v }))}
+            onAmountMaxChange={(v) => setDraft((d) => ({ ...d, amountMax: v }))}
+          />
+
           {hasActiveFilters && (
             <button
               type="button"
@@ -222,6 +226,22 @@ function TransactionsContent() {
             </button>
           )}
         </div>
+
+        {categoryChipName && (
+          <div className="flex items-center gap-1.5 mt-2">
+            <span className="inline-flex items-center gap-1 rounded-full bg-muted pl-2.5 pr-1.5 py-1 text-xs font-medium">
+              {categoryChipName}
+              <button
+                type="button"
+                onClick={clearCategory}
+                aria-label="Remove category filter"
+                className="text-muted-foreground hover:text-foreground"
+              >
+                <X size={11} />
+              </button>
+            </span>
+          </div>
+        )}
       </StickyHeader>
 
       {!hasMounted || (isPending && !response) ? (

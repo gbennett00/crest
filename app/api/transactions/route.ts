@@ -30,45 +30,40 @@ export type AllTransactionsResponse = {
 // narrow things down.
 const PAGE_LIMIT = 300;
 
-type SearchScope = "all" | "payee" | "category" | "memo";
-
-function matchesScope(
+// Simple search: matches if the term appears in the payee, the memo, or any
+// allocated category's name — no field-scoping in the UI, so one path covers
+// all three.
+function matchesSearch(
   txn: {
     payee: string | null;
     memo: string | null;
     transaction_allocations?: { categories: { name: string } | null }[];
   },
   needle: string,
-  scope: SearchScope,
 ): boolean {
   const payee = (txn.payee ?? "").toLowerCase();
   const memo = (txn.memo ?? "").toLowerCase();
   const categoryNames = (txn.transaction_allocations ?? []).map((a) =>
     (a.categories?.name ?? "").toLowerCase(),
   );
-  switch (scope) {
-    case "payee":
-      return payee.includes(needle);
-    case "memo":
-      return memo.includes(needle);
-    case "category":
-      return categoryNames.some((n) => n.includes(needle));
-    case "all":
-    default:
-      return payee.includes(needle) || memo.includes(needle) || categoryNames.some((n) => n.includes(needle));
-  }
+  return payee.includes(needle) || memo.includes(needle) || categoryNames.some((n) => n.includes(needle));
+}
+
+// Dollar string -> integer cents, or null if blank/invalid.
+function parseDollarsToCents(value: string): number | null {
+  const cents = Math.round(parseFloat(value) * 100);
+  return isNaN(cents) ? null : cents;
 }
 
 export async function GET(request: NextRequest) {
   const params = request.nextUrl.searchParams;
   const q = params.get("q")?.trim() || "";
-  const scopeParam = params.get("scope") || "all";
-  const scope: SearchScope =
-    scopeParam === "payee" || scopeParam === "category" || scopeParam === "memo" ? scopeParam : "all";
   const accountId = params.get("account") || "";
   const categoryId = params.get("category") || "";
   const dateFrom = params.get("dateFrom") || "";
   const dateTo = params.get("dateTo") || "";
+  const amountMinRaw = params.get("amountMin") || "";
+  const amountMaxRaw = params.get("amountMax") || "";
 
   const supabase = await createClient();
 
@@ -86,6 +81,20 @@ export async function GET(request: NextRequest) {
   if (accountId) query = query.eq("account_id", accountId);
   if (dateFrom) query = query.gte("txn_date", dateFrom);
   if (dateTo) query = query.lte("txn_date", dateTo);
+
+  // Amount is a range on magnitude, not signed value, so a $20-$50 search
+  // finds both a $32 expense and a $32 refund: match [min, max] on either
+  // side of zero. An open end (only min or only max given) matches out to
+  // the corresponding extreme.
+  const amountMin = amountMinRaw ? parseDollarsToCents(amountMinRaw) : null;
+  const amountMax = amountMaxRaw ? parseDollarsToCents(amountMaxRaw) : null;
+  if (amountMin !== null || amountMax !== null) {
+    const lo = amountMin ?? 0;
+    const hi = amountMax ?? Number.MAX_SAFE_INTEGER;
+    query = query.or(
+      `and(amount_cents.gte.${lo},amount_cents.lte.${hi}),and(amount_cents.gte.${-hi},amount_cents.lte.${-lo})`,
+    );
+  }
 
   const [txnsRes, categoriesRes, accountsRes] = await Promise.all([
     query,
@@ -113,7 +122,7 @@ export async function GET(request: NextRequest) {
   }
   if (q) {
     const needle = q.toLowerCase();
-    rows = rows.filter((t) => matchesScope(t, needle, scope));
+    rows = rows.filter((t) => matchesSearch(t, needle));
   }
 
   const hasMore = rows.length > PAGE_LIMIT;

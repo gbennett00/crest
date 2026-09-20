@@ -4,15 +4,14 @@ import type { QueryClient } from "@tanstack/react-query";
 import { defineQuery } from "./define-query";
 import type { AllTransactionsResponse } from "@/app/api/transactions/route";
 
-export type SearchScope = "all" | "payee" | "category" | "memo";
-
 export type TransactionsFilters = {
   q?: string;
-  scope?: SearchScope;
   accountId?: string;
   categoryId?: string;
   dateFrom?: string;
   dateTo?: string;
+  amountMin?: string;
+  amountMax?: string;
 };
 
 async function fetchAllTransactions(
@@ -20,11 +19,12 @@ async function fetchAllTransactions(
 ): Promise<AllTransactionsResponse> {
   const params = new URLSearchParams();
   if (filters.q) params.set("q", filters.q);
-  if (filters.scope && filters.scope !== "all") params.set("scope", filters.scope);
   if (filters.accountId) params.set("account", filters.accountId);
   if (filters.categoryId) params.set("category", filters.categoryId);
   if (filters.dateFrom) params.set("dateFrom", filters.dateFrom);
   if (filters.dateTo) params.set("dateTo", filters.dateTo);
+  if (filters.amountMin) params.set("amountMin", filters.amountMin);
+  if (filters.amountMax) params.set("amountMax", filters.amountMax);
   const qs = params.toString();
   const res = await fetch(`/api/transactions${qs ? `?${qs}` : ""}`);
   if (!res.ok) throw new Error("Failed to load transactions");
