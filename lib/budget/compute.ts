@@ -504,15 +504,18 @@ export function buildBudgetGroups(params: {
 }
 
 /**
- * Number of budget months from `month` up to (and including) the month
+ * Number of budget months from `month` up to and including the month
  * containing `targetDate` — i.e. how many monthly contributions remain to
- * reach the target on time. A target date in the current month or earlier
- * leaves exactly one contribution: this month.
+ * reach the target on time. Matches YNAB's month-granularity treatment of
+ * "by date" goals (the target is really "by the end of that month," so the
+ * target's own month is still fundable) rather than treating the exact day
+ * picked in the date input as a hard cutoff. A target date in the current
+ * month or earlier leaves exactly one contribution: this month.
  */
 export function monthsUntilTarget(month: string, targetDate: string): number {
   const [cy, cm] = month.split("-").map(Number);
   const [ty, tm] = targetDate.split("-").map(Number);
-  const diff = (ty * 12 + (tm - 1)) - (cy * 12 + (cm - 1));
+  const diff = (ty * 12 + (tm - 1)) - (cy * 12 + (cm - 1)) + 1;
   return Math.max(1, diff);
 }
 

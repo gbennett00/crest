@@ -633,8 +633,10 @@ describe("buildBudgetGroups", () => {
 });
 
 describe("monthsUntilTarget", () => {
-  it("counts whole months from the viewed month up to the target month", () => {
-    expect(monthsUntilTarget("2025-09-01", "2026-01-01")).toBe(4);
+  it("counts whole months from the viewed month up to and including the target month", () => {
+    // Sep, Oct, Nov, Dec, Jan — YNAB's by-date goals work at month
+    // granularity, so the target's own month is still fundable.
+    expect(monthsUntilTarget("2025-09-01", "2026-01-01")).toBe(5);
   });
 
   it("treats a target date within the viewed month as due now", () => {
@@ -677,15 +679,23 @@ describe("targetNeedCents", () => {
 
   it("by_date splits the shortfall in available across the remaining months", () => {
     // $700 by Jan 1st, budgeting September with nothing available yet →
-    // 4 months (Sep, Oct, Nov, Dec) share the $700 shortfall.
+    // 5 months (Sep, Oct, Nov, Dec, Jan) share the $700 shortfall.
     const target = byDate(700_00, "2026-01-01");
-    expect(targetNeedCents(target, "2025-09-01", 0, 0)).toBe(175_00);
+    expect(targetNeedCents(target, "2025-09-01", 0, 0)).toBe(140_00);
   });
 
   it("by_date accounts for progress already rolled into available", () => {
     const target = byDate(700_00, "2026-01-01");
-    // Two months in, $350 already available → $350 left over 2 remaining months.
-    expect(targetNeedCents(target, "2025-11-01", 0, 350_00)).toBe(175_00);
+    // Budgeting November, $350 already available → $350 left over the 3
+    // remaining months (Nov, Dec, Jan).
+    expect(targetNeedCents(target, "2025-11-01", 0, 350_00)).toBe(116_67);
+  });
+
+  it("by_date matches YNAB's schedule for a mid-goal check-in", () => {
+    // $700 by Jan 1st 2027, $233 already set aside, budgeting October →
+    // 4 remaining months (Oct, Nov, Dec, Jan) share the $467 shortfall.
+    const target = byDate(700_00, "2027-01-01");
+    expect(targetNeedCents(target, "2026-10-01", 0, 233_00)).toBe(116_75);
   });
 
   it("by_date needs nothing once available already meets the target", () => {
