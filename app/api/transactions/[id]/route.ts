@@ -21,7 +21,7 @@ export async function GET(
       .single(),
     // All accounts (including closed) — active ones feed the pickers, while the
     // full set resolves counterpart names on transfers to closed accounts.
-    supabase.from("accounts").select("id, name, is_active").order("name"),
+    supabase.from("accounts").select("id, name, is_active, on_budget").order("name"),
     supabase
       .from("categories")
       .select("id, name, role, is_hidden, category_groups!group_id(name)")
@@ -61,11 +61,12 @@ export async function GET(
     id: string;
     name: string;
     is_active: boolean;
+    on_budget: boolean;
   }[];
   // Only active accounts can be chosen in the pickers…
   const accounts = allAccounts
     .filter((a) => a.is_active)
-    .map((a) => ({ id: a.id, name: a.name }));
+    .map((a) => ({ id: a.id, name: a.name, onBudget: a.on_budget }));
   // …but every account name is available for read-only display (e.g. the
   // counterpart of a transfer whose other account has since been closed).
   const accountNameById = Object.fromEntries(

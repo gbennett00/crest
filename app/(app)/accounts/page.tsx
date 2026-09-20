@@ -9,6 +9,7 @@ import { Money } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { useAccountsList } from "@/lib/queries/accounts";
 import { useHasMounted } from "@/lib/use-has-mounted";
+import { TRACKING_ACCOUNT_TYPES } from "@/lib/ledger/types";
 
 // No server-side data fetch here on purpose — see app/(app)/budget/page.tsx
 // for why. AccountsContent owns its data through the client query cache
@@ -43,9 +44,13 @@ function AccountsContent() {
 
   const cashAccounts = activeAccounts.filter((a) => a.type === "checking" || a.type === "savings");
   const creditAccounts = activeAccounts.filter((a) => a.type === "credit");
+  const trackingAccounts = activeAccounts.filter((a) =>
+    (TRACKING_ACCOUNT_TYPES as readonly string[]).includes(a.type),
+  );
 
   const cashTotal = cashAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
   const creditTotal = creditAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
+  const trackingTotal = trackingAccounts.reduce((s, a) => s + a.workingBalanceCents, 0);
 
   if (accounts.length === 0) {
     return (
@@ -65,6 +70,11 @@ function AccountsContent() {
       {/* Credit accounts */}
       {creditAccounts.length > 0 && (
         <AccountGroup title="Credit" total={creditTotal} accounts={creditAccounts} />
+      )}
+
+      {/* Tracking accounts — net worth only, never the budget */}
+      {trackingAccounts.length > 0 && (
+        <AccountGroup title="Tracking" total={trackingTotal} accounts={trackingAccounts} />
       )}
 
       {/* Closed accounts (collapsed, at the very bottom) */}

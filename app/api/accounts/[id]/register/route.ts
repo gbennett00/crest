@@ -59,7 +59,7 @@ export async function GET(
       .eq("is_hidden", false)
       .order("name"),
     // Active accounts power the Add-Transaction form's account picker.
-    supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
+    supabase.from("accounts").select("id, name, on_budget").eq("is_active", true).order("name"),
   ]);
 
   if (accountRes.error || !accountRes.data) {
@@ -119,9 +119,9 @@ export async function GET(
     };
   });
 
-  const accountOptions: AccountOption[] = ((accountsRes.data ?? []) as { id: string; name: string }[]).map(
-    (a) => ({ id: a.id, name: a.name }),
-  );
+  const accountOptions: AccountOption[] = (
+    (accountsRes.data ?? []) as { id: string; name: string; on_budget: boolean }[]
+  ).map((a) => ({ id: a.id, name: a.name, onBudget: a.on_budget }));
   const categoryOptions: CategoryOption[] = (
     (categoriesRes.data ?? []) as unknown as Array<{
       id: string;
