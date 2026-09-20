@@ -1,10 +1,12 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { createManualAccount } from "@/app/(app)/accounts/actions";
 import { Plus } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -23,6 +25,7 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
+  const queryClient = useQueryClient();
 
   function close() {
     setOpen(false);
@@ -39,6 +42,7 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
       if (result?.error) {
         setError(result.error);
       } else {
+        invalidateAllLedgerQueries(queryClient);
         close();
       }
     });

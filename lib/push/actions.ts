@@ -11,15 +11,16 @@ export async function subscribeToPush(subscription: {
   const { data: userData, error: userError } = await supabase.auth.getUser();
   if (userError || !userData.user) return { error: "Not signed in" };
 
-  const { error } = await supabase.from("push_subscriptions").upsert(
-    {
-      user_id: userData.user.id,
-      endpoint: subscription.endpoint,
-      p256dh: subscription.keys.p256dh,
-      auth_key: subscription.keys.auth,
-    },
-    { onConflict: "endpoint" },
-  );
+  // A plain upsert on `endpoint` would hit RLS on the update path whenever
+  // this browser's endpoint was last claimed by a different account (shared
+  // device, or testing multiple accounts in one browser) — see the
+  // upsert_push_subscription migration for why this needs to go through a
+  // SECURITY DEFINER function instead.
+  const { error } = await supabase.rpc("upsert_push_subscription", {
+    p_endpoint: subscription.endpoint,
+    p_p256dh: subscription.keys.p256dh,
+    p_auth_key: subscription.keys.auth,
+  });
   if (error) return { error: error.message };
   return {};
 }

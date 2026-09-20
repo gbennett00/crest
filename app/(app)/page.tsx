@@ -1,6 +1,6 @@
-import { Suspense } from "react";
+"use client";
+
 import Link from "next/link";
-import { getHomeData } from "@/lib/budget";
 import { Money } from "@/components/money";
 import { PendingApprovalList } from "@/components/home/pending-approval-list";
 import { HomeAddTransaction } from "@/components/home/home-add-transaction";
@@ -8,20 +8,29 @@ import { HomeAssignButton } from "@/components/home/home-assign-button";
 import { PinManager } from "@/components/home/pin-manager";
 import { OverspentSection } from "@/components/home/overspent-section";
 import { cn } from "@/lib/utils";
+import { useHomeView } from "@/lib/queries/home";
+import { useHasMounted } from "@/lib/use-has-mounted";
 
+// No server-side data fetch here on purpose — see app/(app)/budget/page.tsx
+// for why. HomeContent owns its data through the client query cache
+// (lib/queries/home.ts), so a revisit renders straight from cache.
 export default function HomePage() {
   return (
     <div className="max-w-2xl">
-      <Suspense fallback={<HomeSkeleton />}>
-        <HomeContent />
-      </Suspense>
+      <HomeContent />
     </div>
   );
 }
 
-async function HomeContent() {
-  const { budgetData, overspent, pinned, pending, accounts, categories } =
-    await getHomeData();
+function HomeContent() {
+  const hasMounted = useHasMounted();
+  const { data: response, isPending } = useHomeView();
+
+  if (!hasMounted || (isPending && !response)) {
+    return <HomeSkeleton />;
+  }
+
+  const { budgetData, overspent, pinned, pending, accounts, categories } = response!;
   const rtaAvailableCents = budgetData.rtaAvailableCents;
 
   const hasItems = pending.length > 0 || overspent.length > 0 || rtaAvailableCents !== 0;

@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { ArrowUpDown, Check, FolderPlus, ListPlus, Plus, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -113,6 +115,7 @@ function AddCategoryModal({
   onClose: () => void;
 }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const queryClient = useQueryClient();
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -121,7 +124,10 @@ function AddCategoryModal({
     startTransition(async () => {
       const result = await createCategory(formData);
       if (result?.error) setError(result.error);
-      else onClose();
+      else {
+        invalidateAllLedgerQueries(queryClient);
+        onClose();
+      }
     });
   }
 
@@ -163,6 +169,7 @@ function AddCategoryModal({
 
 function AddGroupModal({ onClose }: { onClose: () => void }) {
   const formRef = useRef<HTMLFormElement>(null);
+  const queryClient = useQueryClient();
   const [budgetMode, setBudgetMode] = useState<"category" | "group">("category");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -173,7 +180,10 @@ function AddGroupModal({ onClose }: { onClose: () => void }) {
     startTransition(async () => {
       const result = await createGroup(formData);
       if (result?.error) setError(result.error);
-      else onClose();
+      else {
+        invalidateAllLedgerQueries(queryClient);
+        onClose();
+      }
     });
   }
 

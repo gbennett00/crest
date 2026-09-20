@@ -1,8 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, PieChart } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Money } from "@/components/money";
 import type { CategoryBreakdownRow } from "@/lib/reports";
+import { DEFAULT_PERIOD_KEY } from "@/lib/reports/period";
+import { prefetchSpendingReport } from "@/lib/queries/reports";
 import { colorForIndex } from "./palette";
 
 const TOP_N = 5;
@@ -21,9 +26,17 @@ export function SpendingSummaryCard({
 }) {
   const top = rows.slice(0, TOP_N);
   const maxCents = Math.max(1, ...top.map((r) => r.spentCents));
+  const queryClient = useQueryClient();
+  const prefetch = () => prefetchSpendingReport(queryClient, DEFAULT_PERIOD_KEY, [], null);
 
   return (
-    <Link href="/reports/spending" className="block">
+    <Link
+      href="/reports/spending"
+      className="block"
+      onMouseEnter={prefetch}
+      onFocus={prefetch}
+      onPointerDown={prefetch}
+    >
       <Card className="hover:border-primary/40 transition-colors">
         <CardContent className="p-5 md:p-6">
           <div className="flex items-center justify-between mb-3">

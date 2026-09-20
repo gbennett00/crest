@@ -2,6 +2,8 @@
 
 import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -77,6 +79,7 @@ export function TransactionForm({
 }) {
   const isEdit = !!txn;
   const router = useRouter();
+  const queryClient = useQueryClient();
   const formRef = useRef<HTMLFormElement>(null);
   const pendingForm = useRef<FormData | null>(null);
 
@@ -229,18 +232,33 @@ export function TransactionForm({
     return formData;
   }
 
+  // A saved/deleted transaction can change any cached budget month's
+  // activity/available totals, any category's transaction list, the owning
+  // account's register/balance, the accounts list, and the home dashboard —
+  // rather than enumerate all of them, invalidate the whole client-side
+  // ledger cache (see lib/queries/define-query.ts). It's cheap: this only
+  // marks currently-mounted queries stale, it doesn't eagerly refetch
+  // everything. This is a separate cache Next's Server Action revalidation
+  // doesn't reach.
+  function invalidateLedgerCaches() {
+    invalidateAllLedgerQueries(queryClient);
+  }
+
   function doSave(formData: FormData) {
     startTransition(async () => {
       const result = await saveTransaction(formData);
       if (result?.error) {
         setError(result.error);
       } else if (isEdit) {
+        invalidateLedgerCaches();
         router.push(backHref ?? "/accounts");
         router.refresh();
       } else if (onSuccess) {
+        invalidateLedgerCaches();
         onSuccess();
         resetAfterCreate();
       } else {
+        invalidateLedgerCaches();
         setOpen(false);
         resetAfterCreate();
       }
@@ -254,6 +272,7 @@ export function TransactionForm({
         setError(result.error);
         setShowDeleteConfirm(false);
       } else {
+        invalidateLedgerCaches();
         router.push(backHref ?? "/accounts");
         router.refresh();
       }
