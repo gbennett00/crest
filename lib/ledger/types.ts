@@ -1,7 +1,12 @@
 /** Integer cents — never use floats for money. */
 export type Cents = number;
 
-export type AccountType = "checking" | "savings" | "credit";
+export type AccountType = "checking" | "savings" | "credit" | "asset" | "liability";
+
+/** Off-budget (tracking) types: feed net worth, never the budget. Derived
+ * from `type` via the `accounts.on_budget` generated column — never set
+ * directly. */
+export const TRACKING_ACCOUNT_TYPES: readonly AccountType[] = ["asset", "liability"];
 
 export type TransactionAllocationInput = {
   categoryId: string;
@@ -19,6 +24,14 @@ export type UpsertTransactionInput = {
   clearedAt?: string | null;
   approvedAt?: string | null;
   allocations?: TransactionAllocationInput[];
+  /**
+   * Set only by trusted internal callers (createOpeningBalance) that have
+   * already looked up the account's on_budget status, to skip the
+   * allocation-required check for tracking accounts. Import/sync callers
+   * (Plaid, CSV) never set this — tracking accounts are manual-only, so if
+   * one somehow reached this path the deferred DB constraint is the backstop.
+   */
+  accountOnBudget?: boolean;
 };
 
 /**
@@ -42,6 +55,14 @@ export type CreateTransactionInput = {
   clearedAt?: string | null;
   approvedAt?: string | null;
   allocations?: TransactionAllocationInput[];
+  /**
+   * Set by callers that already know the target account's on_budget status
+   * (e.g. saveTransaction), to skip the allocation-required check for
+   * tracking accounts. Defaults to true (on-budget) when omitted, so any
+   * caller that doesn't know better keeps today's strict behavior — the
+   * deferred DB constraint is the backstop if that default is ever wrong.
+   */
+  accountOnBudget?: boolean;
 };
 
 export type UpdateTransactionInput = {
@@ -54,6 +75,8 @@ export type UpdateTransactionInput = {
   transferAccountId?: string | null;
   clearedAt?: string | null;
   approvedAt?: string | null;
+  /** See CreateTransactionInput.accountOnBudget. */
+  accountOnBudget?: boolean;
   allocations?: TransactionAllocationInput[];
 };
 

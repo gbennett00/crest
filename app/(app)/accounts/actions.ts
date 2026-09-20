@@ -22,21 +22,28 @@ import {
 
 export async function createManualAccount(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
-  const type = formData.get("type") as "checking" | "savings" | "credit";
+  const type = formData.get("type") as
+    | "checking"
+    | "savings"
+    | "credit"
+    | "asset"
+    | "liability";
   const rawBalance = formData.get("openingBalance") as string;
   const paymentCategoryName =
     (formData.get("paymentCategoryName") as string)?.trim() ||
     `${name} Payment`;
 
   if (!name) return { error: "Account name is required" };
-  if (!["checking", "savings", "credit"].includes(type))
+  if (!["checking", "savings", "credit", "asset", "liability"].includes(type))
     return { error: "Invalid account type" };
 
   const rawCents = rawBalance ? Math.round(parseFloat(rawBalance) * 100) : 0;
   if (isNaN(rawCents)) return { error: "Invalid opening balance" };
-  // Credit card "balance owed" is entered as a positive number by the user but
-  // represents debt — store and record it as a negative (outflow from the account).
-  const openingBalanceCents = type === "credit" ? -rawCents : rawCents;
+  // Credit card / liability "balance owed" is entered as a positive number by
+  // the user but represents debt — store and record it as a negative (outflow
+  // from the account).
+  const openingBalanceCents =
+    type === "credit" || type === "liability" ? -rawCents : rawCents;
 
   const supabase = await createClient();
 
