@@ -10,7 +10,6 @@ import { SearchBox } from "@/components/transactions/search-box";
 import { FiltersMenu } from "@/components/transactions/filters-menu";
 import { useAllTransactions, type TransactionsFilters } from "@/lib/queries/transactions";
 import { useHasMounted } from "@/lib/use-has-mounted";
-import { cn } from "@/lib/utils";
 
 type FiltersState = {
   q: string;
@@ -68,14 +67,6 @@ function toResourceFilters(f: FiltersState): TransactionsFilters {
     dateFrom: f.dateFrom || undefined,
     dateTo: f.dateTo || undefined,
   };
-}
-
-function selectClass(extra?: string) {
-  return cn(
-    "rounded-md border border-input bg-background px-2.5 py-1.5 text-sm",
-    "focus:outline-none focus:ring-1 focus:ring-ring",
-    extra,
-  );
 }
 
 export default function TransactionsPage() {
@@ -187,45 +178,35 @@ function TransactionsContent() {
           <h1 className="font-semibold text-sm">Transactions</h1>
         </div>
 
-        <div className="flex items-center gap-2 flex-wrap">
+        <div className="flex items-center gap-2">
           <SearchBox value={draft.q} onChange={(q) => setDraft((d) => ({ ...d, q }))} />
-
-          <input
-            type="date"
-            value={draft.dateFrom}
-            onChange={(e) => setDraft((d) => ({ ...d, dateFrom: e.target.value }))}
-            className={selectClass()}
-            aria-label="From date"
-          />
-          <span className="text-xs text-muted-foreground">to</span>
-          <input
-            type="date"
-            value={draft.dateTo}
-            onChange={(e) => setDraft((d) => ({ ...d, dateTo: e.target.value }))}
-            className={selectClass()}
-            aria-label="To date"
-          />
 
           <FiltersMenu
             accountId={draft.account}
+            dateFrom={draft.dateFrom}
+            dateTo={draft.dateTo}
             amountMin={draft.amountMin}
             amountMax={draft.amountMax}
             accountOptions={accountOptions}
             onAccountChange={(v) => setDraft((d) => ({ ...d, account: v }))}
+            onDateFromChange={(v) => setDraft((d) => ({ ...d, dateFrom: v }))}
+            onDateToChange={(v) => setDraft((d) => ({ ...d, dateTo: v }))}
             onAmountMinChange={(v) => setDraft((d) => ({ ...d, amountMin: v }))}
             onAmountMaxChange={(v) => setDraft((d) => ({ ...d, amountMax: v }))}
           />
+        </div>
 
-          {hasActiveFilters && (
+        {hasActiveFilters && (
+          <div className="flex justify-end mt-2">
             <button
               type="button"
               onClick={clearFilters}
-              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground ml-auto"
+              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
             >
               <X size={13} /> Clear filters
             </button>
-          )}
-        </div>
+          </div>
+        )}
 
         {categoryChipName && (
           <div className="flex items-center gap-1.5 mt-2">

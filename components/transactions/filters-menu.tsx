@@ -11,22 +11,30 @@ const fieldInputClass =
 const PANEL_WIDTH = 256; // matches w-64
 const VIEWPORT_MARGIN = 12;
 
-/** Account + amount range, tucked behind one button so they don't take up
- * permanent space next to search and the date range. */
+/** Account, date range, and amount range, tucked behind one button so they
+ * don't take up permanent space next to search. */
 export function FiltersMenu({
   accountId,
+  dateFrom,
+  dateTo,
   amountMin,
   amountMax,
   accountOptions,
   onAccountChange,
+  onDateFromChange,
+  onDateToChange,
   onAmountMinChange,
   onAmountMaxChange,
 }: {
   accountId: string;
+  dateFrom: string;
+  dateTo: string;
   amountMin: string;
   amountMax: string;
   accountOptions: AccountOption[];
   onAccountChange: (v: string) => void;
+  onDateFromChange: (v: string) => void;
+  onDateToChange: (v: string) => void;
   onAmountMinChange: (v: string) => void;
   onAmountMaxChange: (v: string) => void;
 }) {
@@ -68,7 +76,7 @@ export function FiltersMenu({
     };
   }, [open]);
 
-  const active = !!accountId || !!amountMin || !!amountMax;
+  const active = !!accountId || !!dateFrom || !!dateTo || !!amountMin || !!amountMax;
 
   return (
     <div ref={containerRef} className="relative shrink-0">
@@ -108,6 +116,32 @@ export function FiltersMenu({
                 </option>
               ))}
             </select>
+          </div>
+
+          <div>
+            <span className="text-xs font-medium text-muted-foreground">Date</span>
+            <div className="mt-1 flex flex-col gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-8 shrink-0">From</span>
+                <input
+                  type="date"
+                  value={dateFrom}
+                  onChange={(e) => onDateFromChange(e.target.value)}
+                  aria-label="From date"
+                  className={fieldInputClass}
+                />
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground w-8 shrink-0">To</span>
+                <input
+                  type="date"
+                  value={dateTo}
+                  onChange={(e) => onDateToChange(e.target.value)}
+                  aria-label="To date"
+                  className={fieldInputClass}
+                />
+              </div>
+            </div>
           </div>
 
           <div>
