@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { centsFromDigits, formatCentsInput, MAX_MAGNITUDE_CENTS } from "./currency-input";
+import {
+  centsFromDigits,
+  formatCentsInput,
+  MAX_MAGNITUDE_CENTS,
+  resolveAssignmentCommit,
+} from "./currency-input";
 
 describe("centsFromDigits", () => {
   it("shifts a digit in as the new rightmost cent, like typing one key at a time", () => {
@@ -45,5 +50,85 @@ describe("formatCentsInput", () => {
     expect(formatCentsInput(0)).toBe("0.00");
     expect(formatCentsInput(-500)).toBe("-5.00");
     expect(formatCentsInput(1)).toBe("0.01");
+  });
+});
+
+describe("resolveAssignmentCommit", () => {
+  it("returns null when nothing was typed, leaving the original value alone", () => {
+    expect(
+      resolveAssignmentCommit({
+        touched: false,
+        mode: "absolute",
+        original: 15000,
+        absoluteCents: 0,
+        deltaSign: 1,
+        deltaCents: 0,
+      }),
+    ).toBeNull();
+  });
+
+  it("commits the freshly typed absolute value, ignoring the original", () => {
+    expect(
+      resolveAssignmentCommit({
+        touched: true,
+        mode: "absolute",
+        original: 15000,
+        absoluteCents: 2500,
+        deltaSign: 1,
+        deltaCents: 0,
+      }),
+    ).toBe(2500);
+  });
+
+  it("adds a positive delta to the original", () => {
+    expect(
+      resolveAssignmentCommit({
+        touched: true,
+        mode: "delta",
+        original: 15000,
+        absoluteCents: 0,
+        deltaSign: 1,
+        deltaCents: 500,
+      }),
+    ).toBe(15500);
+  });
+
+  it("subtracts a negative delta from the original", () => {
+    expect(
+      resolveAssignmentCommit({
+        touched: true,
+        mode: "delta",
+        original: 15000,
+        absoluteCents: 0,
+        deltaSign: -1,
+        deltaCents: 500,
+      }),
+    ).toBe(14500);
+  });
+
+  it("can push the result negative when subtracting more than the original", () => {
+    expect(
+      resolveAssignmentCommit({
+        touched: true,
+        mode: "delta",
+        original: 500,
+        absoluteCents: 0,
+        deltaSign: -1,
+        deltaCents: 1500,
+      }),
+    ).toBe(-1000);
+  });
+
+  it("commits the unchanged original when +/- was pressed but no delta digits were typed", () => {
+    expect(
+      resolveAssignmentCommit({
+        touched: true,
+        mode: "delta",
+        original: 15000,
+        absoluteCents: 0,
+        deltaSign: 1,
+        deltaCents: 0,
+      }),
+    ).toBe(15000);
   });
 });

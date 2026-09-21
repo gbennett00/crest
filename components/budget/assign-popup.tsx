@@ -1,13 +1,13 @@
 "use client";
 
-import { useEffect, useMemo, useState, useTransition } from "react";
+import { useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
-import { CurrencyInput } from "@/components/ui/currency-input";
+import { AssignmentAmountEditor } from "@/components/ui/assignment-amount-input";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
 import { targetNeedCents } from "@/lib/budget/compute";
@@ -220,24 +220,7 @@ function EntryRow({
   onChange: (cents: number) => void;
 }) {
   const formatCents = useFormattedCents();
-  const [localDraft, setLocalDraft] = useState(draft);
-  const [focused, setFocused] = useState(false);
-
-  // Sync from the parent while not focused (e.g. "Assign by Targets"
-  // recomputing this row) — while editing, keep the local draft frozen.
-  useEffect(() => {
-    if (!focused) setLocalDraft(draft);
-  }, [draft, focused]);
-
-  function handleFocus() {
-    setFocused(true);
-    setLocalDraft(draft);
-  }
-
-  function commit() {
-    setFocused(false);
-    onChange(localDraft);
-  }
+  const [editing, setEditing] = useState(false);
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-b last:border-b-0">
@@ -264,22 +247,32 @@ function EntryRow({
           {formatCents(draftAvailable)}
         </span>
         {/* Assignment input */}
-        <div className="relative w-24">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs pointer-events-none">
-            $
-          </span>
-          <CurrencyInput
-            cents={focused ? localDraft : draft}
-            onCentsChange={setLocalDraft}
-            onFocus={handleFocus}
-            onBlur={commit}
-            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-            className={cn(
+        <div className="w-24">
+          {editing ? (
+            <AssignmentAmountEditor
+              original={draft}
+              onCommit={(cents) => {
+                onChange(cents);
+                setEditing(false);
+              }}
+              onCancel={() => setEditing(false)}
+              formatCents={formatCents}
+              showDollarSign
               // text-base on mobile (16px) stops iOS from zooming on focus.
-              "w-full rounded-md border border-input bg-background pl-5 pr-2 py-1.5 text-base md:text-sm text-right",
-              "focus:outline-none focus:ring-1 focus:ring-ring",
-            )}
-          />
+              className="w-full text-base md:text-sm py-1.5"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className={cn(
+                "w-full rounded-md border border-input bg-background px-2 py-1.5 text-base md:text-sm text-right tabular-nums",
+                "hover:bg-accent transition-colors",
+              )}
+            >
+              {formatCents(draft)}
+            </button>
+          )}
         </div>
       </div>
     </div>

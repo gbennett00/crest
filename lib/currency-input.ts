@@ -26,3 +26,23 @@ export function centsFromDigits(rawValue: string, sign: 1 | -1): number {
 export function formatCentsInput(cents: number): string {
   return (cents / 100).toFixed(2);
 }
+
+/**
+ * Resolves what an AssignmentAmountEditor session should commit, given the
+ * accumulated absolute/delta state at blur/Enter (components/ui/assignment-amount-input.tsx).
+ * Returns `null` when nothing was typed — the caller should leave the
+ * original value alone rather than overwrite it with a no-op edit.
+ */
+export function resolveAssignmentCommit(params: {
+  touched: boolean;
+  mode: "absolute" | "delta";
+  original: number;
+  absoluteCents: number;
+  deltaSign: 1 | -1;
+  deltaCents: number;
+}): number | null {
+  if (!params.touched) return null;
+  return params.mode === "absolute"
+    ? params.absoluteCents
+    : params.original + params.deltaSign * params.deltaCents;
+}
