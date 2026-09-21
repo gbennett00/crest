@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { Modal } from "@/components/ui/modal";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
@@ -22,6 +23,7 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
   const [open, setOpen] = useState(false);
   const [type, setType] = useState<AccountFormType>("checking");
   const [accountName, setAccountName] = useState("");
+  const [openingBalanceCents, setOpeningBalanceCents] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const formRef = useRef<HTMLFormElement>(null);
@@ -32,6 +34,7 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
     setError(null);
     setAccountName("");
     setType("checking");
+    setOpeningBalanceCents(0);
     formRef.current?.reset();
   }
 
@@ -126,12 +129,12 @@ export function AddAccountForm({ iconOnly = false }: { iconOnly?: boolean }) {
                 ? "Current Balance Owed ($)"
                 : "Opening Balance ($)"}
             </Label>
-            <Input
+            <CurrencyInput
               id="acc-balance"
               name="openingBalance"
-              type="number"
-              step="0.01"
-              placeholder="0.00"
+              cents={openingBalanceCents}
+              onCentsChange={setOpeningBalanceCents}
+              allowNegative
               className="h-9"
             />
             {(type === "credit" || type === "liability") && (

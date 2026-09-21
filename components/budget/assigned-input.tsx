@@ -1,9 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { useFormattedCents } from "@/components/money";
-import { parseMoneyExpression } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 interface AssignedInputProps {
@@ -15,39 +14,24 @@ interface AssignedInputProps {
 export function AssignedInput({ value, onSave, className }: AssignedInputProps) {
   const formatCents = useFormattedCents();
   const [editing, setEditing] = useState(false);
-  const [draft, setDraft] = useState("");
+  const [draft, setDraft] = useState(0);
 
   function startEditing() {
-    // Prefill with the current value so the user can append "+23.49" or
-    // "-23.49" to adjust it without retyping the whole amount.
-    setDraft(value === 0 ? "" : (value / 100).toFixed(2));
+    setDraft(value);
     setEditing(true);
   }
 
   function commit() {
-    const cents = parseMoneyExpression(draft);
-    if (cents !== null) {
-      onSave(cents);
-    }
+    onSave(draft);
     setEditing(false);
   }
 
   if (editing) {
     return (
-      <Input
+      <CurrencyInput
         autoFocus
-        // type="text" (not "number") so "+"/"-" expressions are accepted, but
-        // inputMode="decimal" opens the numeric keypad on mobile by default.
-        type="text"
-        inputMode="decimal"
-        value={draft}
-        // Place the cursor at the end so typing continues after the prefilled
-        // amount rather than overwriting it.
-        onFocus={(e) => {
-          const len = e.target.value.length;
-          e.target.setSelectionRange(len, len);
-        }}
-        onChange={(e) => setDraft(e.target.value)}
+        cents={draft}
+        onCentsChange={setDraft}
         onBlur={commit}
         onKeyDown={(e) => {
           if (e.key === "Enter") {

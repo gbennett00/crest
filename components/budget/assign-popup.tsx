@@ -1,13 +1,13 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
-import { parseMoneyExpression } from "@/lib/format";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
 import { targetNeedCents } from "@/lib/budget/compute";
@@ -220,28 +220,24 @@ function EntryRow({
   onChange: (cents: number) => void;
 }) {
   const formatCents = useFormattedCents();
-  const [inputVal, setInputVal] = useState(draft === 0 ? "" : (draft / 100).toFixed(2));
+  const [localDraft, setLocalDraft] = useState(draft);
   const [focused, setFocused] = useState(false);
+
+  // Sync from the parent while not focused (e.g. "Assign by Targets"
+  // recomputing this row) — while editing, keep the local draft frozen.
+  useEffect(() => {
+    if (!focused) setLocalDraft(draft);
+  }, [draft, focused]);
 
   function handleFocus() {
     setFocused(true);
-    setInputVal(draft === 0 ? "" : (draft / 100).toFixed(2));
+    setLocalDraft(draft);
   }
 
-  function commit(raw: string) {
+  function commit() {
     setFocused(false);
-    const cents = parseMoneyExpression(raw);
-    if (cents === null) {
-      onChange(0);
-      setInputVal("");
-    } else {
-      onChange(cents);
-      setInputVal(cents === 0 ? "" : (cents / 100).toFixed(2));
-    }
+    onChange(localDraft);
   }
-
-  // Sync display when parent changes value (e.g., Assign by Targets)
-  const displayVal = focused ? inputVal : (draft === 0 ? "" : (draft / 100).toFixed(2));
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-b last:border-b-0">
@@ -272,20 +268,11 @@ function EntryRow({
           <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs pointer-events-none">
             $
           </span>
-          <input
-            // type="text" (not "number") so "+"/"-" expressions are accepted.
-            type="text"
-            inputMode="text"
-            value={displayVal}
-            placeholder="0.00"
-            onFocus={(e) => {
-              handleFocus();
-              // Cursor at the end so the user can append "+23.49" to adjust.
-              const len = e.target.value.length;
-              e.target.setSelectionRange(len, len);
-            }}
-            onChange={(e) => setInputVal(e.target.value)}
-            onBlur={(e) => commit(e.target.value)}
+          <CurrencyInput
+            cents={focused ? localDraft : draft}
+            onCentsChange={setLocalDraft}
+            onFocus={handleFocus}
+            onBlur={commit}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
             className={cn(
               // text-base on mobile (16px) stops iOS from zooming on focus.

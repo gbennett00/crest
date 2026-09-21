@@ -5,6 +5,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { upsertTarget, deleteTarget } from "@/app/(app)/budget/actions";
@@ -30,12 +31,12 @@ export function TargetButton({
   showTrigger?: boolean;
 }) {
   const queryClient = useQueryClient();
-  const amountRef = useRef<HTMLInputElement>(null);
   const dateRef = useRef<HTMLInputElement>(null);
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;
   const setOpen = onOpenChange ?? setOpenState;
   const [type, setType] = useState<TargetType>(existingTarget?.type ?? "fill_up_to");
+  const [amountCents, setAmountCents] = useState(existingTarget?.amountCents ?? 0);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -43,11 +44,9 @@ export function TargetButton({
 
   function handleSave() {
     setError(null);
-    const rawAmount = amountRef.current?.value ?? "";
-    const amountCents = Math.round(parseFloat(rawAmount) * 100);
     const targetDate = type === "by_date" ? (dateRef.current?.value ?? null) : null;
 
-    if (!rawAmount || isNaN(amountCents) || amountCents <= 0) {
+    if (amountCents <= 0) {
       setError("Enter a valid amount");
       return;
     }
@@ -133,13 +132,9 @@ export function TargetButton({
             <Label className="text-xs text-muted-foreground">Amount</Label>
             <div className="relative">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
-              <Input
-                ref={amountRef}
-                type="number"
-                min="0.01"
-                step="0.01"
-                defaultValue={existingTarget ? (existingTarget.amountCents / 100).toFixed(2) : ""}
-                placeholder="0.00"
+              <CurrencyInput
+                cents={amountCents}
+                onCentsChange={setAmountCents}
                 className="h-7 text-xs pl-5"
               />
             </div>

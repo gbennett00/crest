@@ -6,6 +6,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import {
   AlertDialog,
@@ -105,10 +106,10 @@ export function TransactionForm({
         ? "outflow"
         : "inflow"
     : "outflow";
-  const initialAmount = txn ? (Math.abs(txn.amountCents) / 100).toFixed(2) : "";
+  const initialAmountCents = txn ? Math.abs(txn.amountCents) : 0;
 
   const [direction, setDirection] = useState<Direction>(initialDirection);
-  const [amount, setAmount] = useState(initialAmount);
+  const [amountCents, setAmountCents] = useState(initialAmountCents);
   const [cleared, setCleared] = useState(txn ? !!txn.clearedAt : true);
   const [accountId, setAccountId] = useState(
     txn?.accountId ?? defaultAccountId ?? "",
@@ -116,35 +117,32 @@ export function TransactionForm({
 
   const isTransfer = direction === "transfer";
   const sign = direction === "inflow" ? 1 : -1;
-  const totalAbsCents = Math.round((parseFloat(amount) || 0) * 100);
+  const totalAbsCents = amountCents;
   // Tracking accounts are never categorized — no category/split UI for them.
   // Unknown accounts (onBudget omitted) default to on-budget.
   const isOffBudget =
     accounts.find((a) => a.id === accountId)?.onBudget === false;
 
-  // ---- Split state (absolute dollars; sign re-applied on submit) ----
+  // ---- Split state (absolute cents; sign re-applied on submit) ----
   const [isSplit, setIsSplit] = useState((txn?.allocations.length ?? 0) > 1);
-  const [splits, setSplits] = useState<{ categoryId: string; amount: string }[]>(
+  const [splits, setSplits] = useState<{ categoryId: string; amountCents: number }[]>(
     () =>
       (txn?.allocations.length ?? 0) > 1
         ? txn!.allocations.map((a) => ({
             categoryId: a.categoryId,
-            amount: (Math.abs(a.amountCents) / 100).toFixed(2),
+            amountCents: Math.abs(a.amountCents),
           }))
         : [],
   );
 
-  const splitTotalCents = splits.reduce(
-    (s, row) => s + Math.round((parseFloat(row.amount) || 0) * 100),
-    0,
-  );
+  const splitTotalCents = splits.reduce((s, row) => s + row.amountCents, 0);
   const remainingCents = totalAbsCents - splitTotalCents;
 
   function enterSplitMode() {
     // Seed with the current single category (full amount) plus an empty row.
     setSplits([
-      { categoryId: txn?.categoryId ?? "", amount: amount || "" },
-      { categoryId: "", amount: "" },
+      { categoryId: txn?.categoryId ?? "", amountCents },
+      { categoryId: "", amountCents: 0 },
     ]);
     setIsSplit(true);
     setError(null);
@@ -157,14 +155,14 @@ export function TransactionForm({
 
   function updateSplit(
     index: number,
-    patch: Partial<{ categoryId: string; amount: string }>,
+    patch: Partial<{ categoryId: string; amountCents: number }>,
   ) {
     setSplits((prev) => prev.map((s, i) => (i === index ? { ...s, ...patch } : s)));
   }
 
   function addSplitRow() {
-    const prefill = remainingCents > 0 ? (remainingCents / 100).toFixed(2) : "";
-    setSplits((prev) => [...prev, { categoryId: "", amount: prefill }]);
+    const prefill = remainingCents > 0 ? remainingCents : 0;
+    setSplits((prev) => [...prev, { categoryId: "", amountCents: prefill }]);
   }
 
   function removeSplitRow(index: number) {
@@ -182,7 +180,7 @@ export function TransactionForm({
   function resetAfterCreate() {
     setDirection("outflow");
     setAccountId(defaultAccountId ?? "");
-    setAmount("");
+    setAmountCents(0);
     setCleared(true);
     setIsSplit(false);
     setSplits([]);
@@ -203,7 +201,7 @@ export function TransactionForm({
           setError("Every split needs a category.");
           return null;
         }
-        if (splits.some((s) => !(parseFloat(s.amount) > 0))) {
+        if (splits.some((s) => !(s.amountCents > 0))) {
           setError("Every split needs an amount greater than zero.");
           return null;
         }
@@ -219,7 +217,7 @@ export function TransactionForm({
         }
         const allocations: AllocationData[] = splits.map((s) => ({
           categoryId: s.categoryId,
-          amountCents: sign * Math.round(parseFloat(s.amount) * 100),
+          amountCents: sign * s.amountCents,
         }));
         formData.set("allocations", JSON.stringify(allocations));
       } else {
@@ -563,16 +561,10 @@ export function TransactionForm({
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
               $
             </span>
-            <Input
+            <CurrencyInput
               name="amount"
-              type="number"
-              min="0.01"
-              step="0.01"
-              inputMode="decimal"
-              placeholder="0.00"
-              required
-              value={amount}
-              onChange={(e) => setAmount(e.target.value)}
+              cents={amountCents}
+              onCentsChange={setAmountCents}
               className="h-9 pl-6 tabular-nums"
             />
           </div>
@@ -688,14 +680,9 @@ export function TransactionForm({
                     <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                       $
                     </span>
-                    <Input
-                      type="number"
-                      min="0.01"
-                      step="0.01"
-                      inputMode="decimal"
-                      placeholder="0.00"
-                      value={s.amount}
-                      onChange={(e) => updateSplit(i, { amount: e.target.value })}
+                    <CurrencyInput
+                      cents={s.amountCents}
+                      onCentsChange={(cents) => updateSplit(i, { amountCents: cents })}
                       className="h-9 pl-6 text-sm tabular-nums"
                     />
                   </div>
