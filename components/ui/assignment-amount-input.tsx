@@ -29,12 +29,13 @@ const flushInputClass =
  * cells, and the cover-overspending source rows) — a YNAB-style keypad
  * entry, always auto-focused for the duration of one edit.
  *
- * Editing always starts from a blank slate (0), not the current value —
- * there's nothing to clear first. Typing digits shift-builds a brand new
- * absolute amount from scratch, same as CurrencyInput. Pressing "+" or "-"
- * instead switches into delta mode: the original amount reappears above
- * (dimmed, un-editable) and a signed delta — built the same digit-shift way
- * — accumulates below; the committed value becomes `original + delta`.
+ * Editing starts prefilled with the current value, same as any other
+ * digit-shift money field (see CurrencyInput) — typing digits shifts them
+ * in from the right, Backspace clears them from the right. Pressing "+" or
+ * "-" instead switches into delta mode: the original amount reappears above
+ * (dimmed, un-editable) and a signed delta — built from a blank slate, the
+ * same digit-shift way — accumulates below; the committed value becomes
+ * `original + delta`.
  *
  * Nothing commits until the user actually types something (`touched`) —
  * focusing and blurring without a keystroke leaves the original value
@@ -49,7 +50,7 @@ export function AssignmentAmountEditor({
   showDollarSign = false,
 }: AssignmentAmountEditorProps) {
   const [mode, setMode] = React.useState<"absolute" | "delta">("absolute");
-  const [absoluteCents, setAbsoluteCents] = React.useState(0);
+  const [absoluteCents, setAbsoluteCents] = React.useState(original);
   const [deltaSign, setDeltaSign] = React.useState<1 | -1>(1);
   const [deltaCents, setDeltaCents] = React.useState(0);
   const [touched, setTouched] = React.useState(false);
