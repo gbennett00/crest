@@ -6,10 +6,13 @@ import {
   computePaymentCategoryActivity,
   computeRtaBreakdown,
   findReadyToAssignId,
+  monthsUntilTarget,
   paymentShortfallCents,
+  targetNeedCents,
   type CreditTxn,
   type RawGroup,
 } from "./compute";
+import type { TargetData } from "./types";
 
 const MONTH = "2026-06-01";
 
@@ -626,5 +629,86 @@ describe("buildBudgetGroups", () => {
     const water = groups[0].categories.find((c) => c.id === "c-water")!;
     expect(water.availableCents).toBe(-20_00); // credit debt still rolling
     expect(priorCashOverspendCents).toBe(0);
+  });
+});
+
+describe("monthsUntilTarget", () => {
+  it("counts whole months from the viewed month up to and including the target month", () => {
+    // Sep, Oct, Nov, Dec, Jan — YNAB's by-date goals work at month
+    // granularity, so the target's own month is still fundable.
+    expect(monthsUntilTarget("2025-09-01", "2026-01-01")).toBe(5);
+  });
+
+  it("treats a target date within the viewed month as due now", () => {
+    expect(monthsUntilTarget("2026-01-01", "2026-01-31")).toBe(1);
+  });
+
+  it("floors a past target date to one month (due now)", () => {
+    expect(monthsUntilTarget("2026-03-01", "2026-01-01")).toBe(1);
+  });
+});
+
+describe("targetNeedCents", () => {
+  const fillUpTo = (amountCents: number): TargetData => ({
+    type: "fill_up_to",
+    amountCents,
+    targetDate: null,
+  });
+  const setAside = (amountCents: number): TargetData => ({
+    type: "set_aside",
+    amountCents,
+    targetDate: null,
+  });
+  const byDate = (amountCents: number, targetDate: string): TargetData => ({
+    type: "by_date",
+    amountCents,
+    targetDate,
+  });
+
+  it("fill_up_to needs the gap between available and the target", () => {
+    expect(targetNeedCents(fillUpTo(700_00), MONTH, 0, 100_00)).toBe(600_00);
+  });
+
+  it("fill_up_to needs nothing once available meets the target", () => {
+    expect(targetNeedCents(fillUpTo(700_00), MONTH, 0, 700_00)).toBe(0);
+  });
+
+  it("set_aside needs the gap between this month's assignment and the target, ignoring available", () => {
+    expect(targetNeedCents(setAside(200_00), MONTH, 50_00, 900_00)).toBe(150_00);
+  });
+
+  it("by_date splits the shortfall in available across the remaining months", () => {
+    // $700 by Jan 1st, budgeting September with nothing available yet →
+    // 5 months (Sep, Oct, Nov, Dec, Jan) share the $700 shortfall.
+    const target = byDate(700_00, "2026-01-01");
+    expect(targetNeedCents(target, "2025-09-01", 0, 0)).toBe(140_00);
+  });
+
+  it("by_date accounts for progress already rolled into available", () => {
+    const target = byDate(700_00, "2026-01-01");
+    // Budgeting November, $350 already available → $350 left over the 3
+    // remaining months (Nov, Dec, Jan).
+    expect(targetNeedCents(target, "2025-11-01", 0, 350_00)).toBe(116_67);
+  });
+
+  it("by_date matches YNAB's schedule for a mid-goal check-in", () => {
+    // $700 by Jan 1st 2027, $233 already set aside, budgeting October →
+    // 4 remaining months (Oct, Nov, Dec, Jan) share the $467 shortfall.
+    const target = byDate(700_00, "2027-01-01");
+    expect(targetNeedCents(target, "2026-10-01", 0, 233_00)).toBe(116_75);
+  });
+
+  it("by_date needs nothing once available already meets the target", () => {
+    const target = byDate(700_00, "2026-01-01");
+    expect(targetNeedCents(target, "2025-11-01", 0, 700_00)).toBe(0);
+  });
+
+  it("by_date demands the full shortfall when the target date has arrived", () => {
+    const target = byDate(700_00, "2026-01-01");
+    expect(targetNeedCents(target, "2026-01-01", 0, 300_00)).toBe(400_00);
+  });
+
+  it("unknown target types need nothing", () => {
+    expect(targetNeedCents({ type: "set_aside", amountCents: 0, targetDate: null }, MONTH, 0, 0)).toBe(0);
   });
 });

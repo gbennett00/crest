@@ -48,7 +48,7 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
       .limit(25),
     client
       .from("accounts")
-      .select("id, name")
+      .select("id, name, on_budget")
       .eq("is_active", true)
       .order("name"),
     client
@@ -75,8 +75,8 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
   }));
 
   const accounts: AccountOption[] = (
-    (accountsRes.data ?? []) as { id: string; name: string }[]
-  ).map((a) => ({ id: a.id, name: a.name }));
+    (accountsRes.data ?? []) as { id: string; name: string; on_budget: boolean }[]
+  ).map((a) => ({ id: a.id, name: a.name, onBudget: a.on_budget }));
 
   const categories: CategoryOption[] = (
     (categoriesRes.data ?? []) as unknown as Array<{

@@ -35,14 +35,23 @@ export function sumAllocationCents(allocations: TransactionAllocationInput[]): C
 
 /**
  * Split totals must equal the transaction amount when splits are provided.
- * Approved transactions require splits that sum to the transaction amount.
+ * Approved transactions require splits that sum to the transaction amount —
+ * unless the transaction's account is off-budget (a tracking account):
+ * those are never categorized, so an approved transaction with zero splits
+ * is expected, not an error. Mirrors the DB-level exemption in
+ * enforce_approved_transaction_has_allocations / enforce_transaction_splits_sum.
  */
 export function validateAllocations(
   amountCents: Cents,
   allocations: TransactionAllocationInput[] | undefined,
   approvedAt: string | null | undefined,
+  accountOnBudget = true,
 ): void {
   assertIntegerCents(amountCents, "amountCents");
+
+  if (!accountOnBudget) {
+    return;
+  }
 
   if (!allocations || allocations.length === 0) {
     if (approvedAt) {

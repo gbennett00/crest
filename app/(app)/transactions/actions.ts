@@ -141,6 +141,19 @@ export async function saveTransaction(formData: FormData) {
 
   const hasAllocations = allocations.length > 0;
 
+  // Tracking accounts are never categorized — the form hides the category
+  // field for them, so always approve immediately with no allocation rather
+  // than reading "no category" as "leave pending" (that reading is correct
+  // for on-budget accounts, where it means "approve later").
+  const { data: acctRow } = await supabase
+    .from("accounts")
+    .select("on_budget")
+    .eq("id", accountId)
+    .single();
+  const onBudget = (acctRow as { on_budget: boolean } | null)?.on_budget ?? true;
+  const approvedAt = onBudget ? (hasAllocations ? now : null) : now;
+  const finalAllocations = onBudget ? allocations : [];
+
   try {
     if (txnId) {
       // An empty allocations array un-approves the transaction (back to pending).
@@ -152,8 +165,9 @@ export async function saveTransaction(formData: FormData) {
         payee,
         memo,
         clearedAt,
-        approvedAt: hasAllocations ? now : null,
-        allocations,
+        approvedAt,
+        allocations: finalAllocations,
+        accountOnBudget: onBudget,
       });
     } else {
       await createTransaction(supabase, {
@@ -163,8 +177,9 @@ export async function saveTransaction(formData: FormData) {
         payee,
         memo: memo || undefined,
         clearedAt,
-        approvedAt: hasAllocations ? now : null,
-        allocations: hasAllocations ? allocations : undefined,
+        accountOnBudget: onBudget,
+        approvedAt,
+        allocations: onBudget && hasAllocations ? allocations : undefined,
       });
     }
     revalidateAll();
@@ -172,6 +187,43 @@ export async function saveTransaction(formData: FormData) {
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Failed to save transaction" };
+  }
+}
+
+/**
+ * Approves a single still-pending transfer leg with a category — the
+ * on-budget side of a mixed on-budget/tracking transfer (see
+ * docs/budgeting-app-architecture.md § TRANSFERS), which needs
+ * categorization exactly like a normal uncategorized line. The transfer
+ * linkage (`transfer_account_id`) is left untouched. Used by the
+ * transaction editor's "existing transfer" view, which otherwise has no way
+ * to approve a transfer leg (the normal edit form is disabled for existing
+ * transfers).
+ */
+export async function approveTransferLeg(txnId: string, categoryId: string) {
+  if (!txnId) return { error: "Transaction is required" };
+  if (!categoryId) return { error: "Category is required" };
+
+  const supabase = await createClient();
+
+  const { data: txn, error: fetchError } = await supabase
+    .from("transactions")
+    .select("amount_cents")
+    .eq("id", txnId)
+    .single();
+  if (fetchError || !txn) return { error: "Transaction not found" };
+
+  try {
+    await updateTransaction(supabase, {
+      id: txnId,
+      approvedAt: new Date().toISOString(),
+      allocations: [{ categoryId, amountCents: txn.amount_cents as number }],
+    });
+    revalidateAll();
+    return { success: true };
+  } catch (e) {
+    if (e instanceof LedgerError) return { error: e.message };
+    return { error: "Failed to approve transaction" };
   }
 }
 
@@ -233,9 +285,12 @@ function allocationsCoverAmount(row: BulkTxnRow): boolean {
  * to its amount keeps them; an uncategorized line is given the single fallback
  * `categoryId` (full amount) so it can be approved in one gesture, mirroring the
  * per-row Approve control. Reconciled lines can be approved (locking concerns
- * amount/cleared state, not categorization). Transfer legs are skipped — they
- * carry no category and are created already approved. An uncategorized line is
- * skipped when no fallback category is supplied.
+ * amount/cleared state, not categorization). An already-approved transfer leg
+ * is skipped — it carries no category and was created that way on purpose.
+ * A still-*pending* transfer leg (the on-budget side of a mixed on-budget /
+ * tracking-account transfer — see ledger_create_transfer) is not skipped: it
+ * needs a category exactly like a normal uncategorized line. An uncategorized
+ * line is skipped when no fallback category is supplied.
  */
 export async function bulkApproveTransactions(
   txnIds: string[],
@@ -252,7 +307,7 @@ export async function bulkApproveTransactions(
     let skipped = 0;
 
     for (const row of rows) {
-      if (row.transfer_account_id) {
+      if (row.transfer_account_id && row.approved_at) {
         skipped++;
         continue;
       }
@@ -288,7 +343,10 @@ export async function bulkApproveTransactions(
  * Assign a single category (full amount) to a batch of transactions. Approval
  * state is left as-is: an already-approved line stays approved with the new
  * single split; a pending line stays pending but becomes categorized.
- * Reconciled lines can be categorized; transfer legs (no category) are skipped.
+ * Reconciled lines can be categorized; an already-approved transfer leg (no
+ * category, created that way on purpose) is skipped. A still-pending transfer
+ * leg — the on-budget side of a mixed on-budget/tracking-account transfer —
+ * is categorized like any other pending line.
  */
 export async function bulkCategorizeTransactions(
   txnIds: string[],
@@ -305,7 +363,7 @@ export async function bulkCategorizeTransactions(
     let skipped = 0;
 
     for (const row of rows) {
-      if (row.transfer_account_id) {
+      if (row.transfer_account_id && row.approved_at) {
         skipped++;
         continue;
       }
@@ -329,6 +387,16 @@ export async function bulkCategorizeTransactions(
  * Move a batch of transactions to a different account. Transfer legs are
  * skipped (moving one side would orphan its mirror) and reconciled lines are
  * skipped (locked). Lines already in the target account are a no-op skip.
+ *
+ * Moving onto a tracking (off-budget) account must clear any allocations the
+ * line carries — tracking accounts are never categorized (see
+ * docs/budgeting-app-architecture.md § ACCOUNTS). Without this, an approved,
+ * categorized transaction moved onto a tracking account would keep its
+ * allocation: `enforce_approved_transaction_has_allocations` exempts
+ * off-budget accounts (so the DB doesn't catch it), and
+ * `category_monthly_activity` filters only on `approved_at`, so that stale
+ * allocation would keep counting toward a budget category's activity even
+ * though the account is supposed to be excluded from the budget entirely.
  */
 export async function bulkMoveTransactions(
   txnIds: string[],
@@ -340,6 +408,16 @@ export async function bulkMoveTransactions(
   const supabase = await createClient();
 
   try {
+    const { data: targetAccount, error: targetError } = await supabase
+      .from("accounts")
+      .select("on_budget")
+      .eq("id", accountId)
+      .single();
+    if (targetError || !targetAccount) {
+      return { updated: 0, skipped: 0, error: "Account not found" };
+    }
+    const targetOnBudget = (targetAccount as { on_budget: boolean }).on_budget;
+
     const rows = await loadBulkTxns(supabase, txnIds);
     let updated = 0;
     let skipped = 0;
@@ -353,6 +431,8 @@ export async function bulkMoveTransactions(
       await updateTransaction(supabase, {
         id: row.id,
         accountId,
+        accountOnBudget: targetOnBudget,
+        ...(targetOnBudget ? {} : { allocations: [] }),
       });
       updated++;
     }

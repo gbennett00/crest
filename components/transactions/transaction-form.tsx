@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import {
+  approveTransferLeg,
   deleteTransactionAction,
   saveTransaction,
 } from "@/app/(app)/transactions/actions";
@@ -41,7 +42,7 @@ export type TransactionEditData = {
   allocations: AllocationData[];
 };
 
-export type AccountOption = { id: string; name: string };
+export type AccountOption = { id: string; name: string; onBudget?: boolean };
 export type CategoryOption = { id: string; name: string; groupName: string };
 
 type Direction = "outflow" | "inflow" | "transfer";
@@ -88,6 +89,11 @@ export function TransactionForm({
   const [isPending, startTransition] = useTransition();
   const [showReconcileConfirm, setShowReconcileConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Category picker for a still-pending transfer leg (the on-budget side of
+  // a mixed on-budget/tracking transfer) — see the "existing transfer" branch.
+  const [transferApproveCategoryId, setTransferApproveCategoryId] = useState(
+    categories[0]?.id ?? "",
+  );
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -104,10 +110,17 @@ export function TransactionForm({
   const [direction, setDirection] = useState<Direction>(initialDirection);
   const [amount, setAmount] = useState(initialAmount);
   const [cleared, setCleared] = useState(txn ? !!txn.clearedAt : true);
+  const [accountId, setAccountId] = useState(
+    txn?.accountId ?? defaultAccountId ?? "",
+  );
 
   const isTransfer = direction === "transfer";
   const sign = direction === "inflow" ? 1 : -1;
   const totalAbsCents = Math.round((parseFloat(amount) || 0) * 100);
+  // Tracking accounts are never categorized — no category/split UI for them.
+  // Unknown accounts (onBudget omitted) default to on-budget.
+  const isOffBudget =
+    accounts.find((a) => a.id === accountId)?.onBudget === false;
 
   // ---- Split state (absolute dollars; sign re-applied on submit) ----
   const [isSplit, setIsSplit] = useState((txn?.allocations.length ?? 0) > 1);
@@ -168,6 +181,7 @@ export function TransactionForm({
 
   function resetAfterCreate() {
     setDirection("outflow");
+    setAccountId(defaultAccountId ?? "");
     setAmount("");
     setCleared(true);
     setIsSplit(false);
@@ -181,7 +195,9 @@ export function TransactionForm({
     formData.set("direction", direction);
     formData.set("cleared", String(cleared));
 
-    if (!isTransfer) {
+    if (!isTransfer && isOffBudget) {
+      formData.set("allocations", "[]");
+    } else if (!isTransfer) {
       if (isSplit) {
         if (splits.some((s) => !s.categoryId)) {
           setError("Every split needs a category.");
@@ -251,6 +267,24 @@ export function TransactionForm({
         invalidateLedgerCaches();
         setOpen(false);
         resetAfterCreate();
+      }
+    });
+  }
+
+  // Approves a still-pending transfer leg with a category — the on-budget
+  // side of a mixed on-budget/tracking transfer, which needs categorization
+  // exactly like a normal uncategorized line (see docs § TRANSFERS). The
+  // transfer linkage itself is untouched.
+  function doApproveTransferLeg() {
+    if (!transferApproveCategoryId) return;
+    startTransition(async () => {
+      const result = await approveTransferLeg(txn!.id, transferApproveCategoryId);
+      if (result?.error) {
+        setError(result.error);
+      } else {
+        invalidateLedgerCaches();
+        router.push(backHref ?? "/accounts");
+        router.refresh();
       }
     });
   }
@@ -344,9 +378,48 @@ export function TransactionForm({
             </p>
             <p className="text-xs text-muted-foreground">{txn.txnDate}</p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Editing existing transfers isn&apos;t supported yet.
-          </p>
+          {txn.isApproved ? (
+            <p className="text-sm text-muted-foreground">
+              Editing existing transfers isn&apos;t supported yet.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="transfer-approve-category" className="text-xs">
+                Category
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                This leg moves money onto a budgeted account, so it needs a
+                category before it can be approved.
+              </p>
+              <div className="flex items-center gap-2">
+                <select
+                  id="transfer-approve-category"
+                  value={transferApproveCategoryId}
+                  onChange={(e) => setTransferApproveCategoryId(e.target.value)}
+                  disabled={isPending}
+                  className={cn(selectClass, "flex-1")}
+                >
+                  {Object.entries(groupedCategories).map(([group, cats]) => (
+                    <optgroup key={group} label={group}>
+                      {cats.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+                <Button
+                  type="button"
+                  className="h-9 text-sm shrink-0"
+                  disabled={isPending || !transferApproveCategoryId}
+                  onClick={doApproveTransferLeg}
+                >
+                  {isPending ? "…" : "Approve"}
+                </Button>
+              </div>
+            </div>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             type="button"
@@ -431,7 +504,8 @@ export function TransactionForm({
           <select
             id="txn-account"
             name="accountId"
-            defaultValue={txn?.accountId ?? defaultAccountId ?? ""}
+            value={accountId}
+            onChange={(e) => setAccountId(e.target.value)}
             required
             className={cn(selectClass, "min-w-0")}
           >
@@ -535,6 +609,10 @@ export function TransactionForm({
             </p>
           )}
         </div>
+      ) : isOffBudget ? (
+        <p className="text-xs text-muted-foreground">
+          Tracking account — no category needed.
+        </p>
       ) : (
         <div className="space-y-1.5">
           <div className="flex items-center justify-between">

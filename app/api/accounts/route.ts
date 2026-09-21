@@ -5,7 +5,7 @@ import { loadAccountBalances } from "@/lib/ledger";
 export type AccountListRow = {
   id: string;
   name: string;
-  type: "checking" | "savings" | "credit";
+  type: "checking" | "savings" | "credit" | "asset" | "liability";
   workingBalanceCents: number;
   isLinked: boolean;
   isActive: boolean;
@@ -26,7 +26,7 @@ export async function GET() {
   const accounts: AccountListRow[] = (accountsRes.data ?? []).map((acc) => ({
     id: acc.id as string,
     name: acc.name as string,
-    type: acc.type as "checking" | "savings" | "credit",
+    type: acc.type as "checking" | "savings" | "credit" | "asset" | "liability",
     workingBalanceCents: balances.get(acc.id as string)?.workingCents ?? 0,
     isLinked: acc.is_linked as boolean,
     isActive: acc.is_active as boolean,

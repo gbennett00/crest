@@ -1,6 +1,33 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { LedgerError } from "./errors";
+
+const ALLOCATIONS_REQUIRED_RE = /approved transactions must have at least one allocation/;
+const SPLIT_SUM_MISMATCH_RE = /transaction_allocations must sum to transaction amount/;
+
+/**
+ * Translates the deferred-constraint exceptions raised by
+ * enforce_approved_transaction_has_allocations / enforce_transaction_splits_sum*
+ * (supabase/migrations/20260613120000_transfers_uncategorized.sql) into a
+ * LedgerError with a user-facing message and the same code the app-level
+ * validateAllocations pre-check already throws for the same conditions. Any
+ * other DB error passes through as a generic db_error, unchanged.
+ */
+function toLedgerError(error: { message: string }): LedgerError {
+  if (ALLOCATIONS_REQUIRED_RE.test(error.message)) {
+    return new LedgerError(
+      "allocations_required",
+      "This transaction needs a category before it can be approved.",
+    );
+  }
+  if (SPLIT_SUM_MISMATCH_RE.test(error.message)) {
+    return new LedgerError(
+      "split_sum_mismatch",
+      "The split amounts don't add up to the transaction total.",
+    );
+  }
+  return new LedgerError("db_error", error.message);
+}
 import { evaluateAccountClosure } from "./balance";
 import {
   assertBudgetMonth,
@@ -66,7 +93,7 @@ async function insertWithAllocations(
     .insert(needsDeferredApproval ? { ...payload, approved_at: null } : payload)
     .select("*")
     .single();
-  if (error) throw new LedgerError("db_error", error.message);
+  if (error) throw toLedgerError(error);
 
   const row = data as TransactionRow;
 
@@ -81,7 +108,7 @@ async function insertWithAllocations(
       .eq("id", row.id)
       .select("*")
       .single();
-    if (approveErr) throw new LedgerError("db_error", approveErr.message);
+    if (approveErr) throw toLedgerError(approveErr);
     return approved as TransactionRow;
   }
 
@@ -102,7 +129,7 @@ async function replaceAllocations(
       amount_cents: a.amountCents,
     })),
   });
-  if (error) throw new LedgerError("db_error", error.message);
+  if (error) throw toLedgerError(error);
 }
 
 // Updates amount_cents and replaces all allocations atomically so neither the
@@ -122,7 +149,7 @@ async function updateAmountAndAllocations(
       amount_cents: a.amountCents,
     })),
   });
-  if (error) throw new LedgerError("db_error", error.message);
+  if (error) throw toLedgerError(error);
 }
 
 function mapTransactionRow(row: TransactionRow) {
@@ -156,6 +183,7 @@ export async function upsertTransaction(
     input.amountCents,
     input.allocations,
     input.approvedAt ?? null,
+    input.accountOnBudget ?? true,
   );
 
   const { data: existing, error: lookupError } = await client
@@ -216,7 +244,7 @@ export async function upsertTransaction(
       .single();
 
     if (updateError) {
-      throw new LedgerError("db_error", updateError.message);
+      throw toLedgerError(updateError);
     }
 
     return {
@@ -372,6 +400,7 @@ export async function createTransaction(
     input.amountCents,
     input.allocations,
     input.approvedAt ?? null,
+    input.accountOnBudget ?? true,
   );
   await assertAccountActive(client, input.accountId);
 
@@ -414,6 +443,11 @@ export async function updateTransaction(
   const amountCents = input.amountCents ?? current.amount_cents;
   const approvedAt =
     input.approvedAt !== undefined ? input.approvedAt : current.approved_at;
+  // Caller-supplied, mirroring CreateTransactionInput.accountOnBudget: the
+  // caller (e.g. saveTransaction) already knows the target account's
+  // on_budget status — whether or not accountId is changing — so it's passed
+  // through rather than re-fetched here.
+  const effectiveOnBudget = input.accountOnBudget ?? true;
 
   assertNonZeroAmount(amountCents);
   if (input.txnDate) {
@@ -452,6 +486,7 @@ export async function updateTransaction(
     isApproving || isChangingAmountOnApproved || isModifyingAllocsOnApproved
       ? approvedAt
       : null,
+    effectiveOnBudget,
   );
 
   const amountIsChanging =
@@ -508,7 +543,7 @@ export async function updateTransaction(
     .single();
 
   if (updateError) {
-    throw new LedgerError("db_error", updateError.message);
+    throw toLedgerError(updateError);
   }
 
   return mapTransactionRow(updated as TransactionRow);
@@ -717,14 +752,19 @@ export async function getReadyToAssignCategoryId(
 }
 
 /**
- * One cleared, approved line per account (`imported_id` crest:opening_balance)
- * with a split to Ready to Assign — register baseline for reconcile and RTA.
+ * One cleared, approved line per account (`imported_id` crest:opening_balance).
+ * On-budget accounts get a split to Ready to Assign — register baseline for
+ * reconcile and RTA.
  *
  * Credit-card opening balances are also split to Ready to Assign (mirroring how
  * YNAB shows them in the register), but the budget excludes them from the RTA
  * total so pre-existing card debt does not reduce assignable cash — see the
  * RTA calculation in app/(app)/budget/page.tsx. The card's payment category
  * surfaces that debt as an underfunded (amber) envelope instead.
+ *
+ * Tracking accounts (asset/liability) get no allocation at all — their
+ * starting balance is net worth, not budget cash, so it never touches Ready
+ * to Assign (see docs/budgeting-app-architecture.md § ACCOUNTS).
  */
 export async function createOpeningBalance(
   client: SupabaseClient,
@@ -743,8 +783,20 @@ export async function createOpeningBalance(
     );
   }
 
+  const { data: accountRow, error: accountError } = await client
+    .from("accounts")
+    .select("on_budget")
+    .eq("id", input.accountId)
+    .single();
+  if (accountError || !accountRow) {
+    throw new LedgerError(
+      "not_found",
+      accountError?.message ?? "account not found",
+    );
+  }
+  const onBudget = (accountRow as { on_budget: boolean }).on_budget;
+
   const txnDate = input.txnDate ?? new Date().toISOString().slice(0, 10);
-  const readyToAssignId = await getReadyToAssignCategoryId(client);
   const clearedAt = new Date().toISOString();
 
   const result = await upsertTransaction(client, {
@@ -756,12 +808,15 @@ export async function createOpeningBalance(
     importedId: OPENING_BALANCE_IMPORTED_ID,
     clearedAt,
     approvedAt: clearedAt,
-    allocations: [
-      {
-        categoryId: readyToAssignId,
-        amountCents: input.amountCents,
-      },
-    ],
+    allocations: onBudget
+      ? [
+          {
+            categoryId: await getReadyToAssignCategoryId(client),
+            amountCents: input.amountCents,
+          },
+        ]
+      : undefined,
+    accountOnBudget: onBudget,
   });
 
   return result.transaction;
@@ -819,6 +874,7 @@ function mapAccountRow(data: Record<string, unknown>) {
     paymentCategoryId: data.payment_category_id as string | null,
     isLinked: data.is_linked as boolean,
     isActive: data.is_active as boolean,
+    onBudget: data.on_budget as boolean,
     createdAt: data.created_at as string,
   };
 }

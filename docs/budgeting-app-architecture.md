@@ -127,6 +127,9 @@ Fields:
   * 'checking'
   * 'savings'
   * 'credit'
+  * 'asset' — tracking (off-budget)
+  * 'liability' — tracking (off-budget)
+* on_budget — **generated column**, `type NOT IN ('asset', 'liability')`. Never set directly; derived from `type` so it can't drift out of sync the way a free-standing flag could.
 * balance_cents — last **bank-reported cleared/posted** balance (Plaid `accounts.balance.current` on sync); used for reconciliation only; not updated by transactions
 * payment_category_id (nullable, required for credit accounts)
 * is_linked
@@ -139,11 +142,36 @@ Rules:
 
 * credit accounts require a payment category
 * linked accounts sync transactions via Plaid; balance sync writes Plaid `current` → `balance_cents`
-* **opening balance** at link/create: one cleared, approved transaction (`imported_id = crest:opening_balance`, payee “Starting Balance”) with a split to Ready to Assign. This holds for **all** account types, including credit cards (whose opening balance is negative debt) — but credit-card opening balances are **excluded from the Ready to Assign total** so pre-existing debt does not reduce assignable cash (see READY TO ASSIGN and CREDIT CARD LOGIC)
+* **opening balance** at link/create: one cleared, approved transaction (`imported_id = crest:opening_balance`, payee “Starting Balance”). On-budget accounts get a split to Ready to Assign — this holds for credit cards too (whose opening balance is negative debt), but credit-card opening balances are **excluded from the Ready to Assign total** so pre-existing debt does not reduce assignable cash (see READY TO ASSIGN and CREDIT CARD LOGIC). Tracking accounts (asset/liability) get **no allocation at all** — their starting balance is net worth, not budget cash.
 * **working balance** (the default account figure everywhere in the UI, computed): sum(amount_cents) of **all** register lines, cleared and uncleared. This is the register's own truth and updates the instant a transaction is entered, so it never lags Plaid sync or reconciliation the way `balance_cents` does. On the account register it can be expanded into its cleared / uncleared split. `balance_cents` (the bank statement balance) is **not shown outside the reconcile flow**.
 * **register cleared balance** (computed, for reconcile check + the working-balance split): sum(cleared transaction amounts), including the opening-balance line
 * **approximate available balance** (legacy computed helper, no longer surfaced in the UI): `balance_cents` + sum(amount_cents) of uncleared register lines (`cleared_at IS NULL`)
 * manual accounts are supported for testing (`createAccount` with `openingBalanceCents` seeds `balance_cents` and the opening transaction)
+
+TRACKING ACCOUNTS (off-budget)
+
+`asset` and `liability` accounts (YNAB's "tracking account" categories) feed
+net worth but never the budget — the same distinction YNAB draws between its
+budget and tracking account groups:
+
+* their transactions flow through the full ledger like any other account —
+  full history, `cleared_at`/`reconciled_at` state, everything
+  `account_balances`/`account_monthly_balance` (and therefore the net worth
+  report) rely on — but are **never categorized**: they carry no allocations
+  and are always created already-approved. There is no "needs approval" step
+  for a tracking account, because there is nothing to categorize.
+* assumption baked into the app (not just current-state): tracking accounts
+  are always manually entered, never Plaid-linked. If that changes later
+  (YNAB does support linking a tracking account for balance-only sync), the
+  UI/application-layer "always approve immediately" logic in
+  `saveTransaction` and `createTransaction`/`updateTransaction` needs
+  revisiting.
+* the DB enforces the "no allocation required" side of this
+  (`enforce_approved_transaction_has_allocations` / `enforce_transaction_splits_sum*`
+  exempt `on_budget = false` accounts, alongside the existing transfer
+  exemption); the "always approved, never categorized" side is enforced in
+  application code, not the DB, since a hard DB constraint would preclude
+  ever Plaid-linking a tracking account in the future.
 
 ---
 
@@ -399,16 +427,28 @@ leg will be missing.
 
 Rules:
 
-* both legs are created **already approved** and carry **no allocations** — a
-  transfer is not income or spending, so it is never categorized
-* a transfer between two on-budget cash accounts (e.g. checking → savings) has
-  **zero budget effect** — the same budgeted dollars simply move accounts
-* a transfer **to a credit card** is a card payment: it drains that card's
-  payment category (see CREDIT CARD LOGIC)
-* because transfers are uncategorized, they are exempt from the
-  approved-requires-allocation and split-sum constraints (see TRANSACTIONS)
-* off-budget / tracking accounts are not yet supported; if added, transfers to
-  them would be categorized like spending and this section must be revisited
+* a transfer between two **on-budget** accounts (e.g. checking → savings, or
+  checking → credit card) has both legs created **already approved** with
+  **no allocations** — it is not income or spending, so it is never
+  categorized, and has **zero budget effect** (the same budgeted dollars
+  simply move accounts). A transfer **to a credit card** is a card payment:
+  it drains that card's payment category (see CREDIT CARD LOGIC).
+* a transfer where **either side is a tracking account** (asset/liability) is
+  mixed: the leg on the **tracking** account is still auto-approved with no
+  allocation (tracking accounts are never categorized), but the leg on the
+  **on-budget** account is left **pending approval** instead — cash crossing
+  the budget boundary is economically like a purchase or income and needs a
+  category. This reuses the existing "categorize then approve" flow (the home
+  page pending-approval list, which opens the transaction editor) rather than
+  any new UI; once approved, that leg's allocation flows into
+  `category_monthly_activity` exactly like a normal transaction.
+* a transfer between two tracking accounts has **zero budget effect** — same
+  as on-budget ↔ on-budget, both legs auto-approved with no allocation.
+* because on-budget ↔ on-budget and tracking ↔ tracking transfers are
+  uncategorized, they are exempt from the approved-requires-allocation and
+  split-sum constraints (see TRANSACTIONS); this exemption is keyed off
+  `on_budget` per account inside `ledger_create_transfer`, not just "is this
+  a transfer"
 
 **Linking an existing transaction as a transfer.** When the user converts an
 existing single-sided transaction into a transfer (the `transaction-form`
@@ -426,7 +466,11 @@ lib/ledger/transfer-match.ts) and, if found, adopts it via the
 That function applies the being-converted row's edited amount/date/memo/
 cleared state, clears any allocations either leg had picked up, and sets
 `transfer_account_id` on both rows atomically. Falls back to the normal
-delete + `ledger_create_transfer` path when no match exists.
+delete + `ledger_create_transfer` path when no match exists. Like
+`ledger_create_transfer`, it's on_budget-aware: linking a mixed on-budget ↔
+tracking pair leaves the on-budget leg pending instead of auto-approving it,
+same rule as above — except a leg that was already approved before the link
+keeps that approval rather than being reset to pending.
 
 ---
 
@@ -661,6 +705,7 @@ Show:
 * balances
 * account type
 * linked/manual status
+* accounts grouped by Cash / Credit / Tracking (asset + liability)
 
 Capabilities:
 

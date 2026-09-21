@@ -75,6 +75,7 @@ export {
   upsertGroupBudget,
   upsertTransaction,
 } from "./operations";
+export { TRACKING_ACCOUNT_TYPES } from "./types";
 export type {
   AccountBalance,
   AccountBalanceSummary,
