@@ -21,7 +21,8 @@ import {
   invalidateBudgetView,
 } from "@/lib/queries/budget";
 import {
-  prefetchTransactionsByCategory,
+  prefetchAllTransactions,
+  monthToDateRange,
 } from "@/lib/queries/transactions";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { useHasMounted } from "@/lib/use-has-mounted";
@@ -511,13 +512,19 @@ function CategoryRow({
   function handleRowClick() {
     if (renaming) return;
     if (isCC) setCcOpen((o) => !o);
-    else router.push(`/transactions?category=${cat.id}&month=${month}`);
+    else {
+      const { dateFrom, dateTo } = monthToDateRange(month);
+      router.push(`/transactions?category=${cat.id}&dateFrom=${dateFrom}&dateTo=${dateTo}`);
+    }
   }
 
-  // Warms the register's query cache before the click lands, so the
-  // transactions page (a separate route) also renders instantly.
+  // Warms the query cache before the click lands, so the transactions page
+  // (a separate route) also renders instantly.
   function handlePrefetch() {
-    if (!isCC) prefetchTransactionsByCategory(queryClient, cat.id, month);
+    if (!isCC) {
+      const { dateFrom, dateTo } = monthToDateRange(month);
+      prefetchAllTransactions(queryClient, { categoryId: cat.id, dateFrom, dateTo });
+    }
   }
 
   return (
@@ -691,8 +698,7 @@ function InlineName({
         }
         if (e.key === "Escape") onDone();
       }}
-      // text-base on mobile (16px) prevents iOS zoom-on-focus.
-      className="h-6 text-base md:text-sm py-0 px-1.5"
+      className="h-6 md:text-sm py-0 px-1.5"
     />
   );
 }

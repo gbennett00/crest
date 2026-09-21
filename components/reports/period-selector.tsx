@@ -25,8 +25,7 @@ const MONTH_ABBR = [
 
 /**
  * The period control — a single horizontally-scrollable pill row at every
- * width (no separate mobile `<select>`: a native select can still trigger
- * iOS's zoom-on-focus, and it can't host the month grid below anyway).
+ * width (no separate mobile `<select>`: it can't host the month grid below).
  */
 export function PeriodSelector({
   periodKey,
