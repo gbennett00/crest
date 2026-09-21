@@ -41,6 +41,7 @@ import type {
   AccountOption,
   CategoryOption,
 } from "@/components/transactions/transaction-form";
+import { CategoryPicker } from "@/components/transactions/category-picker";
 
 export type BulkAction = "approve" | "categorize" | "move" | "delete";
 
@@ -74,46 +75,6 @@ interface BulkActionsBarProps {
   currentAccountId?: string;
   /** Clear the selection (called after a successful action or Cancel-all). */
   onClearSelection: () => void;
-}
-
-function GroupedCategorySelect({
-  value,
-  onChange,
-  categories,
-  disabled,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  categories: CategoryOption[];
-  disabled?: boolean;
-}) {
-  const grouped = useMemo(() => {
-    const g: Record<string, CategoryOption[]> = {};
-    for (const c of categories) (g[c.groupName] ??= []).push(c);
-    return g;
-  }, [categories]);
-
-  return (
-    <select
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      disabled={disabled}
-      className={cn(
-        "flex-1 min-w-0 rounded-md border border-input bg-background px-3 py-1.5 text-sm",
-        "focus:outline-none focus:ring-1 focus:ring-ring",
-      )}
-    >
-      {Object.entries(grouped).map(([group, cats]) => (
-        <optgroup key={group} label={group}>
-          {cats.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.name}
-            </option>
-          ))}
-        </optgroup>
-      ))}
-    </select>
-  );
 }
 
 export function BulkActionsBar({
@@ -216,11 +177,12 @@ export function BulkActionsBar({
                     category; ones already categorized keep their splits.
                   </p>
                   <div className="flex items-center gap-2">
-                    <GroupedCategorySelect
+                    <CategoryPicker
                       value={category}
                       onChange={setCategory}
                       categories={categories}
                       disabled={isPending}
+                      className="flex-1 min-w-0"
                     />
                     <Button
                       size="sm"
@@ -240,11 +202,12 @@ export function BulkActionsBar({
 
               {pickerMode === "categorize" && (
                 <div className="flex items-center gap-2">
-                  <GroupedCategorySelect
+                  <CategoryPicker
                     value={category}
                     onChange={setCategory}
                     categories={categories}
                     disabled={isPending}
+                    className="flex-1 min-w-0"
                   />
                   <Button
                     size="sm"

@@ -6,6 +6,7 @@ import type { CategoryOption } from "@/components/home/approve-form";
 import type { AccountOption } from "@/components/transactions/transaction-form";
 import type { BudgetData, BudgetViewItem } from "./types";
 import { loadBudgetView } from "./load-budget-view";
+import { loadCategoryOptions } from "./category-options";
 import { selectOverspent, selectPinned } from "./selectors";
 
 // A transaction awaiting approval, shaped for the home "Needs Approval" list.
@@ -36,7 +37,7 @@ export async function getHomeData(): Promise<HomeData> {
 export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
   const month = currentBudgetMonth();
 
-  const [budgetData, pendingRes, accountsRes, categoriesRes] = await Promise.all([
+  const [budgetData, pendingRes, accountsRes, categories] = await Promise.all([
     loadBudgetView(client, month),
     client
       .from("transactions")
@@ -49,11 +50,7 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
       .select("id, name, on_budget")
       .eq("is_active", true)
       .order("name"),
-    client
-      .from("categories")
-      .select("id, name, group_id, role, is_hidden, category_groups!group_id(name)")
-      .eq("is_hidden", false)
-      .order("name"),
+    loadCategoryOptions(client),
   ]);
 
   const pending: PendingTransaction[] = (
@@ -75,28 +72,6 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
   const accounts: AccountOption[] = (
     (accountsRes.data ?? []) as { id: string; name: string; on_budget: boolean }[]
   ).map((a) => ({ id: a.id, name: a.name, onBudget: a.on_budget }));
-
-  const categories: CategoryOption[] = (
-    (categoriesRes.data ?? []) as unknown as Array<{
-      id: string;
-      name: string;
-      role: string | null;
-      category_groups: { name: string } | null;
-    }>
-  )
-    .map((c) => ({
-      id: c.id,
-      name: c.role === "ready_to_assign" ? "Ready to Assign" : c.name,
-      groupName:
-        c.role === "ready_to_assign"
-          ? "— Inflows —"
-          : c.category_groups?.name ?? "Other",
-    }))
-    .sort((a, b) => {
-      if (a.groupName === "— Inflows —") return -1;
-      if (b.groupName === "— Inflows —") return 1;
-      return 0;
-    });
 
   return {
     budgetData,

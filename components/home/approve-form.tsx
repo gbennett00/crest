@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { useFormattedCents } from "@/components/money";
 import { approveWithCategory } from "@/app/(app)/actions";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
-import { cn } from "@/lib/utils";
+import { CategoryPicker } from "@/components/transactions/category-picker";
 
 export type CategoryOption = {
   id: string;
@@ -31,12 +31,6 @@ export function ApproveForm({
   const [selected, setSelected] = useState(categories[0]?.id ?? "");
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
-
-  // Group categories by group name for <optgroup>
-  const grouped: Record<string, CategoryOption[]> = {};
-  for (const cat of categories) {
-    (grouped[cat.groupName] ??= []).push(cat);
-  }
 
   function submit() {
     if (!selected) return;
@@ -64,25 +58,13 @@ export function ApproveForm({
   return (
     <div className="mt-2 flex flex-col gap-2">
       <div className="flex items-center gap-2">
-        <select
+        <CategoryPicker
           value={selected}
-          onChange={(e) => setSelected(e.target.value)}
-          className={cn(
-            "flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm",
-            "focus:outline-none focus:ring-1 focus:ring-ring",
-          )}
+          onChange={setSelected}
+          categories={categories}
           disabled={isPending}
-        >
-          {Object.entries(grouped).map(([group, cats]) => (
-            <optgroup key={group} label={group}>
-              {cats.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.name}
-                </option>
-              ))}
-            </optgroup>
-          ))}
-        </select>
+          className="flex-1"
+        />
         <Button
           size="sm"
           className="h-8 text-xs"
