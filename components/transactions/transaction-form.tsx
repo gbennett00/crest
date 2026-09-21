@@ -23,6 +23,7 @@ import {
   deleteTransactionAction,
   saveTransaction,
 } from "@/app/(app)/transactions/actions";
+import { CategoryPicker } from "./category-picker";
 import { ChevronLeft, Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
@@ -113,6 +114,7 @@ export function TransactionForm({
   const [accountId, setAccountId] = useState(
     txn?.accountId ?? defaultAccountId ?? "",
   );
+  const [categoryId, setCategoryId] = useState(txn?.categoryId ?? "");
 
   const isTransfer = direction === "transfer";
   const sign = direction === "inflow" ? 1 : -1;
@@ -171,19 +173,12 @@ export function TransactionForm({
     setSplits((prev) => prev.filter((_, i) => i !== index));
   }
 
-  const groupedCategories = categories.reduce<Record<string, CategoryOption[]>>(
-    (acc, c) => {
-      (acc[c.groupName] ??= []).push(c);
-      return acc;
-    },
-    {},
-  );
-
   function resetAfterCreate() {
     setDirection("outflow");
     setAccountId(defaultAccountId ?? "");
     setAmount("");
     setCleared(true);
+    setCategoryId("");
     setIsSplit(false);
     setSplits([]);
     formRef.current?.reset();
@@ -223,7 +218,6 @@ export function TransactionForm({
         }));
         formData.set("allocations", JSON.stringify(allocations));
       } else {
-        const categoryId = (formData.get("categoryId") as string) || "";
         formData.set(
           "allocations",
           categoryId
@@ -392,23 +386,14 @@ export function TransactionForm({
                 category before it can be approved.
               </p>
               <div className="flex items-center gap-2">
-                <select
+                <CategoryPicker
                   id="transfer-approve-category"
+                  categories={categories}
                   value={transferApproveCategoryId}
-                  onChange={(e) => setTransferApproveCategoryId(e.target.value)}
+                  onChange={setTransferApproveCategoryId}
                   disabled={isPending}
-                  className={cn(selectClass, "flex-1")}
-                >
-                  {Object.entries(groupedCategories).map(([group, cats]) => (
-                    <optgroup key={group} label={group}>
-                      {cats.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </optgroup>
-                  ))}
-                </select>
+                  className="flex-1"
+                />
                 <Button
                   type="button"
                   className="h-9 text-sm shrink-0"
@@ -642,48 +627,25 @@ export function TransactionForm({
           </div>
 
           {!isSplit ? (
-            <select
+            <CategoryPicker
               id="categoryId"
-              name="categoryId"
-              defaultValue={txn?.categoryId ?? ""}
-              className={selectClass}
-            >
-              <option value="">No category (approve later)</option>
-              {Object.entries(groupedCategories).map(([group, cats]) => (
-                <optgroup key={group} label={group}>
-                  {cats.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.name}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
+              categories={categories}
+              value={categoryId}
+              onChange={setCategoryId}
+              placeholder="No category (approve later)"
+              noneLabel="No category (approve later)"
+            />
           ) : (
             <div className="space-y-2">
               {splits.map((s, i) => (
                 <div key={i} className="flex gap-2 items-center">
-                  <select
+                  <CategoryPicker
+                    categories={categories}
                     value={s.categoryId}
-                    onChange={(e) =>
-                      updateSplit(i, { categoryId: e.target.value })
-                    }
-                    className={cn(
-                      "flex-1 min-w-0 rounded-md border border-input bg-background px-2 py-2 text-sm",
-                      "focus:outline-none focus:ring-1 focus:ring-ring h-9",
-                    )}
-                  >
-                    <option value="">Select category…</option>
-                    {Object.entries(groupedCategories).map(([group, cats]) => (
-                      <optgroup key={group} label={group}>
-                        {cats.map((c) => (
-                          <option key={c.id} value={c.id}>
-                            {c.name}
-                          </option>
-                        ))}
-                      </optgroup>
-                    ))}
-                  </select>
+                    onChange={(categoryId) => updateSplit(i, { categoryId })}
+                    placeholder="Select category…"
+                    className="flex-1 min-w-0"
+                  />
                   <div className="relative w-28 shrink-0">
                     <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                       $

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccountBalance, loadAccountClosureState } from "@/lib/ledger";
+import { loadCategoryOptions } from "@/lib/budget";
 import type { RegisterTxn } from "@/components/accounts/register-transaction-list";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
@@ -35,7 +36,7 @@ export async function GET(
   const monthFilter = request.nextUrl.searchParams.get("month") ?? undefined;
   const supabase = await createClient();
 
-  const [accountRes, txnsRes, balance, categoriesRes, accountsRes] = await Promise.all([
+  const [accountRes, txnsRes, balance, categoryOptions, accountsRes] = await Promise.all([
     supabase
       .from("accounts")
       .select("id, name, type, is_linked, balance_cents, is_active")
@@ -53,11 +54,7 @@ export async function GET(
     // Balance summaries aggregated in Postgres (see account_balances view) —
     // avoids fetching every row and the PostgREST max_rows truncation bug.
     loadAccountBalance(supabase, id),
-    supabase
-      .from("categories")
-      .select("id, name, role, category_groups!group_id(name)")
-      .eq("is_hidden", false)
-      .order("name"),
+    loadCategoryOptions(supabase),
     // Active accounts power the Add-Transaction form's account picker.
     supabase.from("accounts").select("id, name, on_budget").eq("is_active", true).order("name"),
   ]);
@@ -93,8 +90,7 @@ export async function GET(
   }
 
   const categoryName = categoryFilter
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ? (categoriesRes.data ?? []).find((c: any) => c.id === categoryFilter)?.name ?? "Category"
+    ? categoryOptions.find((c) => c.id === categoryFilter)?.name ?? "Category"
     : null;
 
   const registerTxns: RegisterTxn[] = txns.map((txn) => {
@@ -122,18 +118,6 @@ export async function GET(
   const accountOptions: AccountOption[] = (
     (accountsRes.data ?? []) as { id: string; name: string; on_budget: boolean }[]
   ).map((a) => ({ id: a.id, name: a.name, onBudget: a.on_budget }));
-  const categoryOptions: CategoryOption[] = (
-    (categoriesRes.data ?? []) as unknown as Array<{
-      id: string;
-      name: string;
-      role: string | null;
-      category_groups: { name: string } | null;
-    }>
-  ).map((c) => ({
-    id: c.id,
-    name: c.role === "ready_to_assign" ? "Ready to Assign" : c.name,
-    groupName: c.role === "ready_to_assign" ? "— Inflows —" : c.category_groups?.name ?? "Other",
-  }));
 
   const response: AccountRegisterResponse = {
     found: true,

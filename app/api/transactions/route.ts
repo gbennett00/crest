@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
+import { loadCategoryOptions } from "@/lib/budget";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
 export type AllTransactionsRow = {
@@ -96,13 +97,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [txnsRes, categoriesRes, accountsRes] = await Promise.all([
+  const [txnsRes, categoryOptions, accountsRes] = await Promise.all([
     query,
-    supabase
-      .from("categories")
-      .select("id, name, role, category_groups!group_id(name)")
-      .eq("is_hidden", false)
-      .order("name"),
+    loadCategoryOptions(supabase),
     supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
   ]);
 
@@ -156,18 +153,6 @@ export async function GET(request: NextRequest) {
   const accountOptions: AccountOption[] = ((accountsRes.data ?? []) as { id: string; name: string }[]).map(
     (a) => ({ id: a.id, name: a.name }),
   );
-  const categoryOptions: CategoryOption[] = (
-    (categoriesRes.data ?? []) as unknown as Array<{
-      id: string;
-      name: string;
-      role: string | null;
-      category_groups: { name: string } | null;
-    }>
-  ).map((c) => ({
-    id: c.id,
-    name: c.role === "ready_to_assign" ? "Ready to Assign" : c.name,
-    groupName: c.role === "ready_to_assign" ? "— Inflows —" : c.category_groups?.name ?? "Other",
-  }));
 
   const response: AllTransactionsResponse = { txns, hasMore, accountOptions, categoryOptions };
   return NextResponse.json(response);
