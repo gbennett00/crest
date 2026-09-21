@@ -7,6 +7,9 @@ import {
   createTransfer,
   deleteTransaction,
   deleteTransactionWithCounterpart,
+  findTransferLinkCandidates,
+  linkTransferPair,
+  selectTransferLinkMatch,
   updateTransaction,
   LedgerError,
 } from "@/lib/ledger";
@@ -26,7 +29,13 @@ function revalidateAll() {
  * - No `txnId` → create.
  * - With `txnId` → edit (including changing amount, account, and category).
  * - `direction === "transfer"` with a `txnId` for a non-transfer → convert the
- *   single-sided transaction into a two-sided transfer (delete + recreate).
+ *   single-sided transaction into a transfer. If an unlinked transaction
+ *   already exists on the destination account with the exact opposite
+ *   amount and a nearby date — e.g. a credit card payment Plaid synced
+ *   independently on both the checking and card accounts — it's adopted as
+ *   the other leg instead of creating a new one, so the existing row isn't
+ *   left behind as an unlinked duplicate. Otherwise the line is dropped and
+ *   recreated as a proper two-sided transfer.
  */
 export async function saveTransaction(formData: FormData) {
   const txnId = (formData.get("txnId") as string) || null;
@@ -57,9 +66,44 @@ export async function saveTransaction(formData: FormData) {
       return { error: "From and To accounts must differ" };
 
     try {
-      // Converting an existing single-sided line: drop it and recreate as a
-      // proper two-sided transfer. transaction_allocations cascade on delete.
       if (txnId) {
+        // Only attempt to adopt an existing counterpart when the line is
+        // staying on its current account — a simultaneous account move goes
+        // through the delete + recreate path below instead, same as before.
+        const { data: current } = await supabase
+          .from("transactions")
+          .select("account_id")
+          .eq("id", txnId)
+          .maybeSingle();
+
+        if (current?.account_id === accountId) {
+          const outflowAmountCents = -absAmount;
+          const candidates = await findTransferLinkCandidates(
+            supabase,
+            toAccountId,
+          );
+          const matchIdx = selectTransferLinkMatch(
+            { amountCents: outflowAmountCents, txnDate },
+            candidates,
+          );
+
+          if (matchIdx >= 0) {
+            await linkTransferPair(supabase, {
+              transactionId: txnId,
+              amountCents: outflowAmountCents,
+              txnDate,
+              memo,
+              clearedAt,
+              counterpartTransactionId: candidates[matchIdx].id,
+            });
+            revalidateAll();
+            return { success: true };
+          }
+        }
+
+        // No existing counterpart to adopt: drop the single-sided line and
+        // recreate as a proper two-sided transfer. transaction_allocations
+        // cascade on delete.
         await deleteTransaction(supabase, txnId);
       }
       await createTransfer(supabase, {
@@ -143,6 +187,43 @@ export async function saveTransaction(formData: FormData) {
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Failed to save transaction" };
+  }
+}
+
+/**
+ * Approves a single still-pending transfer leg with a category — the
+ * on-budget side of a mixed on-budget/tracking transfer (see
+ * docs/budgeting-app-architecture.md § TRANSFERS), which needs
+ * categorization exactly like a normal uncategorized line. The transfer
+ * linkage (`transfer_account_id`) is left untouched. Used by the
+ * transaction editor's "existing transfer" view, which otherwise has no way
+ * to approve a transfer leg (the normal edit form is disabled for existing
+ * transfers).
+ */
+export async function approveTransferLeg(txnId: string, categoryId: string) {
+  if (!txnId) return { error: "Transaction is required" };
+  if (!categoryId) return { error: "Category is required" };
+
+  const supabase = await createClient();
+
+  const { data: txn, error: fetchError } = await supabase
+    .from("transactions")
+    .select("amount_cents")
+    .eq("id", txnId)
+    .single();
+  if (fetchError || !txn) return { error: "Transaction not found" };
+
+  try {
+    await updateTransaction(supabase, {
+      id: txnId,
+      approvedAt: new Date().toISOString(),
+      allocations: [{ categoryId, amountCents: txn.amount_cents as number }],
+    });
+    revalidateAll();
+    return { success: true };
+  } catch (e) {
+    if (e instanceof LedgerError) return { error: e.message };
+    return { error: "Failed to approve transaction" };
   }
 }
 

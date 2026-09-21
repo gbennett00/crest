@@ -1,12 +1,17 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
+import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, X } from "lucide-react";
 import { Money } from "@/components/money";
 import { Checkbox } from "@/components/ui/checkbox";
-import { ApproveForm, type CategoryOption } from "@/components/home/approve-form";
 import { BulkActionsBar } from "@/components/transactions/bulk-actions-bar";
-import type { AccountOption } from "@/components/transactions/transaction-form";
+import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
+import type {
+  AccountOption,
+  CategoryOption,
+} from "@/components/transactions/transaction-form";
 import { cn } from "@/lib/utils";
 
 export type PendingRow = {
@@ -36,6 +41,7 @@ export function PendingApprovalList({
 }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
+  const queryClient = useQueryClient();
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -100,51 +106,67 @@ export function PendingApprovalList({
       <div className="divide-y">
         {pending.map((txn) => {
           const isChecked = selected.has(txn.id);
+          const editHref = `/transactions/${txn.id}?back=/`;
+          const prefetch = () => prefetchTransactionDetail(queryClient, txn.id);
+
+          const rowContent = (
+            <div className="min-w-0 flex-1">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate">{txn.payee}</p>
+                  <p className="text-xs text-muted-foreground">
+                    {txn.accountName} · {formatDate(txn.txnDate)}
+                  </p>
+                </div>
+                <div className="text-right shrink-0">
+                  <p
+                    className={cn(
+                      "text-sm font-medium tabular-nums",
+                      txn.amountCents < 0
+                        ? "text-destructive"
+                        : "text-green-600 dark:text-green-400",
+                    )}
+                  >
+                    <Money cents={txn.amountCents} />
+                  </p>
+                </div>
+              </div>
+            </div>
+          );
+
           return (
             <div
               key={txn.id}
-              className={cn("py-3 px-4", isChecked && "bg-primary/5")}
+              className={cn("flex items-stretch", isChecked && "bg-primary/5")}
             >
-              <div className="flex items-start gap-3">
-                {selectMode && (
-                  <div className="pt-0.5">
-                    <Checkbox
-                      checked={isChecked}
-                      onCheckedChange={() => toggle(txn.id)}
-                      aria-label={`Select ${txn.payee}`}
-                    />
-                  </div>
-                )}
-                <div className="min-w-0 flex-1">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-medium truncate">{txn.payee}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {txn.accountName} · {formatDate(txn.txnDate)}
-                      </p>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <p
-                        className={cn(
-                          "text-sm font-medium tabular-nums",
-                          txn.amountCents < 0
-                            ? "text-destructive"
-                            : "text-green-600 dark:text-green-400",
-                        )}
-                      >
-                        <Money cents={txn.amountCents} />
-                      </p>
-                    </div>
-                  </div>
-                  {categories.length > 0 && (
-                    <ApproveForm
-                      transactionId={txn.id}
-                      amountCents={txn.amountCents}
-                      categories={categories}
-                    />
-                  )}
+              {selectMode && (
+                <div className="flex items-start pt-3.5 pl-4">
+                  <Checkbox
+                    checked={isChecked}
+                    onCheckedChange={() => toggle(txn.id)}
+                    aria-label={`Select ${txn.payee}`}
+                  />
                 </div>
-              </div>
+              )}
+              {selectMode ? (
+                <button
+                  type="button"
+                  onClick={() => toggle(txn.id)}
+                  className="flex-1 py-3 px-4 text-left"
+                >
+                  {rowContent}
+                </button>
+              ) : (
+                <Link
+                  href={editHref}
+                  onMouseEnter={prefetch}
+                  onFocus={prefetch}
+                  onPointerDown={prefetch}
+                  className="flex-1 py-3 px-4 hover:bg-muted/30 transition-colors"
+                >
+                  {rowContent}
+                </Link>
+              )}
             </div>
           );
         })}

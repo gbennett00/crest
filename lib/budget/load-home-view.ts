@@ -2,8 +2,10 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 import { createClient } from "@/lib/supabase/server";
 import { currentBudgetMonth } from "@/lib/ledger";
-import type { CategoryOption } from "@/components/home/approve-form";
-import type { AccountOption } from "@/components/transactions/transaction-form";
+import type {
+  AccountOption,
+  CategoryOption,
+} from "@/components/transactions/transaction-form";
 import type { BudgetData, BudgetViewItem } from "./types";
 import { loadBudgetView } from "./load-budget-view";
 import { selectOverspent, selectPinned } from "./selectors";
