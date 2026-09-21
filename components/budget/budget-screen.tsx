@@ -698,8 +698,7 @@ function InlineName({
         }
         if (e.key === "Escape") onDone();
       }}
-      // text-base on mobile (16px) prevents iOS zoom-on-focus.
-      className="h-6 text-base md:text-sm py-0 px-1.5"
+      className="h-6 md:text-sm py-0 px-1.5"
     />
   );
 }
