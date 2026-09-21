@@ -90,8 +90,8 @@ slower; **reads and screen switches should feel instant.**
    touch — there's no hover on mobile). See `CategoryRow` in
    `budget-screen.tsx`, `AccountCard`, or the transaction rows in
    `register-transaction-list.tsx` / `transactions/page.tsx`. The nav bar
-   (`components/nav.tsx`) also eagerly warms Home/Budget/Accounts/Reports on
-   mount so the very first tab switch is instant, not just the second.
+   (`components/nav.tsx`) also eagerly warms Home/Budget/Accounts/Transactions/Reports
+   on mount so the very first tab switch is instant, not just the second.
 5. **Every mutation invalidates the cache it affects.** A Server Action's own
    `revalidatePath` only touches Next's RSC cache — it does *not* reach this
    client-side cache, so skipping this step means the UI goes stale and stays

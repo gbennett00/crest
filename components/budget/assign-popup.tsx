@@ -288,8 +288,7 @@ function EntryRow({
             onBlur={(e) => commit(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
             className={cn(
-              // text-base on mobile (16px) stops iOS from zooming on focus.
-              "w-full rounded-md border border-input bg-background pl-5 pr-2 py-1.5 text-base md:text-sm text-right",
+              "w-full rounded-md border border-input bg-background pl-5 pr-2 py-1.5 md:text-sm text-right",
               "focus:outline-none focus:ring-1 focus:ring-ring",
             )}
           />

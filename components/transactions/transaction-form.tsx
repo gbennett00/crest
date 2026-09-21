@@ -19,6 +19,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { cn } from "@/lib/utils";
 import {
+  approveTransferLeg,
   deleteTransactionAction,
   saveTransaction,
 } from "@/app/(app)/transactions/actions";
@@ -89,6 +90,11 @@ export function TransactionForm({
   const [isPending, startTransition] = useTransition();
   const [showReconcileConfirm, setShowReconcileConfirm] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  // Category picker for a still-pending transfer leg (the on-budget side of
+  // a mixed on-budget/tracking transfer) — see the "existing transfer" branch.
+  const [transferApproveCategoryId, setTransferApproveCategoryId] = useState(
+    categories[0]?.id ?? "",
+  );
 
   const today = new Date().toISOString().slice(0, 10);
 
@@ -259,6 +265,24 @@ export function TransactionForm({
     });
   }
 
+  // Approves a still-pending transfer leg with a category — the on-budget
+  // side of a mixed on-budget/tracking transfer, which needs categorization
+  // exactly like a normal uncategorized line (see docs § TRANSFERS). The
+  // transfer linkage itself is untouched.
+  function doApproveTransferLeg() {
+    if (!transferApproveCategoryId) return;
+    startTransition(async () => {
+      const result = await approveTransferLeg(txn!.id, transferApproveCategoryId);
+      if (result?.error) {
+        setError(result.error);
+      } else {
+        invalidateLedgerCaches();
+        router.push(backHref ?? "/accounts");
+        router.refresh();
+      }
+    });
+  }
+
   function doDelete() {
     startTransition(async () => {
       const result = await deleteTransactionAction(txn!.id);
@@ -348,9 +372,39 @@ export function TransactionForm({
             </p>
             <p className="text-xs text-muted-foreground">{txn.txnDate}</p>
           </div>
-          <p className="text-sm text-muted-foreground">
-            Editing existing transfers isn&apos;t supported yet.
-          </p>
+          {txn.isApproved ? (
+            <p className="text-sm text-muted-foreground">
+              Editing existing transfers isn&apos;t supported yet.
+            </p>
+          ) : (
+            <div className="space-y-1.5">
+              <Label htmlFor="transfer-approve-category" className="text-xs">
+                Category
+              </Label>
+              <p className="text-xs text-muted-foreground">
+                This leg moves money onto a budgeted account, so it needs a
+                category before it can be approved.
+              </p>
+              <div className="flex items-center gap-2">
+                <CategoryPicker
+                  id="transfer-approve-category"
+                  categories={categories}
+                  value={transferApproveCategoryId}
+                  onChange={setTransferApproveCategoryId}
+                  disabled={isPending}
+                  className="flex-1"
+                />
+                <Button
+                  type="button"
+                  className="h-9 text-sm shrink-0"
+                  disabled={isPending || !transferApproveCategoryId}
+                  onClick={doApproveTransferLeg}
+                >
+                  {isPending ? "…" : "Approve"}
+                </Button>
+              </div>
+            </div>
+          )}
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button
             type="button"
@@ -532,6 +586,13 @@ export function TransactionForm({
               </option>
             ))}
           </select>
+          {isEdit && !txn?.transferAccountId && (
+            <p className="text-xs text-muted-foreground">
+              If a matching transaction already exists on that account (e.g. a
+              credit card payment Plaid synced on both sides), it’ll be
+              linked as the other leg instead of creating a duplicate.
+            </p>
+          )}
         </div>
       ) : isOffBudget ? (
         <p className="text-xs text-muted-foreground">

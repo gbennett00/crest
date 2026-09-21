@@ -144,8 +144,7 @@ export function ReportsFilterBar({
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Filter categories…"
-                // text-base (16px) on mobile stops iOS from zooming in on focus.
-                className="flex-1 min-w-0 bg-transparent text-base md:text-[13px] focus:outline-none placeholder:text-muted-foreground"
+                className="flex-1 min-w-0 bg-transparent md:text-[13px] focus:outline-none placeholder:text-muted-foreground"
               />
             </div>
 
@@ -193,8 +192,7 @@ export function ReportsFilterBar({
                     if (e.key === "Enter") handleSave();
                   }}
                   placeholder="Name this selection…"
-                  // text-base (16px) on mobile stops iOS from zooming in on focus.
-                  className="flex-1 min-w-0 rounded-md border border-input bg-background px-2.5 py-1.5 text-base md:text-xs focus:outline-none focus:ring-1 focus:ring-ring"
+                  className="flex-1 min-w-0 rounded-md border border-input bg-background px-2.5 py-1.5 md:text-xs focus:outline-none focus:ring-1 focus:ring-ring"
                 />
                 <button
                   type="button"
