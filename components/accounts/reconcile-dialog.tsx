@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
+import { CurrencyInput } from "@/components/ui/currency-input";
 import { useFormattedCents } from "@/components/money";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
@@ -51,17 +52,13 @@ export function ReconcileDialog({
   const initialStep: Step = initialView === "manual" ? "confirm" : initialView;
 
   const [step, setStep] = useState<Step>(initialStep);
-  const [actualInput, setActualInput] = useState(
-    ((hasBankBalance ? bankBalanceCents! : registerClearedBalanceCents) / 100).toFixed(2),
+  const [actualCents, setActualCents] = useState(
+    hasBankBalance ? bankBalanceCents! : registerClearedBalanceCents,
   );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const actualCents = Math.round(parseFloat(actualInput) * 100);
-  const actualIsValid = !isNaN(actualCents);
-  const differenceCents = actualIsValid
-    ? actualCents - registerClearedBalanceCents
-    : 0;
+  const differenceCents = actualCents - registerClearedBalanceCents;
   // Signed gap between the bank's balance and the cleared register (review step).
   const bankDifferenceCents = hasBankBalance
     ? bankBalanceCents! - registerClearedBalanceCents
@@ -98,10 +95,6 @@ export function ReconcileDialog({
   }
 
   function handleCreateAdjustment() {
-    if (!actualIsValid) {
-      setError("Enter a valid balance");
-      return;
-    }
     reconcileToActual(actualCents);
   }
 
@@ -286,11 +279,10 @@ export function ReconcileDialog({
                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
                   $
                 </span>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={actualInput}
-                  onChange={(e) => setActualInput(e.target.value)}
+                <CurrencyInput
+                  cents={actualCents}
+                  onCentsChange={setActualCents}
+                  allowNegative
                   className={cn(
                     "w-full rounded-md border border-input bg-background pl-7 pr-3 py-2 md:text-sm",
                     "focus:outline-none focus:ring-1 focus:ring-ring",
@@ -298,7 +290,7 @@ export function ReconcileDialog({
                 />
               </div>
             </div>
-            {actualIsValid && differenceCents !== 0 && (
+            {differenceCents !== 0 && (
               <div className="rounded-lg bg-muted/40 p-4 space-y-2 text-sm">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Cleared in Crest</span>
@@ -322,7 +314,7 @@ export function ReconcileDialog({
                 </div>
               </div>
             )}
-            {actualIsValid && differenceCents === 0 && (
+            {differenceCents === 0 && (
               <p className="text-sm text-muted-foreground">
                 That matches the calculated balance — no adjustment needed.
               </p>

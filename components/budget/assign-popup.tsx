@@ -7,7 +7,7 @@ import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
-import { parseMoneyExpression } from "@/lib/format";
+import { AssignmentAmountEditor } from "@/components/ui/assignment-amount-input";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
 import { targetNeedCents } from "@/lib/budget/compute";
@@ -220,28 +220,7 @@ function EntryRow({
   onChange: (cents: number) => void;
 }) {
   const formatCents = useFormattedCents();
-  const [inputVal, setInputVal] = useState(draft === 0 ? "" : (draft / 100).toFixed(2));
-  const [focused, setFocused] = useState(false);
-
-  function handleFocus() {
-    setFocused(true);
-    setInputVal(draft === 0 ? "" : (draft / 100).toFixed(2));
-  }
-
-  function commit(raw: string) {
-    setFocused(false);
-    const cents = parseMoneyExpression(raw);
-    if (cents === null) {
-      onChange(0);
-      setInputVal("");
-    } else {
-      onChange(cents);
-      setInputVal(cents === 0 ? "" : (cents / 100).toFixed(2));
-    }
-  }
-
-  // Sync display when parent changes value (e.g., Assign by Targets)
-  const displayVal = focused ? inputVal : (draft === 0 ? "" : (draft / 100).toFixed(2));
+  const [editing, setEditing] = useState(false);
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-b last:border-b-0">
@@ -268,30 +247,31 @@ function EntryRow({
           {formatCents(draftAvailable)}
         </span>
         {/* Assignment input */}
-        <div className="relative w-24">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs pointer-events-none">
-            $
-          </span>
-          <input
-            // type="text" (not "number") so "+"/"-" expressions are accepted.
-            type="text"
-            inputMode="text"
-            value={displayVal}
-            placeholder="0.00"
-            onFocus={(e) => {
-              handleFocus();
-              // Cursor at the end so the user can append "+23.49" to adjust.
-              const len = e.target.value.length;
-              e.target.setSelectionRange(len, len);
-            }}
-            onChange={(e) => setInputVal(e.target.value)}
-            onBlur={(e) => commit(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-            className={cn(
-              "w-full rounded-md border border-input bg-background pl-5 pr-2 py-1.5 md:text-sm text-right",
-              "focus:outline-none focus:ring-1 focus:ring-ring",
-            )}
-          />
+        <div className="w-24">
+          {editing ? (
+            <AssignmentAmountEditor
+              original={draft}
+              onCommit={(cents) => {
+                onChange(cents);
+                setEditing(false);
+              }}
+              onCancel={() => setEditing(false)}
+              formatCents={formatCents}
+              showDollarSign
+              className="w-full md:text-sm py-1.5"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className={cn(
+                "w-full rounded-md border border-input bg-background px-2 py-1.5 text-base md:text-sm text-right tabular-nums",
+                "hover:bg-accent transition-colors",
+              )}
+            >
+              {formatCents(draft)}
+            </button>
+          )}
         </div>
       </div>
     </div>

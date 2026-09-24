@@ -7,7 +7,7 @@ import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
-import { parseMoneyExpression } from "@/lib/format";
+import { AssignmentAmountEditor } from "@/components/ui/assignment-amount-input";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
 import type { BudgetData } from "./budget-screen";
@@ -229,21 +229,7 @@ function SourceRow({
   onFill: () => void;
 }) {
   const formatCents = useFormattedCents();
-  const [inputVal, setInputVal] = useState(amount === 0 ? "" : (amount / 100).toFixed(2));
-  const [focused, setFocused] = useState(false);
-
-  function handleFocus() {
-    setFocused(true);
-    setInputVal(amount === 0 ? "" : (amount / 100).toFixed(2));
-  }
-
-  function commit(raw: string) {
-    setFocused(false);
-    const cents = parseMoneyExpression(raw);
-    onChange(cents === null ? 0 : cents);
-  }
-
-  const displayVal = focused ? inputVal : (amount === 0 ? "" : (amount / 100).toFixed(2));
+  const [editing, setEditing] = useState(false);
 
   return (
     <div className="flex items-center gap-3 px-5 py-3 border-b last:border-b-0">
@@ -261,29 +247,31 @@ function SourceRow({
             Max
           </button>
         )}
-        <div className="relative w-24">
-          <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs pointer-events-none">
-            $
-          </span>
-          <input
-            // type="text" (not "number") so "+"/"-" expressions are accepted.
-            type="text"
-            inputMode="text"
-            value={displayVal}
-            placeholder="0.00"
-            onFocus={(e) => {
-              handleFocus();
-              const len = e.target.value.length;
-              e.target.setSelectionRange(len, len);
-            }}
-            onChange={(e) => setInputVal(e.target.value)}
-            onBlur={(e) => commit(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") (e.target as HTMLInputElement).blur(); }}
-            className={cn(
-              "w-full rounded-md border border-input bg-background pl-5 pr-2 py-1.5 md:text-sm text-right",
-              "focus:outline-none focus:ring-1 focus:ring-ring",
-            )}
-          />
+        <div className="w-24">
+          {editing ? (
+            <AssignmentAmountEditor
+              original={amount}
+              onCommit={(cents) => {
+                onChange(cents);
+                setEditing(false);
+              }}
+              onCancel={() => setEditing(false)}
+              formatCents={formatCents}
+              showDollarSign
+              className="w-full md:text-sm py-1.5"
+            />
+          ) : (
+            <button
+              type="button"
+              onClick={() => setEditing(true)}
+              className={cn(
+                "w-full rounded-md border border-input bg-background px-2 py-1.5 text-base md:text-sm text-right tabular-nums",
+                "hover:bg-accent transition-colors",
+              )}
+            >
+              {formatCents(amount)}
+            </button>
+          )}
         </div>
       </div>
     </div>
