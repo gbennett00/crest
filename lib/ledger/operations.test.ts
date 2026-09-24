@@ -513,12 +513,14 @@ function makeReconcileMock(initial: {
   transactions: Line[];
   balanceCents: number;
   readyToAssignId?: string | null;
+  onBudget?: boolean;
 }) {
   const state = {
     transactions: [...initial.transactions],
     balanceCents: initial.balanceCents,
     isActive: true,
   };
+  const onBudget = initial.onBudget ?? true;
   const readyToAssignId =
     initial.readyToAssignId === undefined ? "rta-1" : initial.readyToAssignId;
   const inserted: Record<string, unknown>[] = [];
@@ -570,6 +572,7 @@ function makeReconcileMock(initial: {
             payment_category_id: null,
             is_linked: false,
             is_active: state.isActive,
+            on_budget: onBudget,
             created_at: "2026-01-01T00:00:00Z",
           },
           error: null,
@@ -729,6 +732,26 @@ describe("reconcileWithAdjustment", () => {
     expect(inserted).toHaveLength(1);
     expect(inserted[0]).toMatchObject({ amount_cents: -5000 });
     expect(state.balanceCents).toBe(-15_000);
+  });
+
+  it("writes the adjustment with no allocation for an off-budget (tracking) account", async () => {
+    const { client, state, inserted, rpcCalls } = makeReconcileMock({
+      transactions: [{ amount_cents: 3_197_340, cleared_at: "2026-05-01T00:00:00Z" }],
+      balanceCents: 3_197_340,
+      onBudget: false,
+    });
+
+    const result = await reconcileWithAdjustment(client, "acc-1", 3_197_344);
+
+    expect(result.reconciledAt).toBeDefined();
+    expect(inserted).toHaveLength(1);
+    expect(inserted[0]).toMatchObject({
+      amount_cents: 4,
+      payee: RECONCILIATION_ADJUSTMENT_PAYEE,
+      approved_at: expect.any(String),
+    });
+    expect(rpcCalls.some((c) => c.fn === "ledger_replace_allocations")).toBe(false);
+    expect(state.balanceCents).toBe(3_197_344);
   });
 
   it("skips the adjustment when the actual balance already matches", async () => {

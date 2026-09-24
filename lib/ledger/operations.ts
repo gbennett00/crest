@@ -1192,6 +1192,10 @@ export async function reconcileWithRegisterBalance(
  * for the difference (assigned to Ready to Assign so the inflow/outflow stays
  * accounted for), set `balance_cents` to the actual cleared balance, then
  * reconcile. `actualClearedCents` is signed — credit-card debt is negative.
+ *
+ * Tracking accounts (asset/liability) get the adjustment with no allocation,
+ * same as their opening balance — a change in an off-budget balance is net
+ * worth, not budget cash, so it must never touch Ready to Assign.
  */
 export async function reconcileWithAdjustment(
   client: SupabaseClient,
@@ -1207,7 +1211,18 @@ export async function reconcileWithAdjustment(
   const differenceCents = actualClearedCents - registerCleared;
 
   if (differenceCents !== 0) {
-    const readyToAssignId = await getReadyToAssignCategoryId(client);
+    const { data: accountRow, error: accountError } = await client
+      .from("accounts")
+      .select("on_budget")
+      .eq("id", accountId)
+      .single();
+    if (accountError || !accountRow) {
+      throw new LedgerError(
+        "not_found",
+        accountError?.message ?? "account not found",
+      );
+    }
+    const onBudget = (accountRow as { on_budget: boolean }).on_budget;
     const now = new Date().toISOString();
 
     await createTransaction(client, {
@@ -1217,9 +1232,15 @@ export async function reconcileWithAdjustment(
       payee: RECONCILIATION_ADJUSTMENT_PAYEE,
       clearedAt: now,
       approvedAt: now,
-      allocations: [
-        { categoryId: readyToAssignId, amountCents: differenceCents },
-      ],
+      allocations: onBudget
+        ? [
+            {
+              categoryId: await getReadyToAssignCategoryId(client),
+              amountCents: differenceCents,
+            },
+          ]
+        : undefined,
+      accountOnBudget: onBudget,
     });
   }
 

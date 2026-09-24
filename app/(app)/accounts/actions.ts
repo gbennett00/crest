@@ -115,7 +115,8 @@ export async function reconcileMatched(accountId: string) {
 
 /**
  * "The calculated balance is off" path: write a balance adjustment for the
- * difference (assigned to Ready to Assign), then reconcile to `actualCents`.
+ * difference (assigned to Ready to Assign on budget accounts; uncategorized
+ * on tracking accounts), then reconcile to `actualCents`.
  */
 export async function reconcileWithAdjustmentAction(
   accountId: string,
