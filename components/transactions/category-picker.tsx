@@ -122,7 +122,7 @@ export function CategoryPicker({
             role="dialog"
             aria-modal="true"
           >
-            <div className="flex h-[85dvh] w-full flex-col rounded-t-2xl bg-background shadow-2xl sm:h-[70vh] sm:max-w-sm sm:rounded-2xl">
+            <div className="flex h-[85dvh] w-full flex-col rounded-t-2xl bg-card text-card-foreground shadow-2xl sm:h-[70vh] sm:max-w-sm sm:rounded-2xl">
               <div className="flex items-center justify-between px-4 pb-2 pt-3.5 shrink-0">
                 <h2 className="text-sm font-semibold">Choose Category</h2>
                 <button
@@ -179,7 +179,7 @@ export function CategoryPicker({
 
                 {groups.map(([groupName, cats]) => (
                   <div key={groupName}>
-                    <div className="sticky top-0 bg-background/95 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
+                    <div className="sticky top-0 bg-card/95 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
                       {groupName}
                     </div>
                     {cats.map((c) => (
