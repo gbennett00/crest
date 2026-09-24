@@ -4,18 +4,20 @@ import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { BarChart2, Home, Landmark, PieChart } from "lucide-react";
+import { BarChart2, Home, Landmark, PieChart, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { currentBudgetMonth } from "@/lib/ledger";
 import { prefetchHomeView } from "@/lib/queries/home";
 import { prefetchBudgetView } from "@/lib/queries/budget";
 import { prefetchAccountsList } from "@/lib/queries/accounts";
+import { prefetchAllTransactions } from "@/lib/queries/transactions";
 import { prefetchReportsDashboard } from "@/lib/queries/reports";
 
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
   { href: "/budget", label: "Plan", Icon: BarChart2, exact: false },
   { href: "/accounts", label: "Accounts", Icon: Landmark, exact: false },
+  { href: "/transactions", label: "Transactions", Icon: Receipt, exact: false },
   { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
 
@@ -33,6 +35,7 @@ function useEagerPrefetch() {
     prefetchHomeView(queryClient);
     prefetchBudgetView(queryClient, currentBudgetMonth());
     prefetchAccountsList(queryClient);
+    prefetchAllTransactions(queryClient, {});
     prefetchReportsDashboard(queryClient);
   }, [router, queryClient]);
 }

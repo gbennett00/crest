@@ -258,8 +258,7 @@ function SourceRow({
               onCancel={() => setEditing(false)}
               formatCents={formatCents}
               showDollarSign
-              // text-base on mobile (16px) stops iOS from zooming on focus.
-              className="w-full text-base md:text-sm py-1.5"
+              className="w-full md:text-sm py-1.5"
             />
           ) : (
             <button

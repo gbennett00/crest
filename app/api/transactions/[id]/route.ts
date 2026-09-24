@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import type { CategoryOption, TransactionEditData } from "@/components/transactions/transaction-form";
+import { loadCategoryOptions } from "@/lib/budget";
+import type { TransactionEditData } from "@/components/transactions/transaction-form";
 
 // Same query the transaction edit page's Server Component ran, exposed as
 // JSON so the client-side query cache (lib/queries/transaction-detail.ts) can
@@ -13,7 +14,7 @@ export async function GET(
   const { id } = await params;
   const supabase = await createClient();
 
-  const [txnRes, accountsRes, categoriesRes] = await Promise.all([
+  const [txnRes, accountsRes, categories] = await Promise.all([
     supabase
       .from("transactions")
       .select("id, payee, amount_cents, txn_date, memo, cleared_at, reconciled_at, approved_at, account_id, transfer_account_id, transaction_allocations(category_id, amount_cents, categories(name))")
@@ -22,11 +23,7 @@ export async function GET(
     // All accounts (including closed) — active ones feed the pickers, while the
     // full set resolves counterpart names on transfers to closed accounts.
     supabase.from("accounts").select("id, name, is_active, on_budget").order("name"),
-    supabase
-      .from("categories")
-      .select("id, name, role, is_hidden, category_groups!group_id(name)")
-      .eq("is_hidden", false)
-      .order("name"),
+    loadCategoryOptions(supabase),
   ]);
 
   if (txnRes.error || !txnRes.data) {
@@ -72,19 +69,6 @@ export async function GET(
   const accountNameById = Object.fromEntries(
     allAccounts.map((a) => [a.id, a.name]),
   );
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const categories: CategoryOption[] = (categoriesRes.data ?? []).map((c: any) => ({
-    id: c.id as string,
-    name: (c.role === "ready_to_assign" ? "Ready to Assign" : c.name) as string,
-    groupName: c.role === "ready_to_assign"
-      ? "— Inflows —"
-      : (((c.category_groups as { name: string } | null)?.name) ?? "Other"),
-  })).sort((a: CategoryOption, b: CategoryOption) => {
-    if (a.groupName === "— Inflows —") return -1;
-    if (b.groupName === "— Inflows —") return 1;
-    return 0;
-  });
 
   return NextResponse.json({ txn, accounts, accountNameById, categories });
 }

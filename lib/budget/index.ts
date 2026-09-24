@@ -15,3 +15,4 @@ export {
 } from "./load-home-view";
 export { selectBudgetItems, selectOverspent, selectPinned } from "./selectors";
 export { buildBudgetEntries, type BudgetEntry, type EntryKey } from "./entries";
+export { loadCategoryOptions } from "./category-options";
