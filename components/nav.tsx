@@ -16,8 +16,8 @@ import { prefetchReportsDashboard } from "@/lib/queries/reports";
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
   { href: "/budget", label: "Plan", Icon: BarChart2, exact: false },
-  { href: "/accounts", label: "Accounts", Icon: Landmark, exact: false },
   { href: "/transactions", label: "Transactions", Icon: Receipt, exact: false },
+  { href: "/accounts", label: "Accounts", Icon: Landmark, exact: false },
   { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
 
