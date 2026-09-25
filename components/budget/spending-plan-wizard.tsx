@@ -330,7 +330,12 @@ export function SpendingPlanWizard({
   }
 
   return (
-    <Modal open onClose={onClose} title="Spending plan" className="max-w-lg">
+    <Modal
+      open
+      onClose={onClose}
+      title="Spending plan"
+      className={step === "expenses" ? "max-w-2xl" : "max-w-lg"}
+    >
       <div className="space-y-4">
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           {(["income", "expenses", "review"] as const).map((s, i) => (
@@ -404,32 +409,34 @@ export function SpendingPlanWizard({
 
         {step === "expenses" && (
           <div className="space-y-4">
-            <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
-              {expenseLines.map((line, i) =>
-                editingLineUid === line.uid ? (
-                  <ExpenseLineEditor
-                    key={line.uid}
-                    line={line}
-                    index={i}
-                    groups={data.groups}
-                    flatCategories={flatCategories}
-                    onChange={(patch) => updateLine(line.uid, patch)}
-                    onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
-                    onDone={() => setEditingLineUid(null)}
-                  />
-                ) : (
-                  <ExpenseLineSummary
-                    key={line.uid}
-                    line={line}
-                    index={i}
-                    flatCategories={flatCategories}
-                    groups={data.groups}
-                    formatCents={formatCents}
-                    onEdit={() => setEditingLineUid(line.uid)}
-                    onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
-                  />
-                ),
-              )}
+            <div className="rounded-lg border overflow-hidden">
+              <div className="max-h-[65vh] overflow-y-auto divide-y">
+                {expenseLines.map((line, i) =>
+                  editingLineUid === line.uid ? (
+                    <ExpenseLineEditor
+                      key={line.uid}
+                      line={line}
+                      index={i}
+                      groups={data.groups}
+                      flatCategories={flatCategories}
+                      onChange={(patch) => updateLine(line.uid, patch)}
+                      onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
+                      onDone={() => setEditingLineUid(null)}
+                    />
+                  ) : (
+                    <ExpenseLineSummary
+                      key={line.uid}
+                      line={line}
+                      index={i}
+                      flatCategories={flatCategories}
+                      groups={data.groups}
+                      formatCents={formatCents}
+                      onEdit={() => setEditingLineUid(line.uid)}
+                      onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
+                    />
+                  ),
+                )}
+              </div>
             </div>
             <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addExpenseLine}>
               <Plus size={14} /> Add expense
@@ -525,7 +532,7 @@ function ExpenseLineEditor({
   const err = lineError(line);
 
   return (
-    <div className="border rounded-lg p-3 space-y-2.5 border-primary/40">
+    <div className="bg-muted/30 p-3 space-y-2.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">Expense {index + 1}</span>
         <div className="flex items-center gap-2">
@@ -758,42 +765,42 @@ function ExpenseLineSummary({
 }) {
   const err = lineError(line);
   const { name, groupName } = lineCategoryLabel(line, flatCategories, groups);
+  const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
 
   return (
-    <div className="border rounded-lg px-3 py-2 flex items-center gap-2">
+    <div className="px-3 py-1.5 flex items-center gap-2 hover:bg-muted/40">
       <button
         type="button"
         onClick={onEdit}
-        className="flex-1 min-w-0 text-left flex items-center justify-between gap-3"
+        className="flex-1 min-w-0 flex items-center gap-2 text-left"
       >
-        <div className="min-w-0">
-          <div className="text-sm font-medium truncate">{name}</div>
-          <div className="text-xs text-muted-foreground truncate">{groupName}</div>
-        </div>
-        <div className="text-right shrink-0">
-          {err ? (
-            <span className="text-xs text-destructive">{err}</span>
-          ) : (
-            <>
-              <div className="text-sm tabular-nums">{formatCents(lineMonthlyEquivalentCents(line))}/mo</div>
-              {line.cadence !== "monthly" && (
-                <div className="text-xs text-muted-foreground tabular-nums">
-                  {formatCents(line.amountCents)} every{" "}
-                  {line.cadence === "yearly" ? 12 : line.everyNMonths} months
-                </div>
-              )}
-            </>
-          )}
-        </div>
+        <span className="text-sm font-medium truncate">{name}</span>
+        {groupName && (
+          <span className="text-xs text-muted-foreground truncate shrink-0">{groupName}</span>
+        )}
       </button>
       <div className="flex items-center gap-2 shrink-0">
+        {err ? (
+          <span className="text-xs text-destructive">{err}</span>
+        ) : (
+          <>
+            {line.cadence !== "monthly" && (
+              <span className="text-[10px] leading-none text-muted-foreground bg-muted rounded px-1.5 py-1 tabular-nums whitespace-nowrap">
+                {formatCents(line.amountCents)}/{intervalMonths}mo
+              </span>
+            )}
+            <span className="text-sm tabular-nums w-20 text-right shrink-0">
+              {formatCents(lineMonthlyEquivalentCents(line))}/mo
+            </span>
+          </>
+        )}
         <button
           type="button"
           onClick={onEdit}
           className="text-muted-foreground hover:text-foreground"
           aria-label={`Edit expense ${index + 1}`}
         >
-          <Pencil size={14} />
+          <Pencil size={13} />
         </button>
         {onRemove && (
           <button
@@ -802,7 +809,7 @@ function ExpenseLineSummary({
             className="text-muted-foreground hover:text-destructive"
             aria-label="Remove expense line"
           >
-            <Trash2 size={14} />
+            <Trash2 size={13} />
           </button>
         )}
       </div>
