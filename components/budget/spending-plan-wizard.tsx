@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, Pencil, Plus, Trash2 } from "lucide-react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -85,7 +85,7 @@ function emptyExpenseLine(): ExpenseLineDraft {
     cadence: "monthly",
     everyNMonths: 6,
     amountCents: 0,
-    targetType: "fill_up_to",
+    targetType: "set_aside",
     targetDate: defaultTargetDate(6),
     fundInFullNow: false,
   };
@@ -194,6 +194,51 @@ function selectClass() {
   return cn(
     "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9",
     "focus:outline-none focus:ring-1 focus:ring-ring",
+  );
+}
+
+/**
+ * A plain decimal-typing dollar input, deliberately not the digit-shift
+ * CurrencyInput used elsewhere (components/ui/currency-input.tsx). Target
+ * amounts here are round dollars almost all the time — the rare exception
+ * (an even split like $16.67) is something you'd type a period for, not
+ * something worth optimizing every keystroke around.
+ */
+function DecimalAmountInput({
+  cents,
+  onCentsChange,
+  className,
+}: {
+  cents: number;
+  onCentsChange: (cents: number) => void;
+  className?: string;
+}) {
+  const [text, setText] = useState(() => (cents === 0 ? "" : (cents / 100).toString()));
+  const [focused, setFocused] = useState(false);
+
+  // Stay in sync with external resets (e.g. a fresh line) without fighting
+  // the user's own typing while focused.
+  useEffect(() => {
+    if (!focused) setText(cents === 0 ? "" : (cents / 100).toString());
+  }, [cents, focused]);
+
+  return (
+    <Input
+      type="text"
+      inputMode="decimal"
+      value={text}
+      placeholder="0.00"
+      className={className}
+      onFocus={() => setFocused(true)}
+      onBlur={() => setFocused(false)}
+      onChange={(e) => {
+        const raw = e.target.value;
+        if (!/^\d*\.?\d{0,2}$/.test(raw)) return; // reject a 3rd decimal digit, extra dots, non-digits
+        setText(raw);
+        const parsed = parseFloat(raw);
+        onCentsChange(Number.isFinite(parsed) ? Math.round(parsed * 100) : 0);
+      }}
+    />
   );
 }
 
@@ -530,32 +575,30 @@ function ExpenseLineEditor({
   onDone: () => void;
 }) {
   const err = lineError(line);
+  const [showError, setShowError] = useState(false);
+
+  function handleSave() {
+    if (err) {
+      setShowError(true);
+      return;
+    }
+    onDone();
+  }
 
   return (
     <div className="bg-muted/30 p-3 space-y-2.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">Expense {index + 1}</span>
-        <div className="flex items-center gap-2">
+        {onRemove && (
           <button
             type="button"
-            onClick={onDone}
-            className="text-muted-foreground hover:text-foreground"
-            aria-label="Done editing"
-            title="Done"
+            onClick={onRemove}
+            className="text-muted-foreground hover:text-destructive"
+            aria-label="Remove expense line"
           >
-            <Check size={14} />
+            <Trash2 size={14} />
           </button>
-          {onRemove && (
-            <button
-              type="button"
-              onClick={onRemove}
-              className="text-muted-foreground hover:text-destructive"
-              aria-label="Remove expense line"
-            >
-              <Trash2 size={14} />
-            </button>
-          )}
-        </div>
+        )}
       </div>
 
       <div className="space-y-1">
@@ -668,7 +711,7 @@ function ExpenseLineEditor({
                 ? `$ every ${line.everyNMonths} months`
                 : "$ per year"}
           </Label>
-          <CurrencyInput
+          <DecimalAmountInput
             cents={line.amountCents}
             onCentsChange={(c) => onChange({ amountCents: c })}
             className="h-9 text-sm"
@@ -696,7 +739,7 @@ function ExpenseLineEditor({
         <div className="space-y-1">
           <Label className="text-xs text-muted-foreground">Target type</Label>
           <div className="flex gap-1">
-            {(["fill_up_to", "set_aside"] as const).map((t) => (
+            {(["set_aside", "fill_up_to"] as const).map((t) => (
               <button
                 key={t}
                 type="button"
@@ -741,7 +784,16 @@ function ExpenseLineEditor({
         </>
       )}
 
-      {err && <p className="text-xs text-destructive">{err}</p>}
+      <div className="flex items-center justify-between gap-2 pt-1">
+        {showError && err ? (
+          <p className="text-xs text-destructive">{err}</p>
+        ) : (
+          <span />
+        )}
+        <Button type="button" size="sm" className="shrink-0" onClick={handleSave}>
+          Save
+        </Button>
+      </div>
     </div>
   );
 }
@@ -789,7 +841,7 @@ function ExpenseLineSummary({
                 {formatCents(line.amountCents)}/{intervalMonths}mo
               </span>
             )}
-            <span className="text-sm tabular-nums w-20 text-right shrink-0">
+            <span className="text-sm tabular-nums text-right shrink-0">
               {formatCents(lineMonthlyEquivalentCents(line))}/mo
             </span>
           </>
