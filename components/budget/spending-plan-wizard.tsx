@@ -190,6 +190,71 @@ function resolveExistingEntity(
   return null;
 }
 
+/** The target this line would write to, as a stable key comparable across
+ * lines — `c:<categoryId>` or `g:<groupId>` (a category in a group-budgeted
+ * group can't hold its own target; the group is the funding unit, mirroring
+ * applySpendingPlan's server-side substitution). Null when the line hasn't
+ * settled on a category yet, or can't possibly collide with another line
+ * (a brand-new category in a category-budgeted group always gets its own
+ * fresh target). Used to stop two lines from silently overwriting the same
+ * target — each category (or group-budgeted group) can only have one. */
+function lineEntityKey(line: ExpenseLineDraft, data: BudgetData): string | null {
+  if (line.categoryChoice === "existing") {
+    if (!line.existingCategoryId) return null;
+    return resolveExistingEntity(data, line.existingCategoryId)?.key ?? null;
+  }
+  if (!line.newCategoryGroupId || line.newCategoryGroupId === "__new_group__") return null;
+  const group = data.groups.find((g) => g.id === line.newCategoryGroupId);
+  return group?.budgetMode === "group" ? `g:${group.id}` : null;
+}
+
+function duplicateCategoryError(
+  line: ExpenseLineDraft,
+  allLines: ExpenseLineDraft[],
+  data: BudgetData,
+): string | null {
+  const mine = lineEntityKey(line, data);
+  if (!mine) return null;
+  const collides = allLines.some(
+    (other) => other.uid !== line.uid && lineEntityKey(other, data) === mine,
+  );
+  if (!collides) return null;
+  return mine.startsWith("g:")
+    ? "Another expense already targets this group"
+    : "Another expense already uses this category";
+}
+
+/** Combines field-level validation with the one-target-per-category/group
+ * check above — the single source of truth for whether a line is savable. */
+function computeLineError(
+  line: ExpenseLineDraft,
+  allLines: ExpenseLineDraft[],
+  data: BudgetData,
+): string | null {
+  return lineError(line) ?? duplicateCategoryError(line, allLines, data);
+}
+
+/** Existing categories still available to `line` — excludes any category (or,
+ * for a group-budgeted group, any of its sibling categories) already claimed
+ * by another line, so a duplicate can't be picked in the first place. */
+function availableCategoriesFor(
+  line: ExpenseLineDraft,
+  allLines: ExpenseLineDraft[],
+  data: BudgetData,
+  all: { id: string; name: string; groupId: string; groupName: string }[],
+): typeof all {
+  const usedKeys = new Set(
+    allLines
+      .filter((l) => l.uid !== line.uid)
+      .map((l) => lineEntityKey(l, data))
+      .filter((k): k is string => !!k),
+  );
+  return all.filter((c) => {
+    const key = resolveExistingEntity(data, c.id)?.key;
+    return !key || !usedKeys.has(key);
+  });
+}
+
 function selectClass() {
   return cn(
     "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9",
@@ -329,7 +394,7 @@ export function SpendingPlanWizard({
     data.month,
   );
 
-  const validLines = expenseLines.filter((l) => !lineError(l));
+  const validLines = expenseLines.filter((l) => !computeLineError(l, expenseLines, data));
   const lineNeedCents = validLines.reduce((sum, line) => {
     const target = draftTargetData(line);
     const existing =
@@ -351,7 +416,7 @@ export function SpendingPlanWizard({
 
   function handleSubmit() {
     setError(null);
-    const badLine = expenseLines.map(lineError).find(Boolean);
+    const badLine = expenseLines.map((l) => computeLineError(l, expenseLines, data)).find(Boolean);
     if (badLine) {
       setError(badLine);
       return;
@@ -456,14 +521,16 @@ export function SpendingPlanWizard({
           <div className="space-y-4">
             <div className="rounded-lg border overflow-hidden">
               <div className="max-h-[65vh] overflow-y-auto divide-y">
-                {expenseLines.map((line, i) =>
-                  editingLineUid === line.uid ? (
+                {expenseLines.map((line, i) => {
+                  const err = computeLineError(line, expenseLines, data);
+                  return editingLineUid === line.uid ? (
                     <ExpenseLineEditor
                       key={line.uid}
                       line={line}
                       index={i}
                       groups={data.groups}
-                      flatCategories={flatCategories}
+                      flatCategories={availableCategoriesFor(line, expenseLines, data, flatCategories)}
+                      err={err}
                       onChange={(patch) => updateLine(line.uid, patch)}
                       onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
                       onDone={() => setEditingLineUid(null)}
@@ -475,12 +542,13 @@ export function SpendingPlanWizard({
                       index={i}
                       flatCategories={flatCategories}
                       groups={data.groups}
+                      err={err}
                       formatCents={formatCents}
                       onEdit={() => setEditingLineUid(line.uid)}
                       onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
                     />
-                  ),
-                )}
+                  );
+                })}
               </div>
             </div>
             <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addExpenseLine}>
@@ -562,6 +630,7 @@ function ExpenseLineEditor({
   index,
   groups,
   flatCategories,
+  err,
   onChange,
   onRemove,
   onDone,
@@ -570,11 +639,11 @@ function ExpenseLineEditor({
   index: number;
   groups: BudgetData["groups"];
   flatCategories: { id: string; name: string; groupId: string; groupName: string }[];
+  err: string | null;
   onChange: (patch: Partial<ExpenseLineDraft>) => void;
   onRemove?: () => void;
   onDone: () => void;
 }) {
-  const err = lineError(line);
   const [showError, setShowError] = useState(false);
 
   function handleSave() {
@@ -803,6 +872,7 @@ function ExpenseLineSummary({
   index,
   flatCategories,
   groups,
+  err,
   formatCents,
   onEdit,
   onRemove,
@@ -811,11 +881,11 @@ function ExpenseLineSummary({
   index: number;
   flatCategories: { id: string; name: string; groupId: string; groupName: string }[];
   groups: BudgetData["groups"];
+  err: string | null;
   formatCents: (cents: number) => string;
   onEdit: () => void;
   onRemove?: () => void;
 }) {
-  const err = lineError(line);
   const { name, groupName } = lineCategoryLabel(line, flatCategories, groups);
   const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
 
