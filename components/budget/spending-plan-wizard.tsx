@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Plus, Trash2 } from "lucide-react";
+import { Check, Pencil, Plus, Trash2 } from "lucide-react";
 import { Modal } from "@/components/ui/modal";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -146,6 +146,33 @@ function toServerLine(line: ExpenseLineDraft): SpendingPlanExpenseLineInput {
   };
 }
 
+/** Normalized monthly-equivalent cost, so lines on different cadences can be
+ * compared/summed at a glance in the summary row. */
+function lineMonthlyEquivalentCents(line: ExpenseLineDraft): number {
+  if (line.cadence === "monthly") return line.amountCents;
+  const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
+  return Math.round(line.amountCents / intervalMonths);
+}
+
+/** The category (and, for a not-yet-created one, its group) this line will
+ * land in, for display in the summary row. */
+function lineCategoryLabel(
+  line: ExpenseLineDraft,
+  flatCategories: { id: string; name: string; groupId: string; groupName: string }[],
+  groups: BudgetData["groups"],
+): { name: string; groupName: string } {
+  if (line.categoryChoice === "existing") {
+    const cat = flatCategories.find((c) => c.id === line.existingCategoryId);
+    return cat ? { name: cat.name, groupName: cat.groupName } : { name: "Select a category…", groupName: "" };
+  }
+  const name = line.newCategoryName.trim() || "New category";
+  if (line.newCategoryGroupId === "__new_group__") {
+    return { name, groupName: `${line.newGroupName.trim() || "New group"} (new)` };
+  }
+  const group = groups.find((g) => g.id === line.newCategoryGroupId);
+  return { name, groupName: group ? group.name : "Select a group…" };
+}
+
 /** Mirrors the server's group-budgeted-group substitution (see
  * applySpendingPlan) for the review step's local estimate. */
 function resolveExistingEntity(
@@ -183,6 +210,12 @@ export function SpendingPlanWizard({
   const [incomeSources, setIncomeSources] = useState<IncomeSourceDraft[]>([]);
   const [loadingIncome, setLoadingIncome] = useState(true);
   const [expenseLines, setExpenseLines] = useState<ExpenseLineDraft[]>([emptyExpenseLine()]);
+  // The one expense line currently showing its full edit form; every other
+  // line shows as a compact summary row so the whole plan stays scannable at
+  // once, the way a spreadsheet would. Starts open on the first (empty) line.
+  const [editingLineUid, setEditingLineUid] = useState<string | null>(
+    () => expenseLines[0]?.uid ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const didLoad = useRef(false);
@@ -219,6 +252,12 @@ export function SpendingPlanWizard({
   }
   function removeLine(uid: string) {
     setExpenseLines((prev) => prev.filter((l) => l.uid !== uid));
+    setEditingLineUid((prev) => (prev === uid ? null : prev));
+  }
+  function addExpenseLine() {
+    const line = emptyExpenseLine();
+    setExpenseLines((prev) => [...prev, line]);
+    setEditingLineUid(line.uid);
   }
 
   const flatCategories = data.groups.flatMap((g) =>
@@ -365,33 +404,41 @@ export function SpendingPlanWizard({
 
         {step === "expenses" && (
           <div className="space-y-4">
-            <div className="space-y-4 max-h-[50vh] overflow-y-auto pr-1">
-              {expenseLines.map((line, i) => (
-                <ExpenseLineEditor
-                  key={line.uid}
-                  line={line}
-                  index={i}
-                  groups={data.groups}
-                  flatCategories={flatCategories}
-                  onChange={(patch) => updateLine(line.uid, patch)}
-                  onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
-                />
-              ))}
+            <div className="space-y-2 max-h-[50vh] overflow-y-auto pr-1">
+              {expenseLines.map((line, i) =>
+                editingLineUid === line.uid ? (
+                  <ExpenseLineEditor
+                    key={line.uid}
+                    line={line}
+                    index={i}
+                    groups={data.groups}
+                    flatCategories={flatCategories}
+                    onChange={(patch) => updateLine(line.uid, patch)}
+                    onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
+                    onDone={() => setEditingLineUid(null)}
+                  />
+                ) : (
+                  <ExpenseLineSummary
+                    key={line.uid}
+                    line={line}
+                    index={i}
+                    flatCategories={flatCategories}
+                    groups={data.groups}
+                    formatCents={formatCents}
+                    onEdit={() => setEditingLineUid(line.uid)}
+                    onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
+                  />
+                ),
+              )}
             </div>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="gap-1"
-              onClick={() => setExpenseLines((prev) => [...prev, emptyExpenseLine()])}
-            >
+            <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addExpenseLine}>
               <Plus size={14} /> Add expense
             </Button>
             <div className="flex justify-between pt-1">
               <Button type="button" variant="outline" onClick={() => setStep("income")}>
                 Back
               </Button>
-              <Button type="button" onClick={() => setStep("review")}>
+              <Button type="button" onClick={() => { setEditingLineUid(null); setStep("review"); }}>
                 Next
               </Button>
             </div>
@@ -465,6 +512,7 @@ function ExpenseLineEditor({
   flatCategories,
   onChange,
   onRemove,
+  onDone,
 }: {
   line: ExpenseLineDraft;
   index: number;
@@ -472,23 +520,35 @@ function ExpenseLineEditor({
   flatCategories: { id: string; name: string; groupId: string; groupName: string }[];
   onChange: (patch: Partial<ExpenseLineDraft>) => void;
   onRemove?: () => void;
+  onDone: () => void;
 }) {
   const err = lineError(line);
 
   return (
-    <div className="border rounded-lg p-3 space-y-2.5">
+    <div className="border rounded-lg p-3 space-y-2.5 border-primary/40">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">Expense {index + 1}</span>
-        {onRemove && (
+        <div className="flex items-center gap-2">
           <button
             type="button"
-            onClick={onRemove}
-            className="text-muted-foreground hover:text-destructive"
-            aria-label="Remove expense line"
+            onClick={onDone}
+            className="text-muted-foreground hover:text-foreground"
+            aria-label="Done editing"
+            title="Done"
           >
-            <Trash2 size={14} />
+            <Check size={14} />
           </button>
-        )}
+          {onRemove && (
+            <button
+              type="button"
+              onClick={onRemove}
+              className="text-muted-foreground hover:text-destructive"
+              aria-label="Remove expense line"
+            >
+              <Trash2 size={14} />
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="space-y-1">
@@ -675,6 +735,77 @@ function ExpenseLineEditor({
       )}
 
       {err && <p className="text-xs text-destructive">{err}</p>}
+    </div>
+  );
+}
+
+function ExpenseLineSummary({
+  line,
+  index,
+  flatCategories,
+  groups,
+  formatCents,
+  onEdit,
+  onRemove,
+}: {
+  line: ExpenseLineDraft;
+  index: number;
+  flatCategories: { id: string; name: string; groupId: string; groupName: string }[];
+  groups: BudgetData["groups"];
+  formatCents: (cents: number) => string;
+  onEdit: () => void;
+  onRemove?: () => void;
+}) {
+  const err = lineError(line);
+  const { name, groupName } = lineCategoryLabel(line, flatCategories, groups);
+
+  return (
+    <div className="border rounded-lg px-3 py-2 flex items-center gap-2">
+      <button
+        type="button"
+        onClick={onEdit}
+        className="flex-1 min-w-0 text-left flex items-center justify-between gap-3"
+      >
+        <div className="min-w-0">
+          <div className="text-sm font-medium truncate">{name}</div>
+          <div className="text-xs text-muted-foreground truncate">{groupName}</div>
+        </div>
+        <div className="text-right shrink-0">
+          {err ? (
+            <span className="text-xs text-destructive">{err}</span>
+          ) : (
+            <>
+              <div className="text-sm tabular-nums">{formatCents(lineMonthlyEquivalentCents(line))}/mo</div>
+              {line.cadence !== "monthly" && (
+                <div className="text-xs text-muted-foreground tabular-nums">
+                  {formatCents(line.amountCents)} every{" "}
+                  {line.cadence === "yearly" ? 12 : line.everyNMonths} months
+                </div>
+              )}
+            </>
+          )}
+        </div>
+      </button>
+      <div className="flex items-center gap-2 shrink-0">
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-muted-foreground hover:text-foreground"
+          aria-label={`Edit expense ${index + 1}`}
+        >
+          <Pencil size={14} />
+        </button>
+        {onRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            className="text-muted-foreground hover:text-destructive"
+            aria-label="Remove expense line"
+          >
+            <Trash2 size={14} />
+          </button>
+        )}
+      </div>
     </div>
   );
 }
