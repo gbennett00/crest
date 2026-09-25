@@ -4,11 +4,14 @@ import {
   buildBudgetGroups,
   buildHistory,
   computePaymentCategoryActivity,
+  computePlannedIncomeCents,
   computeRtaBreakdown,
+  effectiveTargetDate,
   findReadyToAssignId,
   monthsUntilTarget,
   paymentShortfallCents,
   targetNeedCents,
+  totalTargetNeedCents,
   type CreditTxn,
   type RawGroup,
 } from "./compute";
@@ -648,21 +651,59 @@ describe("monthsUntilTarget", () => {
   });
 });
 
+describe("effectiveTargetDate", () => {
+  it("returns the anchor unchanged when not recurring", () => {
+    expect(effectiveTargetDate("2026-01-15", null, "2026-06-01")).toBe("2026-01-15");
+  });
+
+  it("returns the anchor unchanged when it hasn't arrived yet", () => {
+    expect(effectiveTargetDate("2026-12-01", 12, "2026-06-01")).toBe("2026-12-01");
+  });
+
+  it("returns the anchor unchanged in its own month", () => {
+    expect(effectiveTargetDate("2026-06-15", 6, "2026-06-01")).toBe("2026-06-15");
+  });
+
+  it("rolls a single-cycle-past due date forward, preserving the day", () => {
+    // Car insurance due every 6 months, last due Mar 15; viewing September ->
+    // next due Sep 15.
+    expect(effectiveTargetDate("2026-03-15", 6, "2026-09-01")).toBe("2026-09-15");
+  });
+
+  it("rolls forward multiple cycles when several have elapsed", () => {
+    // Anchored to Jan 2025, every 12 months: occurrences are Jan 2025/26/27/28.
+    // Viewed in March 2027, Jan 2027 has already passed, so the next one is
+    // Jan 2028.
+    expect(effectiveTargetDate("2025-01-01", 12, "2027-03-01")).toBe("2028-01-01");
+  });
+
+  it("lands exactly on the viewed month when a cycle boundary matches", () => {
+    expect(effectiveTargetDate("2026-01-01", 6, "2026-07-01")).toBe("2026-07-01");
+  });
+});
+
 describe("targetNeedCents", () => {
   const fillUpTo = (amountCents: number): TargetData => ({
     type: "fill_up_to",
     amountCents,
     targetDate: null,
+    repeatIntervalMonths: null,
   });
   const setAside = (amountCents: number): TargetData => ({
     type: "set_aside",
     amountCents,
     targetDate: null,
+    repeatIntervalMonths: null,
   });
-  const byDate = (amountCents: number, targetDate: string): TargetData => ({
+  const byDate = (
+    amountCents: number,
+    targetDate: string,
+    repeatIntervalMonths: number | null = null,
+  ): TargetData => ({
     type: "by_date",
     amountCents,
     targetDate,
+    repeatIntervalMonths,
   });
 
   it("fill_up_to needs the gap between available and the target", () => {
@@ -709,6 +750,70 @@ describe("targetNeedCents", () => {
   });
 
   it("unknown target types need nothing", () => {
-    expect(targetNeedCents({ type: "set_aside", amountCents: 0, targetDate: null }, MONTH, 0, 0)).toBe(0);
+    expect(
+      targetNeedCents(
+        { type: "set_aside", amountCents: 0, targetDate: null, repeatIntervalMonths: null },
+        MONTH,
+        0,
+        0,
+      ),
+    ).toBe(0);
+  });
+
+  it("by_date recurring: spreads the shortfall to the next occurrence, not the original anchor", () => {
+    // Car insurance: $700 every 6 months, anchored Mar 1; viewing September
+    // (the anchor has passed) -> next due date is Sep 1, due now (1 month).
+    const target = byDate(700_00, "2026-03-01", 6);
+    expect(targetNeedCents(target, "2026-09-01", 0, 0)).toBe(700_00);
+  });
+
+  it("by_date recurring: sinking-fund replenishment spreads over months remaining in the current cycle", () => {
+    // Vacations: $2,000 fund, anchored to renew every 12 months starting Jan;
+    // viewed in April with the fund spent down to $0, the next renewal is
+    // Jan 2027 (10 months out: Apr..Jan), so the shortfall spreads over 10.
+    const target = byDate(2_000_00, "2026-01-01", 12);
+    expect(targetNeedCents(target, "2026-04-01", 0, 0)).toBe(200_00); // 2000 / 10
+  });
+});
+
+describe("computePlannedIncomeCents", () => {
+  it("sums multiple sources", () => {
+    expect(
+      computePlannedIncomeCents([
+        { monthlyAmountCents: 500_000 },
+        { monthlyAmountCents: 150_000 },
+      ]),
+    ).toBe(650_000);
+  });
+
+  it("is 0 for no sources", () => {
+    expect(computePlannedIncomeCents([])).toBe(0);
+  });
+});
+
+describe("totalTargetNeedCents", () => {
+  it("sums needs across entries and ignores ones with no target", () => {
+    const total = totalTargetNeedCents(
+      [
+        {
+          target: { type: "fill_up_to", amountCents: 700_00, targetDate: null, repeatIntervalMonths: null },
+          assignedCents: 0,
+          availableCents: 100_00,
+        },
+        {
+          target: { type: "set_aside", amountCents: 200_00, targetDate: null, repeatIntervalMonths: null },
+          assignedCents: 50_00,
+          availableCents: 900_00,
+        },
+        { target: null, assignedCents: 0, availableCents: 0 },
+      ],
+      MONTH,
+    );
+    // fill_up_to: 700 - 100 = 600; set_aside: 200 - 50 = 150; untargeted: 0.
+    expect(total).toBe(750_00);
+  });
+
+  it("is 0 for no entries", () => {
+    expect(totalTargetNeedCents([], MONTH)).toBe(0);
   });
 });
