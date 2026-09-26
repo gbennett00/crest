@@ -40,9 +40,24 @@ type IncomeSourceDraft = {
 
 type Cadence = "monthly" | "everyN" | "yearly";
 
+// A selectable existing target: either a category (in a category-budgeted
+// group) or a whole group (in a group-budgeted group — see GROUP BUDGETING
+// RULES in docs/budgeting-app-architecture.md). Individual categories inside
+// a group-budgeted group are never independently targetable, so they're
+// never offered — only the group itself is, matching what applySpendingPlan
+// actually attaches the target to.
+type PickableTarget = {
+  id: string;
+  name: string;
+  groupName: string;
+  kind: "category" | "group";
+};
+
 type ExpenseLineDraft = {
   uid: string;
   categoryChoice: "existing" | "new";
+  // A category id (category-budgeted group) or a group id (group-budgeted
+  // group) — see PickableTarget.
   existingCategoryId: string;
   newCategoryName: string;
   // "" until a group is picked; "__new_group__" means "create a new group".
@@ -154,16 +169,18 @@ function lineMonthlyEquivalentCents(line: ExpenseLineDraft): number {
   return Math.round(line.amountCents / intervalMonths);
 }
 
-/** The category (and, for a not-yet-created one, its group) this line will
- * land in, for display in the summary row. */
+/** The category/group (and, for a not-yet-created one, its group) this line
+ * will land in, for display in the summary row. */
 function lineCategoryLabel(
   line: ExpenseLineDraft,
-  flatCategories: { id: string; name: string; groupId: string; groupName: string }[],
+  categoryOptions: PickableTarget[],
   groups: BudgetData["groups"],
 ): { name: string; groupName: string } {
   if (line.categoryChoice === "existing") {
-    const cat = flatCategories.find((c) => c.id === line.existingCategoryId);
-    return cat ? { name: cat.name, groupName: cat.groupName } : { name: "Select a category…", groupName: "" };
+    const picked = categoryOptions.find((t) => t.id === line.existingCategoryId);
+    return picked
+      ? { name: picked.name, groupName: picked.groupName }
+      : { name: "Select a category…", groupName: "" };
   }
   const name = line.newCategoryName.trim() || "New category";
   if (line.newCategoryGroupId === "__new_group__") {
@@ -173,14 +190,24 @@ function lineCategoryLabel(
   return { name, groupName: group ? group.name : "Select a group…" };
 }
 
-/** Mirrors the server's group-budgeted-group substitution (see
- * applySpendingPlan) for the review step's local estimate. */
+/** Resolves an id from the category picker (a category id, or — for a
+ * group-budgeted group — the group's own id, see PickableTarget) to the
+ * funding unit it actually targets, mirroring the server's group-budgeted
+ * substitution in applySpendingPlan. */
 function resolveExistingEntity(
   data: BudgetData,
-  categoryId: string,
+  id: string,
 ): { key: string; assignedCents: number; availableCents: number } | null {
+  const directGroup = data.groups.find((g) => g.id === id);
+  if (directGroup?.budgetMode === "group") {
+    return {
+      key: `g:${directGroup.id}`,
+      assignedCents: directGroup.groupAssignedCents,
+      availableCents: directGroup.groupAvailableCents,
+    };
+  }
   for (const g of data.groups) {
-    const cat = g.categories.find((c) => c.id === categoryId);
+    const cat = g.categories.find((c) => c.id === id);
     if (!cat) continue;
     if (g.budgetMode === "group") {
       return { key: `g:${g.id}`, assignedCents: g.groupAssignedCents, availableCents: g.groupAvailableCents };
@@ -241,16 +268,16 @@ function availableCategoriesFor(
   line: ExpenseLineDraft,
   allLines: ExpenseLineDraft[],
   data: BudgetData,
-  all: { id: string; name: string; groupId: string; groupName: string }[],
-): typeof all {
+  all: PickableTarget[],
+): PickableTarget[] {
   const usedKeys = new Set(
     allLines
       .filter((l) => l.uid !== line.uid)
       .map((l) => lineEntityKey(l, data))
       .filter((k): k is string => !!k),
   );
-  return all.filter((c) => {
-    const key = resolveExistingEntity(data, c.id)?.key;
+  return all.filter((t) => {
+    const key = resolveExistingEntity(data, t.id)?.key;
     return !key || !usedKeys.has(key);
   });
 }
@@ -370,11 +397,17 @@ export function SpendingPlanWizard({
     setEditingLineUid(line.uid);
   }
 
-  const flatCategories = data.groups.flatMap((g) =>
-    g.categories
+  // A group-budgeted group's individual categories can't independently hold a
+  // target (see GROUP BUDGETING RULES) — offer the group itself instead of
+  // its members, matching exactly what a target can attach to.
+  const categoryOptions: PickableTarget[] = data.groups.flatMap((g): PickableTarget[] => {
+    if (g.budgetMode === "group") {
+      return [{ id: g.id, name: g.name, groupName: "Group budget", kind: "group" }];
+    }
+    return g.categories
       .filter((c) => c.role !== "ready_to_assign")
-      .map((c) => ({ id: c.id, name: c.name, groupId: g.id, groupName: g.name })),
-  );
+      .map((c) => ({ id: c.id, name: c.name, groupName: g.name, kind: "category" }));
+  });
 
   // Existing budget entries not touched by a line in this run, so the review
   // total doesn't double-count a target this wizard is about to replace.
@@ -529,7 +562,7 @@ export function SpendingPlanWizard({
                       line={line}
                       index={i}
                       groups={data.groups}
-                      flatCategories={availableCategoriesFor(line, expenseLines, data, flatCategories)}
+                      categoryOptions={availableCategoriesFor(line, expenseLines, data, categoryOptions)}
                       err={err}
                       onChange={(patch) => updateLine(line.uid, patch)}
                       onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
@@ -540,7 +573,7 @@ export function SpendingPlanWizard({
                       key={line.uid}
                       line={line}
                       index={i}
-                      flatCategories={flatCategories}
+                      categoryOptions={categoryOptions}
                       groups={data.groups}
                       err={err}
                       formatCents={formatCents}
@@ -629,7 +662,7 @@ function ExpenseLineEditor({
   line,
   index,
   groups,
-  flatCategories,
+  categoryOptions,
   err,
   onChange,
   onRemove,
@@ -638,7 +671,7 @@ function ExpenseLineEditor({
   line: ExpenseLineDraft;
   index: number;
   groups: BudgetData["groups"];
-  flatCategories: { id: string; name: string; groupId: string; groupName: string }[];
+  categoryOptions: PickableTarget[];
   err: string | null;
   onChange: (patch: Partial<ExpenseLineDraft>) => void;
   onRemove?: () => void;
@@ -684,9 +717,9 @@ function ExpenseLineEditor({
           }}
         >
           <option value="">Select category…</option>
-          {flatCategories.map((c) => (
-            <option key={c.id} value={c.id}>
-              {c.groupName} / {c.name}
+          {categoryOptions.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.kind === "group" ? `${t.name} (group budget)` : `${t.groupName} / ${t.name}`}
             </option>
           ))}
           <option value="__new__">+ New category…</option>
@@ -870,7 +903,7 @@ function ExpenseLineEditor({
 function ExpenseLineSummary({
   line,
   index,
-  flatCategories,
+  categoryOptions,
   groups,
   err,
   formatCents,
@@ -879,14 +912,14 @@ function ExpenseLineSummary({
 }: {
   line: ExpenseLineDraft;
   index: number;
-  flatCategories: { id: string; name: string; groupId: string; groupName: string }[];
+  categoryOptions: PickableTarget[];
   groups: BudgetData["groups"];
   err: string | null;
   formatCents: (cents: number) => string;
   onEdit: () => void;
   onRemove?: () => void;
 }) {
-  const { name, groupName } = lineCategoryLabel(line, flatCategories, groups);
+  const { name, groupName } = lineCategoryLabel(line, categoryOptions, groups);
   const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
 
   return (
