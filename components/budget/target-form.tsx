@@ -13,6 +13,13 @@ import { Target, X } from "lucide-react";
 
 type TargetType = "fill_up_to" | "set_aside" | "by_date";
 
+const REPEAT_PRESETS = [
+  { label: "Doesn't repeat", value: null },
+  { label: "Every 3 months", value: 3 },
+  { label: "Every 6 months", value: 6 },
+  { label: "Every 12 months", value: 12 },
+] as const;
+
 export function TargetButton({
   entityId,
   entityType,
@@ -23,7 +30,12 @@ export function TargetButton({
 }: {
   entityId: string;
   entityType: "category" | "group";
-  existingTarget?: { type: TargetType; amountCents: number; targetDate: string | null } | null;
+  existingTarget?: {
+    type: TargetType;
+    amountCents: number;
+    targetDate: string | null;
+    repeatIntervalMonths: number | null;
+  } | null;
   // Controlled mode: when `open`/`onOpenChange` are supplied (e.g. opened from a
   // row's three-dot menu), the internal trigger can be hidden with showTrigger=false.
   open?: boolean;
@@ -37,6 +49,9 @@ export function TargetButton({
   const setOpen = onOpenChange ?? setOpenState;
   const [type, setType] = useState<TargetType>(existingTarget?.type ?? "fill_up_to");
   const [amountCents, setAmountCents] = useState(existingTarget?.amountCents ?? 0);
+  const [repeatIntervalMonths, setRepeatIntervalMonths] = useState<number | null>(
+    existingTarget?.repeatIntervalMonths ?? null,
+  );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -56,7 +71,14 @@ export function TargetButton({
     }
 
     startTransition(async () => {
-      const result = await upsertTarget(entityId, entityType, type, amountCents, targetDate);
+      const result = await upsertTarget(
+        entityId,
+        entityType,
+        type,
+        amountCents,
+        targetDate,
+        type === "by_date" ? repeatIntervalMonths : null,
+      );
       if (result?.error) {
         setError(result.error);
       } else {
@@ -154,6 +176,32 @@ export function TargetButton({
                 defaultValue={existingTarget?.targetDate ?? ""}
                 className="h-7 text-xs block w-full appearance-none"
               />
+            </div>
+          )}
+
+          {/* Repeat cadence, e.g. car insurance every 6 months, Christmas
+              every 12 months. The due date above rolls forward to its next
+              occurrence automatically once it's passed. */}
+          {type === "by_date" && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Repeats</Label>
+              <div className="flex gap-1 flex-wrap">
+                {REPEAT_PRESETS.map((preset) => (
+                  <button
+                    key={preset.label}
+                    type="button"
+                    onClick={() => setRepeatIntervalMonths(preset.value)}
+                    className={cn(
+                      "px-2 py-1 rounded text-xs border transition-colors",
+                      repeatIntervalMonths === preset.value
+                        ? "bg-primary text-primary-foreground border-primary"
+                        : "border-input bg-background hover:bg-muted",
+                    )}
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
             </div>
           )}
 

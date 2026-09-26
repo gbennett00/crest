@@ -240,6 +240,7 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
           </button>
           <BudgetToolbar
             groups={groupOptions}
+            data={data}
             reordering={reordering}
             onToggleReorder={() => setReordering((r) => !r)}
           />

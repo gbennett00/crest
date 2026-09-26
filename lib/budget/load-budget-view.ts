@@ -88,7 +88,7 @@ export async function loadBudgetView(
       .lte("month", month),
     client
       .from("targets")
-      .select("category_id, group_id, type, amount_cents, target_date"),
+      .select("category_id, group_id, type, amount_cents, target_date, repeat_interval_months"),
     // Credit-card accounts: their payment-category activity must be derived
     // because CC purchases are allocated to spending categories, not the
     // payment category itself.
@@ -410,11 +410,13 @@ function buildTargets(rows: unknown[] | null): {
     type: TargetData["type"];
     amount_cents: number;
     target_date: string | null;
+    repeat_interval_months: number | null;
   }>) {
     const target: TargetData = {
       type: row.type,
       amountCents: row.amount_cents,
       targetDate: row.target_date ?? null,
+      repeatIntervalMonths: row.repeat_interval_months ?? null,
     };
     if (row.category_id) catTargets[row.category_id] = target;
     else if (row.group_id) grpTargets[row.group_id] = target;

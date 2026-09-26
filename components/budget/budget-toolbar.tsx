@@ -3,7 +3,15 @@
 import { useRef, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
-import { ArrowUpDown, Check, FolderPlus, ListPlus, Plus, X } from "lucide-react";
+import {
+  ArrowUpDown,
+  Check,
+  FolderPlus,
+  ListPlus,
+  MoreHorizontal,
+  NotebookPen,
+  X,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -15,21 +23,28 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { createCategory, createGroup } from "@/app/(app)/budget/actions";
+import { SpendingPlanWizard } from "./spending-plan-wizard";
+import type { BudgetData } from "@/lib/budget/types";
 
 type GroupOption = { id: string; name: string };
 
-// Plan-page toolbar: create categories/groups and toggle reorder mode. Replaces
-// the inline "Add category"/"Add group" rows that used to live in the list.
+// Plan-page toolbar: create categories/groups, launch the Spending Plan
+// wizard, and toggle reorder mode. Replaces the inline "Add category"/"Add
+// group" rows that used to live in the list.
 export function BudgetToolbar({
   groups,
+  data,
   reordering,
   onToggleReorder,
 }: {
   groups: GroupOption[];
+  // Full budget view, needed by the Spending Plan wizard's review step
+  // (existing targets/available, Ready to Assign).
+  data: BudgetData;
   reordering: boolean;
   onToggleReorder: () => void;
 }) {
-  const [modal, setModal] = useState<null | "category" | "group">(null);
+  const [modal, setModal] = useState<null | "category" | "group" | "spending-plan">(null);
 
   return (
     <>
@@ -50,10 +65,10 @@ export function BudgetToolbar({
               className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground"
               aria-label="Plan options"
             >
-              <Plus size={18} />
+              <MoreHorizontal size={18} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-44">
+          <DropdownMenuContent align="end" className="w-48">
             <DropdownMenuItem
               onSelect={() => setModal("category")}
               className="gap-2"
@@ -63,6 +78,10 @@ export function BudgetToolbar({
             </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setModal("group")} className="gap-2">
               <FolderPlus size={14} /> Add group
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={() => setModal("spending-plan")} className="gap-2">
+              <NotebookPen size={14} /> Spending plan
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onToggleReorder} className="gap-2">
@@ -76,6 +95,9 @@ export function BudgetToolbar({
         <AddCategoryModal groups={groups} onClose={() => setModal(null)} />
       )}
       {modal === "group" && <AddGroupModal onClose={() => setModal(null)} />}
+      {modal === "spending-plan" && (
+        <SpendingPlanWizard data={data} onClose={() => setModal(null)} />
+      )}
     </>
   );
 }

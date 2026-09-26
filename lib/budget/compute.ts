@@ -520,6 +520,59 @@ export function monthsUntilTarget(month: string, targetDate: string): number {
 }
 
 /**
+ * The due date a recurring "by date" target should be evaluated against for
+ * `month`. Non-recurring targets (`repeatIntervalMonths` null) return
+ * `anchorDate` unchanged. Recurring targets advance `anchorDate` by whole
+ * `repeatIntervalMonths` steps until the result lands on or after `month` —
+ * e.g. a target anchored at a past due date rolls forward to its next
+ * occurrence automatically. This is computed fresh on every read (never
+ * written back to the target row), matching the architecture's rule that
+ * derived values are never stored.
+ */
+export function effectiveTargetDate(
+  anchorDate: string,
+  repeatIntervalMonths: number | null,
+  month: string,
+): string {
+  if (!repeatIntervalMonths) return anchorDate;
+
+  const [ay, am, ad] = anchorDate.split("-").map(Number);
+  const [my, mm] = month.split("-").map(Number);
+  const anchorIndex = ay * 12 + (am - 1);
+  const monthIndex = my * 12 + (mm - 1);
+
+  if (anchorIndex >= monthIndex) return anchorDate;
+
+  const stepsBehind = Math.ceil((monthIndex - anchorIndex) / repeatIntervalMonths);
+  const nextIndex = anchorIndex + stepsBehind * repeatIntervalMonths;
+  const nextYear = Math.floor(nextIndex / 12);
+  const nextMonth = (nextIndex % 12) + 1;
+  return `${nextYear}-${String(nextMonth).padStart(2, "0")}-${String(ad).padStart(2, "0")}`;
+}
+
+/** Sum of planned monthly income across a plan's income sources. Purely
+ * informational — never feeds Ready to Assign or any ledger/budget math,
+ * which stays derived from categorized ledger inflows only. */
+export function computePlannedIncomeCents(sources: { monthlyAmountCents: number }[]): number {
+  return sources.reduce((sum, s) => sum + s.monthlyAmountCents, 0);
+}
+
+/** Sum of `targetNeedCents` across every entry that has a target, for
+ * `month`. Used by the Spending Plan wizard to show "how much of my
+ * expected income is still unspoken-for" across the whole budget, not just
+ * the lines being added in that run. */
+export function totalTargetNeedCents(
+  entries: { target: TargetData | null; assignedCents: number; availableCents: number }[],
+  month: string,
+): number {
+  return entries.reduce(
+    (sum, e) =>
+      sum + (e.target ? targetNeedCents(e.target, month, e.assignedCents, e.availableCents) : 0),
+    0,
+  );
+}
+
+/**
  * Cents still needed this month to stay on track for `target`, given a
  * (possibly draft) assigned amount and available balance for the viewed
  * month. Used by "Assign by Targets" to distribute Ready to Assign.
@@ -529,7 +582,9 @@ export function monthsUntilTarget(month: string, targetDate: string): number {
  *    rolled-forward available.
  *  - `by_date`: like `fill_up_to` (fill the shortfall in available, not just
  *    this month's assignment), but spread evenly across the months
- *    remaining until the target date rather than demanded in one month.
+ *    remaining until the target date rather than demanded in one month. A
+ *    recurring target's due date is rolled forward to its next occurrence
+ *    on or after `month` first (see `effectiveTargetDate`).
  */
 export function targetNeedCents(
   target: TargetData,
@@ -546,7 +601,8 @@ export function targetNeedCents(
   if (target.type === "by_date") {
     const shortfall = Math.max(0, target.amountCents - availableCents);
     if (shortfall <= 0 || !target.targetDate) return 0;
-    const monthsLeft = monthsUntilTarget(month, target.targetDate);
+    const dueDate = effectiveTargetDate(target.targetDate, target.repeatIntervalMonths, month);
+    const monthsLeft = monthsUntilTarget(month, dueDate);
     return Math.ceil(shortfall / monthsLeft);
   }
   return 0;
