@@ -399,13 +399,15 @@ export function SpendingPlanWizard({
 
   // A group-budgeted group's individual categories can't independently hold a
   // target (see GROUP BUDGETING RULES) — offer the group itself instead of
-  // its members, matching exactly what a target can attach to.
+  // its members, matching exactly what a target can attach to. Credit card
+  // payment categories are excluded entirely: their available is derived
+  // from the card's register (see CREDIT CARD LOGIC), never a manual target.
   const categoryOptions: PickableTarget[] = data.groups.flatMap((g): PickableTarget[] => {
     if (g.budgetMode === "group") {
       return [{ id: g.id, name: g.name, groupName: "Group budget", kind: "group" }];
     }
     return g.categories
-      .filter((c) => c.role !== "ready_to_assign")
+      .filter((c) => c.role !== "ready_to_assign" && !c.isPaymentCategory)
       .map((c) => ({ id: c.id, name: c.name, groupName: g.name, kind: "category" }));
   });
 
@@ -584,9 +586,14 @@ export function SpendingPlanWizard({
                 })}
               </div>
             </div>
-            <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addExpenseLine}>
-              <Plus size={14} /> Add expense
-            </Button>
+            <div className="flex items-center justify-between">
+              <Button type="button" variant="outline" size="sm" className="gap-1" onClick={addExpenseLine}>
+                <Plus size={14} /> Add expense
+              </Button>
+              <span className={cn("text-sm", leftoverCents < 0 && "text-destructive")}>
+                Available: {formatCents(leftoverCents)}
+              </span>
+            </div>
             <div className="flex justify-between pt-1">
               <Button type="button" variant="outline" onClick={() => setStep("income")}>
                 Back

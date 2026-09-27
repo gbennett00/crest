@@ -37,6 +37,15 @@ export type BudgetCategory = {
   activityCents: number;
   availableCents: number;
   target: TargetData | null;
+  // True iff this category is some account's credit-card payment category
+  // (accounts.payment_category_id), independent of whether that card has any
+  // register activity yet. Unlike cardRegisterBalanceCents (which is null
+  // until the card has at least one transaction), this is set from the
+  // account/category relationship itself, so callers that need to reliably
+  // identify payment categories (e.g. to exclude them from a manual-target
+  // picker — see CREDIT CARD LOGIC) should use this, not a null check on the
+  // derived balance.
+  isPaymentCategory: boolean;
   // For credit card payment categories: the card's register balance (negative = debt).
   // When abs(cardRegisterBalance) > availableCents the payment envelope is underfunded.
   cardRegisterBalanceCents: number | null;

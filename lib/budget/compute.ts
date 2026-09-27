@@ -403,6 +403,10 @@ export function buildBudgetGroups(params: {
   cardBreakdown: Record<string, PaymentCategoryBreakdown>;
   /** Per-unit credit outflow (keys `c:${categoryId}` / `g:${groupId}`). */
   creditOutflowByUnit?: MonthlyCents;
+  /** Every category id that's some account's credit-card payment category —
+   * see BudgetCategory.isPaymentCategory. Independent of cardRegisterBalance,
+   * which only has entries for cards with at least one transaction. */
+  paymentCategoryIds?: Set<string>;
 }): {
   groups: BudgetGroup[];
   priorCashOverspendCents: number;
@@ -421,6 +425,7 @@ export function buildBudgetGroups(params: {
     cardBreakdown,
   } = params;
   const creditOutflowByUnit = params.creditOutflowByUnit ?? {};
+  const paymentCategoryIds = params.paymentCategoryIds ?? new Set<string>();
 
   let priorCashOverspendCents = 0;
   let previousMonthCashOverspendCents = 0;
@@ -465,6 +470,7 @@ export function buildBudgetGroups(params: {
         activityCents: actHistory[month] ?? 0,
         availableCents,
         target: catTargets[c.id] ?? null,
+        isPaymentCategory: paymentCategoryIds.has(c.id),
         cardRegisterBalanceCents: cardRegisterBalance.get(c.id) ?? null,
         cardActivityBreakdown: cardBreakdown[c.id] ?? null,
       };

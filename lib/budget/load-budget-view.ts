@@ -233,6 +233,7 @@ export async function loadBudgetView(
       cardRegisterBalance,
       cardBreakdown,
       creditOutflowByUnit,
+      paymentCategoryIds: new Set(ccAccountMap.values()),
     });
 
   // Ready to Assign and its YNAB-style breakdown. Bucket each RTA input by when

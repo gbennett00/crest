@@ -592,6 +592,46 @@ describe("buildBudgetGroups", () => {
     expect(rent.cardRegisterBalanceCents).toBe(-250_00);
   });
 
+  it("marks isPaymentCategory from paymentCategoryIds, independent of register activity", () => {
+    // c-rent is a payment category with no transactions yet (no register-balance
+    // map entry) — isPaymentCategory must still be true, since a fresh card with
+    // no activity is exactly the case cardRegisterBalanceCents can't detect.
+    const { groups } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH,
+      catActivity: {},
+      catAssigned: {},
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+      paymentCategoryIds: new Set(["c-rent"]),
+    });
+    const rent = groups[0].categories.find((c) => c.id === "c-rent")!;
+    const water = groups[0].categories.find((c) => c.id === "c-water")!;
+    expect(rent.isPaymentCategory).toBe(true);
+    expect(rent.cardRegisterBalanceCents).toBeNull();
+    expect(water.isPaymentCategory).toBe(false);
+  });
+
+  it("defaults isPaymentCategory to false when paymentCategoryIds is omitted", () => {
+    const { groups } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH,
+      catActivity: {},
+      catAssigned: {},
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+    });
+    expect(groups[0].categories.every((c) => c.isPaymentCategory === false)).toBe(true);
+  });
+
   it("resets a cash-overspent category next month and reports the RTA charge", () => {
     // Water overspent $134.37 in May (no assignment). Viewing June, it should
     // read $0 (reset) and the overspend surfaces as priorCashOverspendCents.
