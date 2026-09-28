@@ -6,14 +6,16 @@ import {
   computePaymentCategoryActivity,
   computePlannedIncomeCents,
   computeRtaBreakdown,
+  deriveSinkingFundTarget,
   effectiveTargetDate,
   findReadyToAssignId,
   monthsUntilTarget,
   paymentShortfallCents,
+  sinkingMonthlyContributionCents,
   targetMonthlyCostCents,
   targetNeedCents,
   totalTargetMonthlyCostCents,
-  totalTargetNeedCents,
+  withDerivedSinkingFundTarget,
   type CreditTxn,
   type RawGroup,
 } from "./compute";
@@ -833,33 +835,6 @@ describe("computePlannedIncomeCents", () => {
   });
 });
 
-describe("totalTargetNeedCents", () => {
-  it("sums needs across entries and ignores ones with no target", () => {
-    const total = totalTargetNeedCents(
-      [
-        {
-          target: { type: "fill_up_to", amountCents: 700_00, targetDate: null, repeatIntervalMonths: null },
-          assignedCents: 0,
-          availableCents: 100_00,
-        },
-        {
-          target: { type: "set_aside", amountCents: 200_00, targetDate: null, repeatIntervalMonths: null },
-          assignedCents: 50_00,
-          availableCents: 900_00,
-        },
-        { target: null, assignedCents: 0, availableCents: 0 },
-      ],
-      MONTH,
-    );
-    // fill_up_to: 700 - 100 = 600; set_aside: 200 - 50 = 150; untargeted: 0.
-    expect(total).toBe(750_00);
-  });
-
-  it("is 0 for no entries", () => {
-    expect(totalTargetNeedCents([], MONTH)).toBe(0);
-  });
-});
-
 describe("targetMonthlyCostCents", () => {
   it("set_aside is always the full amount, regardless of already-assigned progress", () => {
     // Reported bug: a category already 96%-assigned this month made a fresh
@@ -895,6 +870,18 @@ describe("targetMonthlyCostCents", () => {
     expect(targetMonthlyCostCents(target, "2025-09-01")).toBe(140_00);
   });
 
+  it("recurring by_date costs amount ÷ cycle, not the catch-up rate near the due date", () => {
+    // $400 every December, viewed in October: the steady cost is $33.34/mo,
+    // not $400 / 3 months remaining.
+    const target: TargetData = {
+      type: "by_date",
+      amountCents: 400_00,
+      targetDate: "2026-12-01",
+      repeatIntervalMonths: 12,
+    };
+    expect(targetMonthlyCostCents(target, "2026-10-01")).toBe(33_34);
+  });
+
   it("by_date with no target date costs nothing", () => {
     const target: TargetData = {
       type: "by_date",
@@ -921,5 +908,108 @@ describe("totalTargetMonthlyCostCents", () => {
 
   it("is 0 for no entries", () => {
     expect(totalTargetMonthlyCostCents([], MONTH)).toBe(0);
+  });
+});
+
+const sinking = (amountCents: number, repeatIntervalMonths: number): TargetData => ({
+  type: "sinking",
+  amountCents,
+  targetDate: null,
+  repeatIntervalMonths,
+});
+
+describe("sinking targets", () => {
+  it("ask nothing from Ready to Assign themselves (funded by hand from the Sinking Fund)", () => {
+    expect(targetNeedCents(sinking(2_000_00, 12), MONTH, 0, 0)).toBe(0);
+  });
+
+  it("contribute amount ÷ cycle to the Sinking Fund, rounded up", () => {
+    expect(sinkingMonthlyContributionCents(sinking(2_000_00, 12))).toBe(166_67);
+    expect(sinkingMonthlyContributionCents(sinking(400_00, 12))).toBe(33_34);
+    expect(sinkingMonthlyContributionCents(sinking(600_00, 6))).toBe(100_00);
+  });
+
+  it("contribute nothing for a non-sinking target", () => {
+    const setAside: TargetData = {
+      type: "set_aside",
+      amountCents: 100_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(sinkingMonthlyContributionCents(setAside)).toBe(0);
+  });
+
+  it("cost the same monthly share toward planned income", () => {
+    expect(targetMonthlyCostCents(sinking(2_000_00, 12), MONTH)).toBe(166_67);
+  });
+});
+
+describe("deriveSinkingFundTarget", () => {
+  it("is a monthly set-aside of every sinking target's share combined", () => {
+    // X = $2,000/yr and Y = $1,200/yr → (X + Y) / 12 = $266.67/mo.
+    expect(deriveSinkingFundTarget([sinking(2_000_00, 12), sinking(1_200_00, 12)])).toEqual({
+      type: "set_aside",
+      amountCents: 166_67 + 100_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    });
+  });
+
+  it("mixes cycle lengths", () => {
+    expect(deriveSinkingFundTarget([sinking(1_200_00, 12), sinking(300_00, 3)])?.amountCents).toBe(
+      100_00 + 100_00,
+    );
+  });
+
+  it("ignores non-sinking targets and is null when there are none", () => {
+    const byDate: TargetData = {
+      type: "by_date",
+      amountCents: 400_00,
+      targetDate: "2026-12-01",
+      repeatIntervalMonths: 12,
+    };
+    expect(deriveSinkingFundTarget([byDate])).toBeNull();
+    expect(deriveSinkingFundTarget([])).toBeNull();
+  });
+});
+
+describe("withDerivedSinkingFundTarget", () => {
+  const groups: RawGroup[] = [
+    {
+      id: "g-fund",
+      name: "Sinking Funds",
+      budget_mode: "category",
+      is_pinned: false,
+      sort_index: 0,
+      categories: [
+        { id: "fund", name: "Sinking Fund", role: "sinking_fund", is_pinned: false, is_hidden: false, sort_index: 0 },
+        { id: "vacation", name: "Vacation", role: null, is_pinned: false, is_hidden: false, sort_index: 1 },
+      ],
+    },
+  ];
+  const stored: TargetData = {
+    type: "set_aside",
+    amountCents: 999_00,
+    targetDate: null,
+    repeatIntervalMonths: null,
+  };
+
+  it("replaces anything stored on the Sinking Fund with the derived target, counting group targets too", () => {
+    const result = withDerivedSinkingFundTarget(
+      groups,
+      { fund: stored, vacation: sinking(1_200_00, 12) },
+      { "g-trips": sinking(600_00, 6) },
+    );
+    expect(result.fund?.amountCents).toBe(100_00 + 100_00);
+    expect(result.vacation).toEqual(sinking(1_200_00, 12));
+  });
+
+  it("removes the Sinking Fund's target when there are no sinking targets", () => {
+    expect(withDerivedSinkingFundTarget(groups, { fund: stored }, {})).toEqual({});
+  });
+
+  it("leaves targets untouched when there's no Sinking Fund category", () => {
+    const targets = { vacation: sinking(1_200_00, 12) };
+    expect(withDerivedSinkingFundTarget([], targets, {})).toBe(targets);
   });
 });

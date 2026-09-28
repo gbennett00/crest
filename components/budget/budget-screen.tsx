@@ -509,6 +509,9 @@ function CategoryRow({
   const underfunded =
     isCC && paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents) > 0;
   const overspent = isCategoryBudget && cat.availableCents < 0;
+  // The Sinking Fund's target is derived from every sinking target (see
+  // deriveSinkingFundTarget), so it isn't editable here.
+  const canEditTarget = isCategoryBudget && cat.role !== "sinking_fund";
 
   function handleRowClick() {
     if (renaming) return;
@@ -553,13 +556,13 @@ function CategoryRow({
           <div onClick={(e) => e.stopPropagation()} className="shrink-0">
             <RowMenu
               onRename={() => setRenaming(true)}
-              onEditTarget={isCategoryBudget ? () => setTargetOpen(true) : undefined}
+              onEditTarget={canEditTarget ? () => setTargetOpen(true) : undefined}
               hasTarget={!!cat.target}
-              showTarget={isCategoryBudget}
+              showTarget={canEditTarget}
             />
           </div>
         )}
-        {isCategoryBudget && (
+        {canEditTarget && (
           <span onClick={(e) => e.stopPropagation()}>
             <TargetButton
               entityId={cat.id}

@@ -13,6 +13,7 @@ import {
   computePaymentCategoryActivity,
   computeRtaBreakdown,
   findReadyToAssignId,
+  withDerivedSinkingFundTarget,
   type CreditTxn,
   type HistoryRow,
   type MonthlyCents,
@@ -218,7 +219,9 @@ export async function loadBudgetView(
       categoryGroup,
     });
 
-  const { catTargets, grpTargets } = buildTargets(targetsRes.data);
+  const built = buildTargets(targetsRes.data);
+  const grpTargets = built.grpTargets;
+  const catTargets = withDerivedSinkingFundTarget(groups, built.catTargets, grpTargets);
 
   const { groups: budgetGroups, priorCashOverspendCents, previousMonthCashOverspendCents } =
     buildBudgetGroups({

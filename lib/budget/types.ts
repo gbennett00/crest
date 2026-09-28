@@ -5,13 +5,19 @@
 // and client components can import them without crossing the server/client
 // boundary.
 
+export type TargetType = "fill_up_to" | "set_aside" | "by_date" | "sinking";
+
 export type TargetData = {
-  type: "fill_up_to" | "set_aside" | "by_date";
+  // `sinking`: need `amountCents` at the start of every cycle, funded by hand
+  // from the shared Sinking Fund category, which accrues its monthly share
+  // (see deriveSinkingFundTarget). Asks for nothing from Ready to Assign
+  // itself, and has no targetDate.
+  type: TargetType;
   amountCents: number;
   targetDate: string | null;
-  // For `by_date` targets only: recur every N months, rolling `targetDate`
-  // forward to its next occurrence on read (see effectiveTargetDate). Null
-  // for a one-shot by_date target and for fill_up_to/set_aside.
+  // `by_date`: recur every N months, rolling `targetDate` forward to its next
+  // occurrence on read (see effectiveTargetDate); null for a one-shot target.
+  // `sinking`: the cycle length (always set). Null for fill_up_to/set_aside.
   repeatIntervalMonths: number | null;
 };
 

@@ -22,5 +22,4 @@ export {
   targetMonthlyCostCents,
   targetNeedCents,
   totalTargetMonthlyCostCents,
-  totalTargetNeedCents,
 } from "./compute";

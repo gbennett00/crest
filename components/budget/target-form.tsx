@@ -9,16 +9,16 @@ import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { upsertTarget, deleteTarget } from "@/app/(app)/budget/actions";
+import { TARGET_REPEAT_INTERVALS, repeatIntervalLabel } from "@/lib/budget/compute";
+import type { TargetData, TargetType } from "@/lib/budget/types";
 import { Target, X } from "lucide-react";
 
-type TargetType = "fill_up_to" | "set_aside" | "by_date";
-
-const REPEAT_PRESETS = [
-  { label: "Doesn't repeat", value: null },
-  { label: "Every 3 months", value: 3 },
-  { label: "Every 6 months", value: 6 },
-  { label: "Every 12 months", value: 12 },
-] as const;
+const TYPE_LABELS: Record<TargetType, string> = {
+  fill_up_to: "Fill up to",
+  set_aside: "Set aside",
+  by_date: "By date",
+  sinking: "Sinking fund",
+};
 
 export function TargetButton({
   entityId,
@@ -30,12 +30,7 @@ export function TargetButton({
 }: {
   entityId: string;
   entityType: "category" | "group";
-  existingTarget?: {
-    type: TargetType;
-    amountCents: number;
-    targetDate: string | null;
-    repeatIntervalMonths: number | null;
-  } | null;
+  existingTarget?: TargetData | null;
   // Controlled mode: when `open`/`onOpenChange` are supplied (e.g. opened from a
   // row's three-dot menu), the internal trigger can be hidden with showTrigger=false.
   open?: boolean;
@@ -52,6 +47,16 @@ export function TargetButton({
   const [repeatIntervalMonths, setRepeatIntervalMonths] = useState<number | null>(
     existingTarget?.repeatIntervalMonths ?? null,
   );
+  // A sinking target always has a cycle; by_date may also "not repeat".
+  const intervalChoices: (number | null)[] = [
+    ...(type === "by_date" ? [null] : []),
+    ...TARGET_REPEAT_INTERVALS,
+    // Keep an interval set elsewhere visible even if it isn't offered here.
+    ...(repeatIntervalMonths !== null &&
+    !(TARGET_REPEAT_INTERVALS as readonly number[]).includes(repeatIntervalMonths)
+      ? [repeatIntervalMonths]
+      : []),
+  ];
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -69,6 +74,8 @@ export function TargetButton({
       setError("Target date is required");
       return;
     }
+    const interval =
+      type === "sinking" ? (repeatIntervalMonths ?? 12) : type === "by_date" ? repeatIntervalMonths : null;
 
     startTransition(async () => {
       const result = await upsertTarget(
@@ -77,7 +84,7 @@ export function TargetButton({
         type,
         amountCents,
         targetDate,
-        type === "by_date" ? repeatIntervalMonths : null,
+        interval,
       );
       if (result?.error) {
         setError(result.error);
@@ -131,7 +138,7 @@ export function TargetButton({
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Type</Label>
             <div className="flex gap-1 flex-wrap">
-              {(["fill_up_to", "set_aside", "by_date"] as TargetType[]).map((t) => (
+              {(Object.keys(TYPE_LABELS) as TargetType[]).map((t) => (
                 <button
                   key={t}
                   type="button"
@@ -143,7 +150,7 @@ export function TargetButton({
                       : "border-input bg-background hover:bg-muted",
                   )}
                 >
-                  {t === "fill_up_to" ? "Fill up to" : t === "set_aside" ? "Set aside" : "By date"}
+                  {TYPE_LABELS[t]}
                 </button>
               ))}
             </div>
@@ -151,7 +158,9 @@ export function TargetButton({
 
           {/* Amount */}
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Amount</Label>
+            <Label className="text-xs text-muted-foreground">
+              {type === "sinking" ? "Amount needed each cycle" : "Amount"}
+            </Label>
             <div className="relative">
               <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
               <CurrencyInput
@@ -180,28 +189,40 @@ export function TargetButton({
           )}
 
           {/* Repeat cadence, e.g. car insurance every 6 months, Christmas
-              every 12 months. The due date above rolls forward to its next
+              every 12 months. A by_date due date rolls forward to its next
               occurrence automatically once it's passed. */}
-          {type === "by_date" && (
+          {(type === "by_date" || type === "sinking") && (
             <div className="space-y-1">
               <Label className="text-xs text-muted-foreground">Repeats</Label>
               <div className="flex gap-1 flex-wrap">
-                {REPEAT_PRESETS.map((preset) => (
-                  <button
-                    key={preset.label}
-                    type="button"
-                    onClick={() => setRepeatIntervalMonths(preset.value)}
-                    className={cn(
-                      "px-2 py-1 rounded text-xs border transition-colors",
-                      repeatIntervalMonths === preset.value
-                        ? "bg-primary text-primary-foreground border-primary"
-                        : "border-input bg-background hover:bg-muted",
-                    )}
-                  >
-                    {preset.label}
-                  </button>
-                ))}
+                {intervalChoices.map((value) => {
+                  const selected =
+                    type === "sinking"
+                      ? (repeatIntervalMonths ?? 12) === value
+                      : repeatIntervalMonths === value;
+                  return (
+                    <button
+                      key={value ?? "none"}
+                      type="button"
+                      onClick={() => setRepeatIntervalMonths(value)}
+                      className={cn(
+                        "px-2 py-1 rounded text-xs border transition-colors",
+                        selected
+                          ? "bg-primary text-primary-foreground border-primary"
+                          : "border-input bg-background hover:bg-muted",
+                      )}
+                    >
+                      {value === null ? "Doesn't repeat" : repeatIntervalLabel(value)}
+                    </button>
+                  );
+                })}
               </div>
+              {type === "sinking" && (
+                <p className="text-[11px] text-muted-foreground">
+                  Adds this amount ÷ the cycle to the Sinking Fund&rsquo;s target every month.
+                  Moving the money into this category is up to you.
+                </p>
+              )}
             </div>
           )}
 

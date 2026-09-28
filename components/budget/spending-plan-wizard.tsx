@@ -18,6 +18,10 @@ import {
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
   computePlannedIncomeCents,
+  effectiveTargetDate,
+  repeatIntervalLabel,
+  sinkingMonthlyContributionCents,
+  TARGET_REPEAT_INTERVALS,
   targetMonthlyCostCents,
   totalTargetMonthlyCostCents,
 } from "@/lib/budget/compute";
@@ -27,9 +31,11 @@ import type { BudgetData, TargetData } from "@/lib/budget/types";
 // Guided flow that recreates a spreadsheet-style annual budget plan inside
 // Crest: a list of income sources (informational only — see
 // docs/budgeting-app-architecture.md, never feeds Ready to Assign) and a list
-// of expense lines, each of which becomes a real category + target. Named
-// "Spending Plan" (not "plan") to avoid colliding with the app's existing
-// `plans` workspace concept.
+// of expense lines, each of which is a real category + target. It opens
+// pre-loaded with every existing target (except one-time "by date" ones), so
+// it edits the whole plan: removing a pre-loaded line deletes that target.
+// Named "Spending Plan" (not "plan") to avoid colliding with the app's
+// existing `plans` workspace concept.
 
 type IncomeSourceDraft = {
   uid: string;
@@ -38,7 +44,12 @@ type IncomeSourceDraft = {
   monthlyAmountCents: number;
 };
 
-type Cadence = "monthly" | "everyN" | "yearly";
+// "monthly": set aside / fill up to an amount every month. "recurring": an
+// amount every `intervalMonths`, either saved up in the category by a due
+// date, or (sinking) needed at the start of each cycle and funded by hand
+// from the shared Sinking Fund.
+type Cadence = "monthly" | "recurring";
+type RecurringKind = "by_date" | "sinking";
 
 // A selectable existing target: either a category (in a category-budgeted
 // group) or a whole group (in a group-budgeted group — see GROUP BUDGETING
@@ -65,11 +76,11 @@ type ExpenseLineDraft = {
   newGroupName: string;
   newGroupBudgetMode: "category" | "group";
   cadence: Cadence;
-  everyNMonths: number;
+  intervalMonths: number;
+  recurringKind: RecurringKind;
   amountCents: number;
   targetType: "fill_up_to" | "set_aside";
   targetDate: string;
-  fundInFullNow: boolean;
 };
 
 let uidCounter = 0;
@@ -82,12 +93,6 @@ function emptyIncomeSource(): IncomeSourceDraft {
   return { uid: nextUid(), name: "", monthlyAmountCents: 0 };
 }
 
-function defaultTargetDate(monthsOut: number): string {
-  const d = new Date();
-  d.setMonth(d.getMonth() + monthsOut);
-  return d.toISOString().slice(0, 10);
-}
-
 function emptyExpenseLine(): ExpenseLineDraft {
   return {
     uid: nextUid(),
@@ -98,15 +103,15 @@ function emptyExpenseLine(): ExpenseLineDraft {
     newGroupName: "",
     newGroupBudgetMode: "category",
     cadence: "monthly",
-    everyNMonths: 6,
+    intervalMonths: 12,
+    recurringKind: "by_date",
     amountCents: 0,
     targetType: "set_aside",
-    targetDate: defaultTargetDate(6),
-    fundInFullNow: false,
+    targetDate: "",
   };
 }
 
-/** The TargetData this line would produce, for local need/leftover math. */
+/** The target this line saves as. */
 function draftTargetData(line: ExpenseLineDraft): TargetData {
   if (line.cadence === "monthly") {
     return {
@@ -116,11 +121,53 @@ function draftTargetData(line: ExpenseLineDraft): TargetData {
       repeatIntervalMonths: null,
     };
   }
+  if (line.recurringKind === "sinking") {
+    return {
+      type: "sinking",
+      amountCents: line.amountCents,
+      targetDate: null,
+      repeatIntervalMonths: line.intervalMonths,
+    };
+  }
   return {
     type: "by_date",
     amountCents: line.amountCents,
-    targetDate: line.targetDate || defaultTargetDate(line.cadence === "yearly" ? 12 : line.everyNMonths),
-    repeatIntervalMonths: line.cadence === "yearly" ? 12 : line.everyNMonths,
+    targetDate: line.targetDate || null,
+    repeatIntervalMonths: line.intervalMonths,
+  };
+}
+
+/**
+ * An existing target as a pre-loaded line, or null for a one-time "by date"
+ * target (left out of the wizard, which plans recurring commitments). A
+ * recurring due date is shown as its next occurrence.
+ */
+function targetToLine(entityId: string, target: TargetData, month: string): ExpenseLineDraft | null {
+  const base: ExpenseLineDraft = {
+    ...emptyExpenseLine(),
+    existingCategoryId: entityId,
+    amountCents: target.amountCents,
+  };
+  if (target.type === "set_aside" || target.type === "fill_up_to") {
+    return { ...base, cadence: "monthly", targetType: target.type };
+  }
+  if (!target.repeatIntervalMonths) return null;
+  if (target.type === "sinking") {
+    return {
+      ...base,
+      cadence: "recurring",
+      recurringKind: "sinking",
+      intervalMonths: target.repeatIntervalMonths,
+    };
+  }
+  return {
+    ...base,
+    cadence: "recurring",
+    recurringKind: "by_date",
+    intervalMonths: target.repeatIntervalMonths,
+    targetDate: target.targetDate
+      ? effectiveTargetDate(target.targetDate, target.repeatIntervalMonths, month)
+      : "",
   };
 }
 
@@ -133,7 +180,8 @@ function lineError(line: ExpenseLineDraft): string | null {
       return "Group name is required";
   }
   if (line.amountCents <= 0) return "Enter an amount";
-  if (line.cadence !== "monthly" && !line.targetDate) return "Due date is required";
+  if (line.cadence === "recurring" && line.recurringKind === "by_date" && !line.targetDate)
+    return "Due date is required";
   return null;
 }
 
@@ -157,16 +205,7 @@ function toServerLine(line: ExpenseLineDraft): SpendingPlanExpenseLineInput {
     amountCents: target.amountCents,
     targetDate: target.targetDate,
     repeatIntervalMonths: target.repeatIntervalMonths,
-    fundInFullNow: line.fundInFullNow,
   };
-}
-
-/** Normalized monthly-equivalent cost, so lines on different cadences can be
- * compared/summed at a glance in the summary row. */
-function lineMonthlyEquivalentCents(line: ExpenseLineDraft): number {
-  if (line.cadence === "monthly") return line.amountCents;
-  const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
-  return Math.round(line.amountCents / intervalMonths);
 }
 
 /** The category/group (and, for a not-yet-created one, its group) this line
@@ -274,6 +313,52 @@ function availableCategoriesFor(
   });
 }
 
+/**
+ * What a target can attach to: a group-budgeted group itself (never its
+ * individual categories — see GROUP BUDGETING RULES), or a category in a
+ * category-budgeted group. System categories (Ready to Assign, the Sinking
+ * Fund) and credit card payment categories — whose available is derived from
+ * the card's register (see CREDIT CARD LOGIC) — are never offered.
+ */
+function buildCategoryOptions(data: BudgetData): PickableTarget[] {
+  return data.groups.flatMap((g): PickableTarget[] => {
+    if (g.budgetMode === "group") {
+      return [{ id: g.id, name: g.name, groupName: "Group budget", kind: "group" }];
+    }
+    return g.categories
+      .filter((c) => c.role === null && !c.isPaymentCategory)
+      .map((c) => ({ id: c.id, name: c.name, groupName: g.name, kind: "category" }));
+  });
+}
+
+/** Every existing target the wizard edits, as lines, plus the entities they
+ * came from (so a line the user deletes can have its target removed). */
+function buildInitialLines(data: BudgetData): {
+  lines: ExpenseLineDraft[];
+  preloaded: { key: string; type: "category" | "group"; id: string }[];
+} {
+  const targetById = new Map<string, TargetData>();
+  for (const g of data.groups) {
+    if (g.target) targetById.set(g.id, g.target);
+    for (const c of g.categories) if (c.target) targetById.set(c.id, c.target);
+  }
+
+  const lines: ExpenseLineDraft[] = [];
+  const preloaded: { key: string; type: "category" | "group"; id: string }[] = [];
+  for (const option of buildCategoryOptions(data)) {
+    const target = targetById.get(option.id);
+    const line = target ? targetToLine(option.id, target, data.month) : null;
+    if (!line) continue;
+    lines.push(line);
+    preloaded.push({
+      key: `${option.kind === "group" ? "g" : "c"}:${option.id}`,
+      type: option.kind,
+      id: option.id,
+    });
+  }
+  return { lines, preloaded };
+}
+
 function selectClass() {
   return cn(
     "w-full rounded-md border border-input bg-background px-2 py-1.5 text-sm h-9",
@@ -338,12 +423,16 @@ export function SpendingPlanWizard({
   const [step, setStep] = useState<"income" | "expenses" | "review">("income");
   const [incomeSources, setIncomeSources] = useState<IncomeSourceDraft[]>([]);
   const [loadingIncome, setLoadingIncome] = useState(true);
-  const [expenseLines, setExpenseLines] = useState<ExpenseLineDraft[]>([emptyExpenseLine()]);
+  const [initial] = useState(() => {
+    const built = buildInitialLines(data);
+    return built.lines.length ? built : { ...built, lines: [emptyExpenseLine()] };
+  });
+  const [expenseLines, setExpenseLines] = useState<ExpenseLineDraft[]>(initial.lines);
   // The one expense line currently showing its full edit form; every other
   // line shows as a compact summary row so the whole plan stays scannable at
-  // once, the way a spreadsheet would. Starts open on the first (empty) line.
-  const [editingLineUid, setEditingLineUid] = useState<string | null>(
-    () => expenseLines[0]?.uid ?? null,
+  // once, the way a spreadsheet would. Starts open only on a lone blank line.
+  const [editingLineUid, setEditingLineUid] = useState<string | null>(() =>
+    initial.preloaded.length ? null : (initial.lines[0]?.uid ?? null),
   );
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -389,29 +478,26 @@ export function SpendingPlanWizard({
     setEditingLineUid(line.uid);
   }
 
-  // A group-budgeted group's individual categories can't independently hold a
-  // target (see GROUP BUDGETING RULES) — offer the group itself instead of
-  // its members, matching exactly what a target can attach to. Credit card
-  // payment categories are excluded entirely: their available is derived
-  // from the card's register (see CREDIT CARD LOGIC), never a manual target.
-  const categoryOptions: PickableTarget[] = data.groups.flatMap((g): PickableTarget[] => {
-    if (g.budgetMode === "group") {
-      return [{ id: g.id, name: g.name, groupName: "Group budget", kind: "group" }];
-    }
-    return g.categories
-      .filter((c) => c.role === null && !c.isPaymentCategory)
-      .map((c) => ({ id: c.id, name: c.name, groupName: g.name, kind: "category" }));
-  });
+  const categoryOptions = buildCategoryOptions(data);
 
-  // Existing budget entries not touched by a line in this run, so the review
-  // total doesn't double-count a target this wizard is about to replace.
-  const touchedKeys = new Set(
-    expenseLines
-      .filter((l) => l.categoryChoice === "existing" && l.existingCategoryId)
-      .map((l) => resolveEntityKey(data, l.existingCategoryId))
-      .filter((k): k is string => !!k),
+  // Targets on the page but not in this wizard's lines: one-time "by date"
+  // targets and anything not offered in the picker. Excluded: entries that
+  // are (or were pre-loaded as) lines — their cost comes from the lines, or
+  // they're about to be deleted — and the Sinking Fund, whose derived target
+  // is already counted as each sinking line's monthly share.
+  const lineKeys = new Set(
+    expenseLines.map((l) => lineEntityKey(l, data)).filter((k): k is string => !!k),
   );
-  const baseEntries = buildBudgetEntries(data).filter((e) => !touchedKeys.has(e.key));
+  const preloadedKeys = new Set(initial.preloaded.map((p) => p.key));
+  const sinkingFundKeys = new Set(
+    data.groups
+      .flatMap((g) => g.categories)
+      .filter((c) => c.role === "sinking_fund")
+      .map((c) => `c:${c.id}`),
+  );
+  const baseEntries = buildBudgetEntries(data).filter(
+    (e) => !lineKeys.has(e.key) && !preloadedKeys.has(e.key) && !sinkingFundKeys.has(e.key),
+  );
   // Steady-state monthly cost, not "how much more to assign this month" —
   // this must stay the same whether a category already has this month's
   // assignment done or not (see targetMonthlyCostCents).
@@ -421,22 +507,17 @@ export function SpendingPlanWizard({
   );
 
   const validLines = expenseLines.filter((l) => !computeLineError(l, expenseLines, data));
-  const lineNeedCents = validLines.reduce((sum, line) => {
-    if (line.fundInFullNow) {
-      // The spending category gets no ongoing target in this mode (see
-      // applySpendingPlan) — the monthly need is a flat contribution to the
-      // shared Sinking Fund category instead.
-      const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
-      return sum + Math.round(line.amountCents / intervalMonths);
-    }
-    return sum + targetMonthlyCostCents(draftTargetData(line), data.month);
-  }, 0);
+  const lineNeedCents = validLines.reduce(
+    (sum, line) => sum + targetMonthlyCostCents(draftTargetData(line), data.month),
+    0,
+  );
+  const sinkingFundMonthlyCents = validLines.reduce(
+    (sum, line) => sum + sinkingMonthlyContributionCents(draftTargetData(line)),
+    0,
+  );
 
   const totalNeedCents = baseNeedCents + lineNeedCents;
   const leftoverCents = plannedIncomeCents - totalNeedCents;
-  const frontLoadCents = validLines
-    .filter((l) => l.fundInFullNow)
-    .reduce((sum, l) => sum + l.amountCents, 0);
 
   function handleSubmit() {
     setError(null);
@@ -446,13 +527,19 @@ export function SpendingPlanWizard({
       return;
     }
 
+    // Pre-loaded targets no line points at any more (deleted, or moved to a
+    // different category) are removed.
+    const removeTargets = initial.preloaded
+      .filter((p) => !lineKeys.has(p.key))
+      .map(({ type, id }) => ({ type, id }));
+
     startTransition(async () => {
       const result = await applySpendingPlan({
         incomeSources: incomeSources
           .filter((s) => s.name.trim())
           .map((s) => ({ id: s.id, name: s.name.trim(), monthlyAmountCents: s.monthlyAmountCents })),
         expenseLines: expenseLines.map(toServerLine),
-        month: data.month,
+        removeTargets,
       });
       if (result?.error) {
         setError(result.error);
@@ -545,6 +632,9 @@ export function SpendingPlanWizard({
           <div className="space-y-4">
             <div className="rounded-lg border overflow-hidden">
               <div className="max-h-[65vh] overflow-y-auto divide-y">
+                {expenseLines.length === 0 && (
+                  <p className="px-3 py-3 text-sm text-muted-foreground">No expenses yet.</p>
+                )}
                 {expenseLines.map((line, i) => {
                   const err = computeLineError(line, expenseLines, data);
                   return editingLineUid === line.uid ? (
@@ -556,7 +646,7 @@ export function SpendingPlanWizard({
                       categoryOptions={availableCategoriesFor(line, expenseLines, data, categoryOptions)}
                       err={err}
                       onChange={(patch) => updateLine(line.uid, patch)}
-                      onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
+                      onRemove={() => removeLine(line.uid)}
                       onDone={() => setEditingLineUid(null)}
                     />
                   ) : (
@@ -567,9 +657,10 @@ export function SpendingPlanWizard({
                       categoryOptions={categoryOptions}
                       groups={data.groups}
                       err={err}
+                      monthlyCents={targetMonthlyCostCents(draftTargetData(line), data.month)}
                       formatCents={formatCents}
                       onEdit={() => setEditingLineUid(line.uid)}
-                      onRemove={expenseLines.length > 1 ? () => removeLine(line.uid) : undefined}
+                      onRemove={() => removeLine(line.uid)}
                     />
                   );
                 })}
@@ -619,21 +710,10 @@ export function SpendingPlanWizard({
               )}
             </div>
 
-            {frontLoadCents > 0 && (
-              <div className="space-y-1 text-sm border-t pt-3">
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">Assigned right now (fund in full)</span>
-                  <span>{formatCents(frontLoadCents)}</span>
-                </div>
-                <div className="flex justify-between text-xs text-muted-foreground">
-                  <span>Current Ready to Assign</span>
-                  <span>{formatCents(data.rtaAvailableCents)}</span>
-                </div>
-                {frontLoadCents > data.rtaAvailableCents && (
-                  <p className="text-xs text-amber-600 dark:text-amber-500">
-                    This is more than you currently have in Ready to Assign.
-                  </p>
-                )}
+            {sinkingFundMonthlyCents > 0 && (
+              <div className="flex justify-between text-sm border-t pt-3">
+                <span className="text-muted-foreground">Sinking Fund target</span>
+                <span>{formatCents(sinkingFundMonthlyCents)}/mo</span>
               </div>
             )}
 
@@ -644,7 +724,7 @@ export function SpendingPlanWizard({
                 Back
               </Button>
               <Button type="button" onClick={handleSubmit} disabled={isPending}>
-                {isPending ? "Creating…" : "Create plan"}
+                {isPending ? "Saving…" : "Save plan"}
               </Button>
             </div>
           </div>
@@ -670,10 +750,26 @@ function ExpenseLineEditor({
   categoryOptions: PickableTarget[];
   err: string | null;
   onChange: (patch: Partial<ExpenseLineDraft>) => void;
-  onRemove?: () => void;
+  onRemove: () => void;
   onDone: () => void;
 }) {
   const [showError, setShowError] = useState(false);
+
+  // Monthly, then each offered interval — plus this line's own interval if it
+  // came from a target set to one that isn't offered, so it isn't lost.
+  const intervals: number[] = [...TARGET_REPEAT_INTERVALS];
+  if (line.cadence === "recurring" && !intervals.includes(line.intervalMonths)) {
+    intervals.push(line.intervalMonths);
+  }
+  const cadenceChoices = [
+    { key: "monthly", label: "Monthly", intervalMonths: null, selected: line.cadence === "monthly" },
+    ...intervals.map((n) => ({
+      key: String(n),
+      label: repeatIntervalLabel(n),
+      intervalMonths: n,
+      selected: line.cadence === "recurring" && line.intervalMonths === n,
+    })),
+  ];
 
   function handleSave() {
     if (err) {
@@ -687,16 +783,14 @@ function ExpenseLineEditor({
     <div className="bg-muted/30 p-3 space-y-2.5">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium text-muted-foreground">Expense {index + 1}</span>
-        {onRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="text-muted-foreground hover:text-destructive"
-            aria-label="Remove expense line"
-          >
-            <Trash2 size={14} />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-muted-foreground hover:text-destructive"
+          aria-label="Remove expense line"
+        >
+          <Trash2 size={14} />
+        </button>
       </div>
 
       <div className="space-y-1">
@@ -775,62 +869,44 @@ function ExpenseLineEditor({
 
       <div className="space-y-1">
         <Label className="text-xs text-muted-foreground">How often</Label>
-        <div className="flex gap-1">
-          {(
-            [
-              ["monthly", "Monthly"],
-              ["everyN", "Every N months"],
-              ["yearly", "Yearly"],
-            ] as const
-          ).map(([value, label]) => (
+        <div className="flex gap-1 flex-wrap">
+          {cadenceChoices.map((choice) => (
             <button
-              key={value}
+              key={choice.key}
               type="button"
-              onClick={() => onChange({ cadence: value })}
+              onClick={() =>
+                onChange(
+                  choice.intervalMonths === null
+                    ? { cadence: "monthly" }
+                    : { cadence: "recurring", intervalMonths: choice.intervalMonths },
+                )
+              }
               className={cn(
                 "px-2 py-1 rounded text-xs border transition-colors",
-                line.cadence === value
+                choice.selected
                   ? "bg-primary text-primary-foreground border-primary"
                   : "border-input bg-background hover:bg-muted",
               )}
             >
-              {label}
+              {choice.label}
             </button>
           ))}
         </div>
       </div>
 
-      <div className="flex items-end gap-2">
-        <div className="space-y-1 flex-1">
-          <Label className="text-xs text-muted-foreground">
-            {line.cadence === "monthly"
-              ? "$ per month"
-              : line.cadence === "everyN"
-                ? `$ every ${line.everyNMonths} months`
-                : "$ per year"}
-          </Label>
-          <DecimalAmountInput
-            cents={line.amountCents}
-            onCentsChange={(c) => onChange({ amountCents: c })}
-            className="h-9 text-sm"
-          />
-        </div>
-        {line.cadence === "everyN" && (
-          <div className="space-y-1 w-24">
-            <Label className="text-xs text-muted-foreground">Every</Label>
-            <select
-              className={selectClass()}
-              value={line.everyNMonths}
-              onChange={(e) => onChange({ everyNMonths: Number(e.target.value) })}
-            >
-              {[2, 3, 4, 6].map((n) => (
-                <option key={n} value={n}>
-                  {n} mo
-                </option>
-              ))}
-            </select>
-          </div>
-        )}
+      <div className="space-y-1">
+        <Label className="text-xs text-muted-foreground">
+          {line.cadence === "monthly"
+            ? "$ per month"
+            : line.intervalMonths === 12
+              ? "$ per year"
+              : `$ every ${line.intervalMonths} months`}
+        </Label>
+        <DecimalAmountInput
+          cents={line.amountCents}
+          onCentsChange={(c) => onChange({ amountCents: c })}
+          className="h-9 text-sm"
+        />
       </div>
 
       {line.cadence === "monthly" ? (
@@ -857,31 +933,42 @@ function ExpenseLineEditor({
       ) : (
         <>
           <div className="space-y-1">
-            <Label className="text-xs text-muted-foreground">Next due date</Label>
-            <Input
-              type="date"
-              value={line.targetDate}
-              onChange={(e) => onChange({ targetDate: e.target.value })}
-              className="h-9 text-sm block w-full appearance-none"
-            />
+            <Label className="text-xs text-muted-foreground">Funding</Label>
+            <div className="flex gap-1">
+              {(["by_date", "sinking"] as const).map((kind) => (
+                <button
+                  key={kind}
+                  type="button"
+                  onClick={() => onChange({ recurringKind: kind })}
+                  className={cn(
+                    "px-2 py-1 rounded text-xs border transition-colors",
+                    line.recurringKind === kind
+                      ? "bg-primary text-primary-foreground border-primary"
+                      : "border-input bg-background hover:bg-muted",
+                  )}
+                >
+                  {kind === "by_date" ? "Save up by a due date" : "Sinking fund"}
+                </button>
+              ))}
+            </div>
           </div>
-          <label className="flex items-start gap-2 text-xs cursor-pointer">
-            <input
-              type="checkbox"
-              checked={line.fundInFullNow}
-              onChange={(e) => onChange({ fundInFullNow: e.target.checked })}
-              className="mt-0.5"
-            />
-            <span className="text-muted-foreground">
-              Fund this category in full now (assigns the whole amount this month from
-              Ready to Assign, e.g. a vacation fund you draw from all year — replaces any
-              existing assignment for this category this month). This category won&rsquo;t
-              get its own ongoing target; instead the monthly amount needed to rebuild it
-              accumulates in a shared &ldquo;Sinking Fund&rdquo; category, which you move
-              back into this one by hand at each renewal. Leave unchecked to build up to
-              the amount gradually in this category instead (e.g. Christmas).
-            </span>
-          </label>
+          {line.recurringKind === "by_date" ? (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Next due date</Label>
+              <Input
+                type="date"
+                value={line.targetDate}
+                onChange={(e) => onChange({ targetDate: e.target.value })}
+                className="h-9 text-sm block w-full appearance-none"
+              />
+            </div>
+          ) : (
+            <p className="text-xs text-muted-foreground">
+              You need the full amount at the start of each cycle. The Sinking Fund&rsquo;s
+              target goes up by this amount ÷ {line.intervalMonths} each month; moving money
+              into this category is up to you.
+            </p>
+          )}
         </>
       )}
 
@@ -905,6 +992,7 @@ function ExpenseLineSummary({
   categoryOptions,
   groups,
   err,
+  monthlyCents,
   formatCents,
   onEdit,
   onRemove,
@@ -914,12 +1002,12 @@ function ExpenseLineSummary({
   categoryOptions: PickableTarget[];
   groups: BudgetData["groups"];
   err: string | null;
+  monthlyCents: number;
   formatCents: (cents: number) => string;
   onEdit: () => void;
-  onRemove?: () => void;
+  onRemove: () => void;
 }) {
   const { name, groupName } = lineCategoryLabel(line, categoryOptions, groups);
-  const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
 
   return (
     <div className="px-3 py-1.5 flex items-center gap-2 hover:bg-muted/40">
@@ -938,13 +1026,14 @@ function ExpenseLineSummary({
           <span className="text-xs text-destructive">{err}</span>
         ) : (
           <>
-            {line.cadence !== "monthly" && (
+            {line.cadence === "recurring" && (
               <span className="text-[10px] leading-none text-muted-foreground bg-muted rounded px-1.5 py-1 tabular-nums whitespace-nowrap">
-                {formatCents(line.amountCents)}/{intervalMonths}mo
+                {formatCents(line.amountCents)}/{line.intervalMonths}mo
+                {line.recurringKind === "sinking" && " · sinking fund"}
               </span>
             )}
             <span className="text-sm tabular-nums text-right shrink-0">
-              {formatCents(lineMonthlyEquivalentCents(line))}/mo
+              {formatCents(monthlyCents)}/mo
             </span>
           </>
         )}
@@ -956,16 +1045,14 @@ function ExpenseLineSummary({
         >
           <Pencil size={13} />
         </button>
-        {onRemove && (
-          <button
-            type="button"
-            onClick={onRemove}
-            className="text-muted-foreground hover:text-destructive"
-            aria-label="Remove expense line"
-          >
-            <Trash2 size={13} />
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={onRemove}
+          className="text-muted-foreground hover:text-destructive"
+          aria-label="Remove expense line"
+        >
+          <Trash2 size={13} />
+        </button>
       </div>
     </div>
   );
