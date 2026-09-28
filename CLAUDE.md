@@ -58,11 +58,12 @@ Pure TypeScript business logic — no direct DB calls in the core modules; opera
 - `transaction_allocations` must sum to the parent `transaction.amount_cents` when the transaction is approved (enforced by a deferred constraint trigger)
 - Credit accounts require `payment_category_id`; non-credit accounts must not have one
 - Transfers use the `ledger_create_transfer` SQL function for atomicity
+- Assignments are written only as `budget_moves` rows (via `ledger_set_assigned` / `ledger_move_money`); `monthly_budgets` is a read-only view. Database tests for this live in `supabase/tests/` (`supabase test db`)
 
 ### Domain model summary
 
 - **Ledger** (transactions, transaction_allocations) — historical financial activity
-- **Budget** (monthly_budgets, targets) — allocation decisions; kept strictly separate from ledger
+- **Budget** (budget_moves, targets) — allocation decisions; kept strictly separate from ledger. Assignments are an append-only log of moves; `monthly_budgets` is a view summing it
 - **Ready to Assign** — a system category (`role = 'ready_to_assign'`); exactly one row; inflows are categorized here, then assigned outward to spending categories
 - **Group budgeting** — category groups with `budget_mode = 'group'` are assigned at the group level; individual categories within cannot receive assignments
 - **Credit cards** — each credit account has a payment category; purchases move available from the spending category to the payment category

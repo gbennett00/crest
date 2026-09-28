@@ -66,21 +66,23 @@ export {
   loadAccountBalance,
   loadAccountBalances,
   loadAccountClosureState,
+  moveMoney,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
   reopenAccount,
+  setAssigned,
   syncBankClearedBalance,
   updateTransaction,
-  upsertCategoryBudget,
-  upsertGroupBudget,
   upsertTransaction,
 } from "./operations";
-export { TRACKING_ACCOUNT_TYPES } from "./types";
+export { READY_TO_ASSIGN, TRACKING_ACCOUNT_TYPES } from "./types";
 export type {
   AccountBalance,
   AccountBalanceSummary,
   AccountType,
   AllocationRow,
+  BudgetMoveInput,
+  BudgetUnit,
   BulkUpsertTransactionResult,
   Cents,
   CreateAccountInput,
@@ -90,12 +92,12 @@ export type {
   LinkTransferPairInput,
   ReconciliationCheckInput,
   ReconciliationCheckResult,
+  SetAssignedInput,
   TransactionAllocationInput,
   TransactionAmountLine,
   TransactionRow,
   UpdateTransactionInput,
   UpsertCategoryBudgetInput,
-  UpsertGroupBudgetInput,
   UpsertTransactionInput,
 } from "./types";
 export {

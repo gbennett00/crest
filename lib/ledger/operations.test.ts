@@ -11,13 +11,16 @@ import {
   createTransfer,
   deleteTransactionWithCounterpart,
   linkTransferPair,
+  moveMoney,
   reconcileWithAdjustment,
   reconcileWithRegisterBalance,
   reopenAccount,
+  setAssigned,
   updateTransaction,
   upsertTransaction,
 } from "./operations";
 import { RECONCILIATION_ADJUSTMENT_PAYEE } from "./constants";
+import { READY_TO_ASSIGN } from "./types";
 import type { TransactionRow } from "./types";
 
 // ---------------------------------------------------------------------------
@@ -1215,5 +1218,128 @@ describe("bulkUpsertCategoryBudgets", () => {
         { month: "2026-02-01", category_id: "cat-2", assigned_cents: -1000 },
       ],
     });
+  });
+});
+
+function makeRpcClient(error: { message: string } | null = null) {
+  const rpc = vi.fn().mockResolvedValue({ error });
+  return { client: { from: vi.fn(), rpc } as unknown as SupabaseClient, rpc };
+}
+
+describe("setAssigned", () => {
+  it("resolves without calling the RPC for an empty input", async () => {
+    const { client, rpc } = makeRpcClient();
+    await setAssigned(client, []);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("sends category and group rows in one call", async () => {
+    const { client, rpc } = makeRpcClient();
+
+    await setAssigned(client, [
+      { unit: { type: "category", id: "cat-1" }, month: "2026-09-01", assignedCents: 50000 },
+      { unit: { type: "group", id: "grp-1" }, month: "2026-09-01", assignedCents: -1500 },
+    ]);
+
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("ledger_set_assigned", {
+      p_rows: [
+        { month: "2026-09-01", category_id: "cat-1", assigned_cents: 50000 },
+        { month: "2026-09-01", group_id: "grp-1", assigned_cents: -1500 },
+      ],
+    });
+  });
+
+  it("rejects a month that isn't the first day", async () => {
+    const { client, rpc } = makeRpcClient();
+    await expect(
+      setAssigned(client, [
+        { unit: { type: "category", id: "cat-1" }, month: "2026-09-15", assignedCents: 100 },
+      ]),
+    ).rejects.toMatchObject({ code: "invalid_month" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects non-integer cents", async () => {
+    const { client, rpc } = makeRpcClient();
+    await expect(
+      setAssigned(client, [
+        { unit: { type: "category", id: "cat-1" }, month: "2026-09-01", assignedCents: 10.5 },
+      ]),
+    ).rejects.toThrow();
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("surfaces database errors", async () => {
+    const { client } = makeRpcClient({ message: "boom" });
+    await expect(
+      setAssigned(client, [
+        { unit: { type: "category", id: "cat-1" }, month: "2026-09-01", assignedCents: 100 },
+      ]),
+    ).rejects.toMatchObject({ code: "db_error", message: "boom" });
+  });
+});
+
+describe("moveMoney", () => {
+  it("prefixes unit columns per side and omits Ready to Assign sides", async () => {
+    const { client, rpc } = makeRpcClient();
+
+    await moveMoney(
+      client,
+      [
+        {
+          month: "2026-09-01",
+          from: { type: "category", id: "cat-1" },
+          to: { type: "group", id: "grp-1" },
+          amountCents: 2000,
+        },
+        { month: "2026-09-01", from: READY_TO_ASSIGN, to: { type: "group", id: "grp-1" }, amountCents: 1500 },
+        { month: "2026-09-01", from: { type: "category", id: "cat-2" }, to: READY_TO_ASSIGN, amountCents: 700 },
+      ],
+      "cover",
+    );
+
+    expect(rpc).toHaveBeenCalledWith("ledger_move_money", {
+      p_moves: [
+        { month: "2026-09-01", from_category_id: "cat-1", to_group_id: "grp-1", amount_cents: 2000 },
+        { month: "2026-09-01", to_group_id: "grp-1", amount_cents: 1500 },
+        { month: "2026-09-01", from_category_id: "cat-2", amount_cents: 700 },
+      ],
+      p_source: "cover",
+    });
+  });
+
+  it("defaults the source to user", async () => {
+    const { client, rpc } = makeRpcClient();
+    await moveMoney(client, [
+      { month: "2026-09-01", from: READY_TO_ASSIGN, to: { type: "category", id: "cat-1" }, amountCents: 1 },
+    ]);
+    expect(rpc.mock.calls[0][1]).toMatchObject({ p_source: "user" });
+  });
+
+  it.each([0, -500])("rejects a non-positive amount (%i)", async (amountCents) => {
+    const { client, rpc } = makeRpcClient();
+    await expect(
+      moveMoney(client, [
+        { month: "2026-09-01", from: READY_TO_ASSIGN, to: { type: "category", id: "cat-1" }, amountCents },
+      ]),
+    ).rejects.toMatchObject({ code: "invalid_amount" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("rejects a move from Ready to Assign to itself", async () => {
+    const { client, rpc } = makeRpcClient();
+    await expect(
+      moveMoney(client, [
+        { month: "2026-09-01", from: READY_TO_ASSIGN, to: READY_TO_ASSIGN, amountCents: 100 },
+      ]),
+    ).rejects.toMatchObject({ code: "invalid_move" });
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("does nothing for an empty batch", async () => {
+    const { client, rpc } = makeRpcClient();
+    await moveMoney(client, []);
+    expect(rpc).not.toHaveBeenCalled();
   });
 });

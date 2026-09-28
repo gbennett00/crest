@@ -187,9 +187,28 @@ export type UpsertCategoryBudgetInput = {
   assignedCents: Cents;
 };
 
-export type UpsertGroupBudgetInput = {
-  groupId: string;
+/**
+ * A funding unit that holds assigned money: a category, or a whole group when
+ * the group is budgeted at the group level.
+ */
+export type BudgetUnit = { type: "category"; id: string } | { type: "group"; id: string };
+
+/** Ready to Assign as one side of a budget move. */
+export const READY_TO_ASSIGN = "ready_to_assign" as const;
+
+export type SetAssignedInput = {
+  unit: BudgetUnit;
   /** First day of the month: YYYY-MM-01 */
   month: string;
+  /** The new absolute assigned amount for the unit in `month`. */
   assignedCents: Cents;
+};
+
+export type BudgetMoveInput = {
+  /** First day of the budget month affected: YYYY-MM-01 */
+  month: string;
+  from: BudgetUnit | typeof READY_TO_ASSIGN;
+  to: BudgetUnit | typeof READY_TO_ASSIGN;
+  /** Positive amount moved from `from` to `to`. */
+  amountCents: Cents;
 };

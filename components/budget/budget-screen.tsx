@@ -468,7 +468,6 @@ function GroupHeaderRow({
                 type: "group",
                 id: group.id,
                 name: group.name,
-                originalAssigned: group.groupAssignedCents,
                 overspentCents: available,
               }}
               onClose={() => setCoverOpen(false)}
@@ -629,7 +628,6 @@ function CategoryRow({
                   type: "category",
                   id: cat.id,
                   name: cat.name,
-                  originalAssigned: cat.assignedCents,
                   overspentCents: cat.availableCents,
                 }}
                 onClose={() => setCoverOpen(false)}
