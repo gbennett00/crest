@@ -253,6 +253,7 @@ Fields:
 * role (nullable)
 
   * `ready_to_assign` — system pool for unallocated cash; exactly one row in the database
+  * `sinking_fund` — shared pool that funds `sinking` targets; at most one row per plan; its target is derived, never stored (see TARGETS)
 * is_pinned
 * is_hidden
 
@@ -261,6 +262,18 @@ Rules:
 * the Ready to Assign category is created at schema seed; users categorize **inflows** here (positive splits)
 * assigning money to spending categories draws from Ready to Assign (see READY TO ASSIGN)
 * do not use account `balance_cents` for Ready to Assign math
+
+---
+
+SPENDING PLAN WIZARD
+
+A guided flow (Plan page's 3-dot menu → "Spending plan") for editing the whole plan at once: income sources plus a spreadsheet-style list of expense lines, each a category (or group-budgeted group) and its target (`app/(app)/budget/actions.ts` `applySpendingPlan`, `components/budget/spending-plan-wizard.tsx`). Named "Spending Plan," not "plan," to avoid colliding with the `plans` workspace concept.
+
+* It opens pre-loaded with every existing target except one-time `by_date` ones. Removing a pre-loaded line (or pointing it at a different category) deletes that target on save; one-time `by_date` targets are left alone but still count toward the totals.
+* **Income sources** (`income_sources` table, plan-scoped) are a simple name + monthly amount, purely informational — summed for a "planned income" figure. They are never categorized and never feed Ready to Assign; RTA stays derived from ledger inflows only.
+* **Available** = planned income − the steady monthly cost of every target (`targetMonthlyCostCents`): the full amount for `set_aside`/`fill_up_to`, amount ÷ cycle for recurring `by_date` and `sinking`, and amount ÷ months remaining for a one-time `by_date`. Unlike Assign by Targets' `targetNeedCents`, it ignores what's already been assigned this month.
+* Recurring lines (every 3, 6 or 12 months — `TARGET_REPEAT_INTERVALS`, the one place to add another cadence) are either **saved up by a due date** (a recurring `by_date` target, e.g. Christmas) or funded through the **sinking fund** (a `sinking` target, e.g. Vacations — see TARGETS).
+* Credit-card payment categories and system categories (Ready to Assign, the Sinking Fund) are never offered in the picker. A group-budgeted group's individual categories aren't either — only the group itself, since it's the funding unit (see GROUP BUDGETING RULES).
 
 ---
 
@@ -293,8 +306,15 @@ Fields:
   * 'fill_up_to'
   * 'set_aside'
   * 'by_date'
+  * 'sinking'
 * amount_cents
-* target_date (nullable)
+* target_date (nullable; required for `by_date`, always null for `sinking`)
+* repeat_interval_months (nullable; `by_date` may recur every N months, `sinking` always has one)
+
+Rules:
+
+* a recurring `by_date` target's due date rolls forward to its next occurrence on read (`effectiveTargetDate`), never written back — no background job
+* a `sinking` target means "need `amount_cents` at the start of every cycle." It asks nothing of Ready to Assign itself; instead the shared `sinking_fund` category accrues its share. That category's target is **derived, never stored**: a monthly `set_aside` of Σ ceil(amount ÷ interval) over every sinking target (`withDerivedSinkingFundTarget`), so editing or removing a sinking target updates it automatically. Moving money from the Sinking Fund (or Ready to Assign) into the category is always manual. The Sinking Fund is created lazily (in its own group) the first time a sinking target is saved, and its target can't be edited directly
 
 ---
 

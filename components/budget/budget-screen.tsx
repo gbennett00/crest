@@ -36,6 +36,7 @@ import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
 import { StickyHeader } from "@/components/ui/sticky-header";
+import { LoadError } from "@/components/load-error";
 import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type {
@@ -104,7 +105,7 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const { data: response } = useBudgetView(month);
+  const { data: response, error, refetch } = useBudgetView(month);
 
   // Warm the query cache for the neighbouring months so stepping to the
   // previous/next month (and coming back) renders from cache instead of a
@@ -184,6 +185,9 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
     });
   }
 
+  if (hasMounted && !response && error) {
+    return <LoadError what="budget" error={error} onRetry={() => refetch()} />;
+  }
   if (!hasMounted || !response) {
     return <BudgetSkeleton />;
   }
@@ -240,6 +244,7 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
           </button>
           <BudgetToolbar
             groups={groupOptions}
+            data={data}
             reordering={reordering}
             onToggleReorder={() => setReordering((r) => !r)}
           />
@@ -508,6 +513,9 @@ function CategoryRow({
   const underfunded =
     isCC && paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents) > 0;
   const overspent = isCategoryBudget && cat.availableCents < 0;
+  // The Sinking Fund's target is derived from every sinking target (see
+  // deriveSinkingFundTarget), so it isn't editable here.
+  const canEditTarget = isCategoryBudget && cat.role !== "sinking_fund";
 
   function handleRowClick() {
     if (renaming) return;
@@ -552,13 +560,13 @@ function CategoryRow({
           <div onClick={(e) => e.stopPropagation()} className="shrink-0">
             <RowMenu
               onRename={() => setRenaming(true)}
-              onEditTarget={isCategoryBudget ? () => setTargetOpen(true) : undefined}
+              onEditTarget={canEditTarget ? () => setTargetOpen(true) : undefined}
               hasTarget={!!cat.target}
-              showTarget={isCategoryBudget}
+              showTarget={canEditTarget}
             />
           </div>
         )}
-        {isCategoryBudget && (
+        {canEditTarget && (
           <span onClick={(e) => e.stopPropagation()}>
             <TargetButton
               entityId={cat.id}

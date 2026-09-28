@@ -13,12 +13,14 @@ import {
   computePaymentCategoryActivity,
   computeRtaBreakdown,
   findReadyToAssignId,
+  withDerivedSinkingFundTarget,
   type CreditTxn,
   type HistoryRow,
   type MonthlyCents,
   type RawGroup,
 } from "./compute";
 import type { PaymentCategoryBreakdown } from "./types";
+import { throwOnQueryErrors } from "./query-errors";
 
 // Single source of truth for the budget view consumed by both the budget screen
 // and the home screen. The page components pass in only the month in view; all
@@ -88,7 +90,7 @@ export async function loadBudgetView(
       .lte("month", month),
     client
       .from("targets")
-      .select("category_id, group_id, type, amount_cents, target_date"),
+      .select("category_id, group_id, type, amount_cents, target_date, repeat_interval_months"),
     // Credit-card accounts: their payment-category activity must be derived
     // because CC purchases are allocated to spending categories, not the
     // payment category itself.
@@ -108,6 +110,17 @@ export async function loadBudgetView(
       .order("month", { ascending: true })
       .limit(1),
   ]);
+  throwOnQueryErrors({
+    "category groups": groupsRes,
+    "category activity": catActivityRes,
+    "category assignments": catAssignedRes,
+    "group activity": grpActivityRes,
+    "group assignments": grpAssignedRes,
+    targets: targetsRes,
+    "credit card accounts": ccAccountsRes,
+    "first transaction": firstTxnRes,
+    "first assignment": firstBudgetRes,
+  });
 
   // Navigation bounds: viewable from the earliest transaction/assignment month
   // through next month. Falls back to the current month for an empty budget.
@@ -162,8 +175,8 @@ export async function loadBudgetView(
             .select("month, activity_cents")
             .eq("category_id", rtaId)
             .lte("month", month)
-        : Promise.resolve({ data: [] }),
-      rtaId ? catBudgetsQuery : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
+      rtaId ? catBudgetsQuery : Promise.resolve({ data: [], error: null }),
       grpBudgetsQuery,
       ccAccountIds.length > 0
         ? client
@@ -172,7 +185,7 @@ export async function loadBudgetView(
             .in("account_id", ccAccountIds)
             .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
             .lt("txn_date", afterViewedMonth)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
       ccAccountIds.length > 0
         ? client
             .from("transactions")
@@ -181,8 +194,15 @@ export async function loadBudgetView(
             )
             .in("account_id", ccAccountIds)
             .lt("txn_date", through)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
     ]);
+  throwOnQueryErrors({
+    "Ready to Assign activity": rtaActivityRes,
+    "category assignments (all months)": allCatBudgetsRes,
+    "group assignments (all months)": allGrpBudgetsRes,
+    "credit card opening balances": ccOpeningRes,
+    "credit card transactions": ccTxnsRes,
+  });
 
   // Build the spending-category / group history maps.
   const catActivity = buildHistory(
@@ -218,7 +238,9 @@ export async function loadBudgetView(
       categoryGroup,
     });
 
-  const { catTargets, grpTargets } = buildTargets(targetsRes.data);
+  const built = buildTargets(targetsRes.data);
+  const grpTargets = built.grpTargets;
+  const catTargets = withDerivedSinkingFundTarget(groups, built.catTargets, grpTargets);
 
   const { groups: budgetGroups, priorCashOverspendCents, previousMonthCashOverspendCents } =
     buildBudgetGroups({
@@ -233,6 +255,7 @@ export async function loadBudgetView(
       cardRegisterBalance,
       cardBreakdown,
       creditOutflowByUnit,
+      paymentCategoryIds: new Set(ccAccountMap.values()),
     });
 
   // Ready to Assign and its YNAB-style breakdown. Bucket each RTA input by when
@@ -410,11 +433,13 @@ function buildTargets(rows: unknown[] | null): {
     type: TargetData["type"];
     amount_cents: number;
     target_date: string | null;
+    repeat_interval_months: number | null;
   }>) {
     const target: TargetData = {
       type: row.type,
       amountCents: row.amount_cents,
       targetDate: row.target_date ?? null,
+      repeatIntervalMonths: row.repeat_interval_months ?? null,
     };
     if (row.category_id) catTargets[row.category_id] = target;
     else if (row.group_id) grpTargets[row.group_id] = target;
