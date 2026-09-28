@@ -19,6 +19,8 @@ export { loadCategoryOptions } from "./category-options";
 export {
   computePlannedIncomeCents,
   effectiveTargetDate,
+  targetMonthlyCostCents,
   targetNeedCents,
+  totalTargetMonthlyCostCents,
   totalTargetNeedCents,
 } from "./compute";

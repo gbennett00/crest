@@ -18,8 +18,8 @@ import {
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
   computePlannedIncomeCents,
-  targetNeedCents,
-  totalTargetNeedCents,
+  targetMonthlyCostCents,
+  totalTargetMonthlyCostCents,
 } from "@/lib/budget/compute";
 import { buildBudgetEntries } from "@/lib/budget/entries";
 import type { BudgetData, TargetData } from "@/lib/budget/types";
@@ -193,26 +193,18 @@ function lineCategoryLabel(
 /** Resolves an id from the category picker (a category id, or — for a
  * group-budgeted group — the group's own id, see PickableTarget) to the
  * funding unit it actually targets, mirroring the server's group-budgeted
- * substitution in applySpendingPlan. */
-function resolveExistingEntity(
-  data: BudgetData,
-  id: string,
-): { key: string; assignedCents: number; availableCents: number } | null {
+ * substitution in applySpendingPlan. Returns just the stable key (`c:<id>`
+ * or `g:<id>`) — this only needs to compare/dedupe entities, never their
+ * current assigned/available (see targetMonthlyCostCents for why the
+ * wizard's need math doesn't use those). */
+function resolveEntityKey(data: BudgetData, id: string): string | null {
   const directGroup = data.groups.find((g) => g.id === id);
-  if (directGroup?.budgetMode === "group") {
-    return {
-      key: `g:${directGroup.id}`,
-      assignedCents: directGroup.groupAssignedCents,
-      availableCents: directGroup.groupAvailableCents,
-    };
-  }
+  if (directGroup?.budgetMode === "group") return `g:${directGroup.id}`;
+
   for (const g of data.groups) {
     const cat = g.categories.find((c) => c.id === id);
     if (!cat) continue;
-    if (g.budgetMode === "group") {
-      return { key: `g:${g.id}`, assignedCents: g.groupAssignedCents, availableCents: g.groupAvailableCents };
-    }
-    return { key: `c:${cat.id}`, assignedCents: cat.assignedCents, availableCents: cat.availableCents };
+    return g.budgetMode === "group" ? `g:${g.id}` : `c:${cat.id}`;
   }
   return null;
 }
@@ -228,7 +220,7 @@ function resolveExistingEntity(
 function lineEntityKey(line: ExpenseLineDraft, data: BudgetData): string | null {
   if (line.categoryChoice === "existing") {
     if (!line.existingCategoryId) return null;
-    return resolveExistingEntity(data, line.existingCategoryId)?.key ?? null;
+    return resolveEntityKey(data, line.existingCategoryId);
   }
   if (!line.newCategoryGroupId || line.newCategoryGroupId === "__new_group__") return null;
   const group = data.groups.find((g) => g.id === line.newCategoryGroupId);
@@ -277,7 +269,7 @@ function availableCategoriesFor(
       .filter((k): k is string => !!k),
   );
   return all.filter((t) => {
-    const key = resolveExistingEntity(data, t.id)?.key;
+    const key = resolveEntityKey(data, t.id);
     return !key || !usedKeys.has(key);
   });
 }
@@ -416,16 +408,15 @@ export function SpendingPlanWizard({
   const touchedKeys = new Set(
     expenseLines
       .filter((l) => l.categoryChoice === "existing" && l.existingCategoryId)
-      .map((l) => resolveExistingEntity(data, l.existingCategoryId)?.key)
+      .map((l) => resolveEntityKey(data, l.existingCategoryId))
       .filter((k): k is string => !!k),
   );
   const baseEntries = buildBudgetEntries(data).filter((e) => !touchedKeys.has(e.key));
-  const baseNeedCents = totalTargetNeedCents(
-    baseEntries.map((e) => ({
-      target: e.target,
-      assignedCents: e.originalAssigned,
-      availableCents: e.currentAvailable,
-    })),
+  // Steady-state monthly cost, not "how much more to assign this month" —
+  // this must stay the same whether a category already has this month's
+  // assignment done or not (see targetMonthlyCostCents).
+  const baseNeedCents = totalTargetMonthlyCostCents(
+    baseEntries.map((e) => ({ target: e.target })),
     data.month,
   );
 
@@ -438,14 +429,7 @@ export function SpendingPlanWizard({
       const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
       return sum + Math.round(line.amountCents / intervalMonths);
     }
-    const target = draftTargetData(line);
-    const existing =
-      line.categoryChoice === "existing"
-        ? resolveExistingEntity(data, line.existingCategoryId)
-        : null;
-    const assignedCents = existing?.assignedCents ?? 0;
-    const availableCents = existing?.availableCents ?? 0;
-    return sum + targetNeedCents(target, data.month, assignedCents, availableCents);
+    return sum + targetMonthlyCostCents(draftTargetData(line), data.month);
   }, 0);
 
   const totalNeedCents = baseNeedCents + lineNeedCents;

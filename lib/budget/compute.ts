@@ -614,6 +614,47 @@ export function targetNeedCents(
   return 0;
 }
 
+/**
+ * Steady-state monthly cost of `target` — what it costs to keep up with
+ * every month, as a standing commitment, ignoring any already-assigned or
+ * rolled-forward progress. This is deliberately *not* `targetNeedCents`
+ * ("how much more do I need to assign this month," which depends on
+ * today's partial progress and correctly goes to $0 once a category is
+ * topped up — right for "Assign by Targets," wrong here): the Spending Plan
+ * wizard's "does my income cover my planned commitments" figure must stay
+ * the same regardless of how much of this month's assignment has already
+ * happened, for an existing category as much as a brand new one.
+ *
+ *  - `set_aside` / `fill_up_to`: the target amount itself, every month.
+ *  - `by_date`: the amount spread evenly over the months remaining until
+ *    the (possibly recurring) due date, same schedule as targetNeedCents
+ *    but starting from zero progress rather than current availableCents.
+ */
+export function targetMonthlyCostCents(target: TargetData, month: string): number {
+  if (target.type === "set_aside" || target.type === "fill_up_to") {
+    return target.amountCents;
+  }
+  if (target.type === "by_date") {
+    if (!target.targetDate) return 0;
+    const dueDate = effectiveTargetDate(target.targetDate, target.repeatIntervalMonths, month);
+    const monthsLeft = monthsUntilTarget(month, dueDate);
+    return Math.ceil(target.amountCents / monthsLeft);
+  }
+  return 0;
+}
+
+/** Sum of `targetMonthlyCostCents` across every entry that has a target. See
+ * that function for why this is not built on `targetNeedCents`. */
+export function totalTargetMonthlyCostCents(
+  entries: { target: TargetData | null }[],
+  month: string,
+): number {
+  return entries.reduce(
+    (sum, e) => sum + (e.target ? targetMonthlyCostCents(e.target, month) : 0),
+    0,
+  );
+}
+
 /** Find the Ready-to-Assign category id within already-fetched group data. */
 export function findReadyToAssignId(groups: RawGroup[]): string | null {
   for (const g of groups) {

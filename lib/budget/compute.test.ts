@@ -10,7 +10,9 @@ import {
   findReadyToAssignId,
   monthsUntilTarget,
   paymentShortfallCents,
+  targetMonthlyCostCents,
   targetNeedCents,
+  totalTargetMonthlyCostCents,
   totalTargetNeedCents,
   type CreditTxn,
   type RawGroup,
@@ -855,5 +857,69 @@ describe("totalTargetNeedCents", () => {
 
   it("is 0 for no entries", () => {
     expect(totalTargetNeedCents([], MONTH)).toBe(0);
+  });
+});
+
+describe("targetMonthlyCostCents", () => {
+  it("set_aside is always the full amount, regardless of already-assigned progress", () => {
+    // Reported bug: a category already 96%-assigned this month made a fresh
+    // $600 set_aside target look like it only cost $21.90/mo. The plan's
+    // "does my income cover this" figure must not depend on that snapshot.
+    const target: TargetData = {
+      type: "set_aside",
+      amountCents: 600_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(targetMonthlyCostCents(target, MONTH)).toBe(600_00);
+  });
+
+  it("fill_up_to is always the full amount, regardless of rolled-forward available", () => {
+    const target: TargetData = {
+      type: "fill_up_to",
+      amountCents: 400_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(targetMonthlyCostCents(target, MONTH)).toBe(400_00);
+  });
+
+  it("by_date spreads the full amount over the months remaining, ignoring current available", () => {
+    const target: TargetData = {
+      type: "by_date",
+      amountCents: 700_00,
+      targetDate: "2026-01-01",
+      repeatIntervalMonths: null,
+    };
+    // Sep -> Jan inclusive = 5 months; 700 / 5 = 140.
+    expect(targetMonthlyCostCents(target, "2025-09-01")).toBe(140_00);
+  });
+
+  it("by_date with no target date costs nothing", () => {
+    const target: TargetData = {
+      type: "by_date",
+      amountCents: 700_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(targetMonthlyCostCents(target, MONTH)).toBe(0);
+  });
+});
+
+describe("totalTargetMonthlyCostCents", () => {
+  it("sums the steady-state cost across entries and ignores ones with no target", () => {
+    const total = totalTargetMonthlyCostCents(
+      [
+        { target: { type: "set_aside", amountCents: 600_00, targetDate: null, repeatIntervalMonths: null } },
+        { target: { type: "fill_up_to", amountCents: 400_00, targetDate: null, repeatIntervalMonths: null } },
+        { target: null },
+      ],
+      MONTH,
+    );
+    expect(total).toBe(1_000_00);
+  });
+
+  it("is 0 for no entries", () => {
+    expect(totalTargetMonthlyCostCents([], MONTH)).toBe(0);
   });
 });
