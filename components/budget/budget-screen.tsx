@@ -36,6 +36,7 @@ import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
 import { StickyHeader } from "@/components/ui/sticky-header";
+import { LoadError } from "@/components/load-error";
 import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type {
@@ -104,7 +105,7 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const { data: response } = useBudgetView(month);
+  const { data: response, error, refetch } = useBudgetView(month);
 
   // Warm the query cache for the neighbouring months so stepping to the
   // previous/next month (and coming back) renders from cache instead of a
@@ -184,6 +185,9 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
     });
   }
 
+  if (hasMounted && !response && error) {
+    return <LoadError what="budget" error={error} onRetry={() => refetch()} />;
+  }
   if (!hasMounted || !response) {
     return <BudgetSkeleton />;
   }

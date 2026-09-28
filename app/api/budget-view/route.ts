@@ -15,16 +15,24 @@ export async function GET(request: NextRequest) {
   const month = BUDGET_MONTH_RE.test(rawMonth ?? "") ? rawMonth! : currentBudgetMonth();
 
   const supabase = await createClient();
-  const [data, accountsRes, categories] = await Promise.all([
-    getBudgetView(month),
-    supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
-    loadCategoryOptions(supabase),
-  ]);
+  try {
+    const [data, accountsRes, categories] = await Promise.all([
+      getBudgetView(month),
+      supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
+      loadCategoryOptions(supabase),
+    ]);
 
-  const accounts: AccountOption[] = (accountsRes.data ?? []).map((a) => ({
-    id: a.id as string,
-    name: a.name as string,
-  }));
+    const accounts: AccountOption[] = (accountsRes.data ?? []).map((a) => ({
+      id: a.id as string,
+      name: a.name as string,
+    }));
 
-  return NextResponse.json({ data, accounts, categories });
+    return NextResponse.json({ data, accounts, categories });
+  } catch (err) {
+    console.error(err);
+    return NextResponse.json(
+      { error: err instanceof Error ? err.message : "Unknown error" },
+      { status: 500 },
+    );
+  }
 }

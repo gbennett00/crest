@@ -10,6 +10,7 @@ import { OverspentSection } from "@/components/home/overspent-section";
 import { cn } from "@/lib/utils";
 import { useHomeView } from "@/lib/queries/home";
 import { useHasMounted } from "@/lib/use-has-mounted";
+import { LoadError } from "@/components/load-error";
 
 // No server-side data fetch here on purpose — see app/(app)/budget/page.tsx
 // for why. HomeContent owns its data through the client query cache
@@ -24,8 +25,11 @@ export default function HomePage() {
 
 function HomeContent() {
   const hasMounted = useHasMounted();
-  const { data: response, isPending } = useHomeView();
+  const { data: response, isPending, error, refetch } = useHomeView();
 
+  if (hasMounted && !response && error) {
+    return <LoadError what="plan" error={error} onRetry={() => refetch()} />;
+  }
   if (!hasMounted || (isPending && !response)) {
     return <HomeSkeleton />;
   }

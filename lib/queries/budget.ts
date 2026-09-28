@@ -13,7 +13,10 @@ export type BudgetViewResponse = {
 
 async function fetchBudgetView(month: string): Promise<BudgetViewResponse> {
   const res = await fetch(`/api/budget-view?month=${month}`);
-  if (!res.ok) throw new Error("Failed to load budget");
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? "Failed to load budget");
+  }
   return res.json();
 }
 

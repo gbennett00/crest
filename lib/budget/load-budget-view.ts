@@ -20,6 +20,7 @@ import {
   type RawGroup,
 } from "./compute";
 import type { PaymentCategoryBreakdown } from "./types";
+import { throwOnQueryErrors } from "./query-errors";
 
 // Single source of truth for the budget view consumed by both the budget screen
 // and the home screen. The page components pass in only the month in view; all
@@ -109,6 +110,17 @@ export async function loadBudgetView(
       .order("month", { ascending: true })
       .limit(1),
   ]);
+  throwOnQueryErrors({
+    "category groups": groupsRes,
+    "category activity": catActivityRes,
+    "category assignments": catAssignedRes,
+    "group activity": grpActivityRes,
+    "group assignments": grpAssignedRes,
+    targets: targetsRes,
+    "credit card accounts": ccAccountsRes,
+    "first transaction": firstTxnRes,
+    "first assignment": firstBudgetRes,
+  });
 
   // Navigation bounds: viewable from the earliest transaction/assignment month
   // through next month. Falls back to the current month for an empty budget.
@@ -163,8 +175,8 @@ export async function loadBudgetView(
             .select("month, activity_cents")
             .eq("category_id", rtaId)
             .lte("month", month)
-        : Promise.resolve({ data: [] }),
-      rtaId ? catBudgetsQuery : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
+      rtaId ? catBudgetsQuery : Promise.resolve({ data: [], error: null }),
       grpBudgetsQuery,
       ccAccountIds.length > 0
         ? client
@@ -173,7 +185,7 @@ export async function loadBudgetView(
             .in("account_id", ccAccountIds)
             .eq("imported_id", OPENING_BALANCE_IMPORTED_ID)
             .lt("txn_date", afterViewedMonth)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
       ccAccountIds.length > 0
         ? client
             .from("transactions")
@@ -182,8 +194,15 @@ export async function loadBudgetView(
             )
             .in("account_id", ccAccountIds)
             .lt("txn_date", through)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [], error: null }),
     ]);
+  throwOnQueryErrors({
+    "Ready to Assign activity": rtaActivityRes,
+    "category assignments (all months)": allCatBudgetsRes,
+    "group assignments (all months)": allGrpBudgetsRes,
+    "credit card opening balances": ccOpeningRes,
+    "credit card transactions": ccTxnsRes,
+  });
 
   // Build the spending-category / group history maps.
   const catActivity = buildHistory(

@@ -10,6 +10,7 @@ import type { BudgetData, BudgetViewItem } from "./types";
 import { loadBudgetView } from "./load-budget-view";
 import { loadCategoryOptions } from "./category-options";
 import { selectOverspent, selectPinned } from "./selectors";
+import { throwOnQueryErrors } from "./query-errors";
 
 // A transaction awaiting approval, shaped for the home "Needs Approval" list.
 export type PendingTransaction = {
@@ -54,6 +55,7 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
       .order("name"),
     loadCategoryOptions(client),
   ]);
+  throwOnQueryErrors({ "pending transactions": pendingRes, accounts: accountsRes });
 
   const pending: PendingTransaction[] = (
     (pendingRes.data ?? []) as unknown as Array<{
