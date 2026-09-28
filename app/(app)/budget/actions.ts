@@ -74,6 +74,18 @@ export async function coverOverspending(moves: BudgetMoveInput[]) {
   return { success: true };
 }
 
+/** Move assigned money between two funding units or Ready to Assign. */
+export async function moveBudgetMoney(move: BudgetMoveInput) {
+  const supabase = await createClient();
+  try {
+    await moveMoney(supabase, [move]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
+  revalidatePath("/budget");
+  return { success: true };
+}
+
 export async function createGroup(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
   const budgetMode = (formData.get("budgetMode") as string) || "category";
