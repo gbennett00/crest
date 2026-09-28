@@ -253,6 +253,7 @@ Fields:
 * role (nullable)
 
   * `ready_to_assign` — system pool for unallocated cash; exactly one row in the database
+  * `sinking_fund` — system pool for the Spending Plan wizard's "fund in full now" pattern; at most one row per plan (see SPENDING PLAN WIZARD)
 * is_pinned
 * is_hidden
 
@@ -261,6 +262,17 @@ Rules:
 * the Ready to Assign category is created at schema seed; users categorize **inflows** here (positive splits)
 * assigning money to spending categories draws from Ready to Assign (see READY TO ASSIGN)
 * do not use account `balance_cents` for Ready to Assign math
+
+---
+
+SPENDING PLAN WIZARD
+
+A guided flow (Plan page's 3-dot menu → "Spending plan") that bulk-creates income sources, categories/groups, and targets from an annual-budget-style list of expense lines (`app/(app)/budget/actions.ts` `applySpendingPlan`, `components/budget/spending-plan-wizard.tsx`). Named "Spending Plan," not "plan," to avoid colliding with the `plans` workspace concept.
+
+* **Income sources** (`income_sources` table, plan-scoped) are a simple name + monthly amount, purely informational — summed for a "planned income" figure the wizard shows against total target need. They are never categorized and never feed Ready to Assign; RTA stays derived from ledger inflows only.
+* **Recurring targets**: `targets.repeat_interval_months` lets a `by_date` target recur (e.g. car insurance every 6 months, Christmas every 12). The due date rolls forward to its next occurrence on read (`effectiveTargetDate` in `lib/budget/compute.ts`), never written back — no background job needed.
+* **"Fund this category in full now"** (the sinking-fund / "loan" pattern, e.g. Vacations: fund it fully upfront, spend from it all year, replenish monthly): the spending category is assigned its full amount immediately (one-time, from Ready to Assign) and gets **no ongoing target of its own** — money doesn't flow back into it automatically. The monthly amount needed to rebuild it instead accumulates in the single shared `sinking_fund` category (`role = sinking_fund`, looked up by role like Ready to Assign, created lazily in its own group the first time it's needed) as a plain `set_aside` target. Moving that category's accumulated balance back into the spending category at each renewal is a **manual step** — matching the manual process this automates, not something the app does for you. Re-running the wizard for the same "fund in full now" category later **adds** to the sinking fund's target rather than replacing its prior contribution (no per-line attribution is tracked); fix the sinking fund's target by hand via the normal per-category target editor if that happens.
+* Credit-card payment categories are excluded from the wizard's category picker entirely — see CREDIT CARD LOGIC; their available is derived from the card's register, never a manually-set target. A group-budgeted group's individual categories are also excluded — only the group itself is offered, since it's the actual funding unit (see GROUP BUDGETING RULES).
 
 ---
 

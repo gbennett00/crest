@@ -30,7 +30,11 @@ export type PaymentCategoryBreakdown = {
 export type BudgetCategory = {
   id: string;
   name: string;
-  role: "ready_to_assign" | null;
+  // "sinking_fund" is the single shared category the Spending Plan wizard's
+  // "fund in full now" pattern accumulates monthly contributions into (see
+  // app/(app)/budget/actions.ts getOrCreateSinkingFundCategory) — otherwise
+  // an ordinary category everywhere else in the app.
+  role: "ready_to_assign" | "sinking_fund" | null;
   isPinned: boolean;
   isHidden: boolean;
   assignedCents: number;

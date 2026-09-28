@@ -350,13 +350,59 @@ export type SpendingPlanExpenseLineInput = {
   amountCents: number;
   targetDate: string | null;
   repeatIntervalMonths: number | null;
-  // One-time current-month assignment of the full amount, for the
-  // "sinking fund" pattern (front-load the category, then let the recurring
-  // by_date target's shortfall-spreading math handle monthly replenishment).
+  // The "sinking fund" pattern (e.g. Vacations): front-load the category
+  // with a one-time current-month assignment of the full amount instead of
+  // giving it its own recurring target. The monthly amount needed to
+  // rebuild it instead accumulates in the shared Sinking Fund category (see
+  // getOrCreateSinkingFundCategory) — the user moves that balance back into
+  // this category by hand at each renewal, same as their manual process.
   fundInFullNow: boolean;
 };
 
 const MONTH_RE = /^\d{4}-\d{2}-01$/;
+
+/**
+ * The single category the Spending Plan wizard's "fund in full now" lines
+ * accumulate their monthly sinking-fund contribution into, identified by
+ * `role = 'sinking_fund'` (there is exactly one per plan, same convention as
+ * Ready to Assign) rather than by name, so renaming it doesn't break this
+ * lookup. Created lazily, in its own dedicated group, the first time it's
+ * needed.
+ */
+async function getOrCreateSinkingFundCategory(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  planId: string,
+): Promise<{ id: string; error?: undefined } | { id?: undefined; error: string }> {
+  const { data: groups } = await supabase
+    .from("category_groups")
+    .select("id, categories(id, role)")
+    .eq("plan_id", planId);
+
+  for (const g of (groups ?? []) as { categories: { id: string; role: string | null }[] | null }[]) {
+    const existing = (g.categories ?? []).find((c) => c.role === "sinking_fund");
+    if (existing) return { id: existing.id };
+  }
+
+  const { data: newGroup, error: groupError } = await supabase
+    .from("category_groups")
+    .insert({ name: "Sinking Funds", budget_mode: "category", plan_id: planId })
+    .select("id")
+    .single();
+  if (groupError || !newGroup) {
+    return { error: groupError?.message ?? "Failed to create the Sinking Fund group" };
+  }
+
+  const { data: newCategory, error: catError } = await supabase
+    .from("categories")
+    .insert({ name: "Sinking Fund", group_id: newGroup.id, role: "sinking_fund" })
+    .select("id")
+    .single();
+  if (catError || !newCategory) {
+    return { error: catError?.message ?? "Failed to create the Sinking Fund category" };
+  }
+
+  return { id: newCategory.id };
+}
 
 export async function applySpendingPlan(input: {
   incomeSources: { id?: string; name: string; monthlyAmountCents: number }[];
@@ -382,6 +428,10 @@ export async function applySpendingPlan(input: {
   // clobber each other — the last upsertTarget call would otherwise just
   // overwrite the prior one, and bulkAssign's separate calls would race.
   const assignmentTotals = new Map<string, { type: "category" | "group"; id: string; amountCents: number }>();
+
+  // Total monthly contribution owed to the shared Sinking Fund category,
+  // summed across every "fund in full now" line in this submission.
+  let sinkingFundContributionCents = 0;
 
   for (const line of input.expenseLines) {
     let categoryId: string;
@@ -451,17 +501,13 @@ export async function applySpendingPlan(input: {
     const entityType: "category" | "group" = isGroupBudget ? "group" : "category";
     const entityId = isGroupBudget ? groupId : categoryId;
 
-    const targetResult = await upsertTarget(
-      entityId,
-      entityType,
-      line.type,
-      line.amountCents,
-      line.targetDate,
-      line.repeatIntervalMonths,
-    );
-    if (targetResult?.error) return { error: targetResult.error };
-
     if (line.fundInFullNow) {
+      // "Loan" pattern: front-load the entity now instead of giving it its
+      // own target (see SpendingPlanExpenseLineInput.fundInFullNow) — clear
+      // any target left over from an earlier, non-"fund in full" run.
+      const clearResult = await deleteTarget(entityId, entityType);
+      if (clearResult?.error) return { error: clearResult.error };
+
       const key = `${entityType}:${entityId}`;
       const existing = assignmentTotals.get(key);
       assignmentTotals.set(key, {
@@ -469,7 +515,47 @@ export async function applySpendingPlan(input: {
         id: entityId,
         amountCents: (existing?.amountCents ?? 0) + line.amountCents,
       });
+
+      const intervalMonths = line.repeatIntervalMonths ?? 1;
+      sinkingFundContributionCents += Math.round(line.amountCents / intervalMonths);
+    } else {
+      const targetResult = await upsertTarget(
+        entityId,
+        entityType,
+        line.type,
+        line.amountCents,
+        line.targetDate,
+        line.repeatIntervalMonths,
+      );
+      if (targetResult?.error) return { error: targetResult.error };
     }
+  }
+
+  if (sinkingFundContributionCents > 0) {
+    const sinkingFund = await getOrCreateSinkingFundCategory(supabase, planId);
+    if (sinkingFund.error) return { error: sinkingFund.error };
+
+    // Known limitation: re-submitting the same "fund in full now" line in a
+    // later wizard run adds its contribution again rather than replacing the
+    // old one — there's no per-line attribution on this shared category.
+    // Adjust its target by hand (the normal per-category target editor) if
+    // that happens.
+    const { data: existingTarget } = await supabase
+      .from("targets")
+      .select("amount_cents, type")
+      .eq("category_id", sinkingFund.id)
+      .maybeSingle();
+    const priorCents = existingTarget?.type === "set_aside" ? (existingTarget.amount_cents as number) : 0;
+
+    const targetResult = await upsertTarget(
+      sinkingFund.id as string,
+      "category",
+      "set_aside",
+      priorCents + sinkingFundContributionCents,
+      null,
+      null,
+    );
+    if (targetResult?.error) return { error: targetResult.error };
   }
 
   if (assignmentTotals.size > 0) {

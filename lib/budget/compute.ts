@@ -358,7 +358,7 @@ export function computeRtaBreakdown(input: {
 export type RawCategory = {
   id: string;
   name: string;
-  role: "ready_to_assign" | null;
+  role: "ready_to_assign" | "sinking_fund" | null;
   is_pinned: boolean;
   is_hidden: boolean;
   sort_index: number;

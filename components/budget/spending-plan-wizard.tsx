@@ -407,7 +407,7 @@ export function SpendingPlanWizard({
       return [{ id: g.id, name: g.name, groupName: "Group budget", kind: "group" }];
     }
     return g.categories
-      .filter((c) => c.role !== "ready_to_assign" && !c.isPaymentCategory)
+      .filter((c) => c.role === null && !c.isPaymentCategory)
       .map((c) => ({ id: c.id, name: c.name, groupName: g.name, kind: "category" }));
   });
 
@@ -431,15 +431,20 @@ export function SpendingPlanWizard({
 
   const validLines = expenseLines.filter((l) => !computeLineError(l, expenseLines, data));
   const lineNeedCents = validLines.reduce((sum, line) => {
+    if (line.fundInFullNow) {
+      // The spending category gets no ongoing target in this mode (see
+      // applySpendingPlan) — the monthly need is a flat contribution to the
+      // shared Sinking Fund category instead.
+      const intervalMonths = line.cadence === "yearly" ? 12 : line.everyNMonths;
+      return sum + Math.round(line.amountCents / intervalMonths);
+    }
     const target = draftTargetData(line);
     const existing =
       line.categoryChoice === "existing"
         ? resolveExistingEntity(data, line.existingCategoryId)
         : null;
     const assignedCents = existing?.assignedCents ?? 0;
-    const availableCents = line.fundInFullNow
-      ? line.amountCents
-      : (existing?.availableCents ?? 0);
+    const availableCents = existing?.availableCents ?? 0;
     return sum + targetNeedCents(target, data.month, assignedCents, availableCents);
   }, 0);
 
@@ -886,8 +891,11 @@ function ExpenseLineEditor({
             <span className="text-muted-foreground">
               Fund this category in full now (assigns the whole amount this month from
               Ready to Assign, e.g. a vacation fund you draw from all year — replaces any
-              existing assignment for this category this month). Leave unchecked to build
-              up to the amount gradually (e.g. Christmas).
+              existing assignment for this category this month). This category won&rsquo;t
+              get its own ongoing target; instead the monthly amount needed to rebuild it
+              accumulates in a shared &ldquo;Sinking Fund&rdquo; category, which you move
+              back into this one by hand at each renewal. Leave unchecked to build up to
+              the amount gradually in this category instead (e.g. Christmas).
             </span>
           </label>
         </>
