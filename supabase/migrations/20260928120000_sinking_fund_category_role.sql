@@ -1,0 +1,12 @@
+-- A system category for the Spending Plan wizard's "fund this category in
+-- full now" pattern (see app/(app)/budget/actions.ts
+-- getOrCreateSinkingFundCategory): front-loading a category like Vacations
+-- gets no ongoing target of its own — the monthly amount needed to rebuild
+-- it instead accumulates in one shared Sinking Fund category, mirroring the
+-- manual process this automates (the user moves that balance back into the
+-- spending category by hand at each renewal).
+--
+-- Split into its own migration: Postgres forbids using a new enum value
+-- inside the same transaction that added it (see 20260917120000, which hit
+-- the same constraint for account_type).
+ALTER TYPE category_role ADD VALUE 'sinking_fund';

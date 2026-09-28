@@ -358,7 +358,7 @@ export function computeRtaBreakdown(input: {
 export type RawCategory = {
   id: string;
   name: string;
-  role: "ready_to_assign" | null;
+  role: "ready_to_assign" | "sinking_fund" | null;
   is_pinned: boolean;
   is_hidden: boolean;
   sort_index: number;
@@ -403,6 +403,10 @@ export function buildBudgetGroups(params: {
   cardBreakdown: Record<string, PaymentCategoryBreakdown>;
   /** Per-unit credit outflow (keys `c:${categoryId}` / `g:${groupId}`). */
   creditOutflowByUnit?: MonthlyCents;
+  /** Every category id that's some account's credit-card payment category —
+   * see BudgetCategory.isPaymentCategory. Independent of cardRegisterBalance,
+   * which only has entries for cards with at least one transaction. */
+  paymentCategoryIds?: Set<string>;
 }): {
   groups: BudgetGroup[];
   priorCashOverspendCents: number;
@@ -421,6 +425,7 @@ export function buildBudgetGroups(params: {
     cardBreakdown,
   } = params;
   const creditOutflowByUnit = params.creditOutflowByUnit ?? {};
+  const paymentCategoryIds = params.paymentCategoryIds ?? new Set<string>();
 
   let priorCashOverspendCents = 0;
   let previousMonthCashOverspendCents = 0;
@@ -465,6 +470,7 @@ export function buildBudgetGroups(params: {
         activityCents: actHistory[month] ?? 0,
         availableCents,
         target: catTargets[c.id] ?? null,
+        isPaymentCategory: paymentCategoryIds.has(c.id),
         cardRegisterBalanceCents: cardRegisterBalance.get(c.id) ?? null,
         cardActivityBreakdown: cardBreakdown[c.id] ?? null,
       };
@@ -520,6 +526,74 @@ export function monthsUntilTarget(month: string, targetDate: string): number {
 }
 
 /**
+ * The due date a recurring "by date" target should be evaluated against for
+ * `month`. Non-recurring targets (`repeatIntervalMonths` null) return
+ * `anchorDate` unchanged. Recurring targets advance `anchorDate` by whole
+ * `repeatIntervalMonths` steps until the result lands on or after `month` —
+ * e.g. a target anchored at a past due date rolls forward to its next
+ * occurrence automatically. This is computed fresh on every read (never
+ * written back to the target row), matching the architecture's rule that
+ * derived values are never stored.
+ */
+export function effectiveTargetDate(
+  anchorDate: string,
+  repeatIntervalMonths: number | null,
+  month: string,
+): string {
+  if (!repeatIntervalMonths) return anchorDate;
+
+  const [ay, am, ad] = anchorDate.split("-").map(Number);
+  const [my, mm] = month.split("-").map(Number);
+  const anchorIndex = ay * 12 + (am - 1);
+  const monthIndex = my * 12 + (mm - 1);
+
+  if (anchorIndex >= monthIndex) return anchorDate;
+
+  const stepsBehind = Math.ceil((monthIndex - anchorIndex) / repeatIntervalMonths);
+  const nextIndex = anchorIndex + stepsBehind * repeatIntervalMonths;
+  const nextYear = Math.floor(nextIndex / 12);
+  const nextMonth = (nextIndex % 12) + 1;
+  return `${nextYear}-${String(nextMonth).padStart(2, "0")}-${String(ad).padStart(2, "0")}`;
+}
+
+/** Sum of planned monthly income across a plan's income sources. Purely
+ * informational — never feeds Ready to Assign or any ledger/budget math,
+ * which stays derived from categorized ledger inflows only. */
+export function computePlannedIncomeCents(sources: { monthlyAmountCents: number }[]): number {
+  return sources.reduce((sum, s) => sum + s.monthlyAmountCents, 0);
+}
+
+/**
+ * Repeat intervals (in months) offered for recurring by-date and sinking
+ * targets. The DB accepts any positive interval; this is only what the UI
+ * offers, so supporting another cadence is a one-line change here.
+ */
+export const TARGET_REPEAT_INTERVALS = [3, 6, 12] as const;
+
+/** "Every 3 months", …, "Yearly" for 12. */
+export function repeatIntervalLabel(months: number): string {
+  return months === 12 ? "Yearly" : `Every ${months} months`;
+}
+
+/** The Sinking Fund's monthly share of one sinking target: amount ÷ cycle,
+ * rounded up so a full cycle of contributions always covers the amount. */
+export function sinkingMonthlyContributionCents(target: TargetData): number {
+  if (target.type !== "sinking" || !target.repeatIntervalMonths) return 0;
+  return Math.ceil(target.amountCents / target.repeatIntervalMonths);
+}
+
+/**
+ * The Sinking Fund category's target, derived from every sinking target in
+ * the budget (never stored — see SPENDING PLAN WIZARD): a monthly set-aside
+ * of the sum of their monthly shares. Null when there are none.
+ */
+export function deriveSinkingFundTarget(targets: TargetData[]): TargetData | null {
+  const amountCents = targets.reduce((sum, t) => sum + sinkingMonthlyContributionCents(t), 0);
+  if (amountCents <= 0) return null;
+  return { type: "set_aside", amountCents, targetDate: null, repeatIntervalMonths: null };
+}
+
+/**
  * Cents still needed this month to stay on track for `target`, given a
  * (possibly draft) assigned amount and available balance for the viewed
  * month. Used by "Assign by Targets" to distribute Ready to Assign.
@@ -529,7 +603,11 @@ export function monthsUntilTarget(month: string, targetDate: string): number {
  *    rolled-forward available.
  *  - `by_date`: like `fill_up_to` (fill the shortfall in available, not just
  *    this month's assignment), but spread evenly across the months
- *    remaining until the target date rather than demanded in one month.
+ *    remaining until the target date rather than demanded in one month. A
+ *    recurring target's due date is rolled forward to its next occurrence
+ *    on or after `month` first (see `effectiveTargetDate`).
+ *  - `sinking`: nothing — the category is funded by hand from the Sinking
+ *    Fund, whose own derived target carries the monthly need instead.
  */
 export function targetNeedCents(
   target: TargetData,
@@ -546,10 +624,59 @@ export function targetNeedCents(
   if (target.type === "by_date") {
     const shortfall = Math.max(0, target.amountCents - availableCents);
     if (shortfall <= 0 || !target.targetDate) return 0;
-    const monthsLeft = monthsUntilTarget(month, target.targetDate);
+    const dueDate = effectiveTargetDate(target.targetDate, target.repeatIntervalMonths, month);
+    const monthsLeft = monthsUntilTarget(month, dueDate);
     return Math.ceil(shortfall / monthsLeft);
   }
   return 0;
+}
+
+/**
+ * Steady-state monthly cost of `target` — what it costs to keep up with
+ * every month, as a standing commitment, ignoring any already-assigned or
+ * rolled-forward progress. This is deliberately *not* `targetNeedCents`
+ * ("how much more do I need to assign this month," which depends on
+ * today's partial progress and correctly goes to $0 once a category is
+ * topped up — right for "Assign by Targets," wrong here): the Spending Plan
+ * wizard's "does my income cover my planned commitments" figure must stay
+ * the same regardless of how much of this month's assignment has already
+ * happened, for an existing category as much as a brand new one.
+ *
+ *  - `set_aside` / `fill_up_to`: the target amount itself, every month.
+ *  - recurring `by_date` / `sinking`: the amount ÷ its cycle length — the
+ *    steady rate, not the catch-up rate as a due date approaches. (A sinking
+ *    target's share is paid into the Sinking Fund rather than the category,
+ *    but it's the same monthly commitment.)
+ *  - one-shot `by_date`: the amount spread evenly over the months remaining
+ *    until the due date, starting from zero progress.
+ */
+export function targetMonthlyCostCents(target: TargetData, month: string): number {
+  if (target.type === "set_aside" || target.type === "fill_up_to") {
+    return target.amountCents;
+  }
+  if (target.type === "sinking") {
+    return sinkingMonthlyContributionCents(target);
+  }
+  if (target.type === "by_date") {
+    if (target.repeatIntervalMonths) {
+      return Math.ceil(target.amountCents / target.repeatIntervalMonths);
+    }
+    if (!target.targetDate) return 0;
+    return Math.ceil(target.amountCents / monthsUntilTarget(month, target.targetDate));
+  }
+  return 0;
+}
+
+/** Sum of `targetMonthlyCostCents` across every entry that has a target. See
+ * that function for why this is not built on `targetNeedCents`. */
+export function totalTargetMonthlyCostCents(
+  entries: { target: TargetData | null }[],
+  month: string,
+): number {
+  return entries.reduce(
+    (sum, e) => sum + (e.target ? targetMonthlyCostCents(e.target, month) : 0),
+    0,
+  );
 }
 
 /** Find the Ready-to-Assign category id within already-fetched group data. */
@@ -560,4 +687,25 @@ export function findReadyToAssignId(groups: RawGroup[]): string | null {
     }
   }
   return null;
+}
+
+/**
+ * Returns `catTargets` with the Sinking Fund category's target replaced by
+ * the one derived from every sinking target (category- or group-level), or
+ * removed when there are none — so it's never whatever might be stored.
+ */
+export function withDerivedSinkingFundTarget(
+  groups: RawGroup[],
+  catTargets: Record<string, TargetData>,
+  grpTargets: Record<string, TargetData>,
+): Record<string, TargetData> {
+  const sinkingFundId = groups
+    .flatMap((g) => g.categories ?? [])
+    .find((c) => c.role === "sinking_fund")?.id;
+  if (!sinkingFundId) return catTargets;
+
+  const rest = { ...catTargets };
+  delete rest[sinkingFundId];
+  const derived = deriveSinkingFundTarget([...Object.values(rest), ...Object.values(grpTargets)]);
+  return derived ? { ...rest, [sinkingFundId]: derived } : rest;
 }

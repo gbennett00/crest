@@ -6,7 +6,10 @@ import type { HomeData } from "@/lib/budget";
 
 async function fetchHomeView(): Promise<HomeData> {
   const res = await fetch("/api/home");
-  if (!res.ok) throw new Error("Failed to load home");
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as { error?: string } | null;
+    throw new Error(body?.error ?? "Failed to load home");
+  }
   return res.json();
 }
 

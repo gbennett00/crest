@@ -1,10 +1,11 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
+import { throwOnQueryErrors } from "./query-errors";
 
 type RawOptionCategory = {
   id: string;
   name: string;
-  role: "ready_to_assign" | null;
+  role: "ready_to_assign" | "sinking_fund" | null;
   is_hidden: boolean;
   sort_index: number;
 };
@@ -29,11 +30,13 @@ type RawOptionGroup = {
 export async function loadCategoryOptions(
   client: SupabaseClient,
 ): Promise<CategoryOption[]> {
-  const { data } = await client
+  const res = await client
     .from("category_groups")
     .select("id, name, sort_index, categories(id, name, role, is_hidden, sort_index)")
     .order("sort_index")
     .order("sort_index", { referencedTable: "categories" });
+  throwOnQueryErrors({ categories: res });
+  const data = res.data;
 
   const groups = (data ?? []) as unknown as RawOptionGroup[];
 

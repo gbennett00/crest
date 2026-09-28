@@ -5,10 +5,20 @@
 // and client components can import them without crossing the server/client
 // boundary.
 
+export type TargetType = "fill_up_to" | "set_aside" | "by_date" | "sinking";
+
 export type TargetData = {
-  type: "fill_up_to" | "set_aside" | "by_date";
+  // `sinking`: need `amountCents` at the start of every cycle, funded by hand
+  // from the shared Sinking Fund category, which accrues its monthly share
+  // (see deriveSinkingFundTarget). Asks for nothing from Ready to Assign
+  // itself, and has no targetDate.
+  type: TargetType;
   amountCents: number;
   targetDate: string | null;
+  // `by_date`: recur every N months, rolling `targetDate` forward to its next
+  // occurrence on read (see effectiveTargetDate); null for a one-shot target.
+  // `sinking`: the cycle length (always set). Null for fill_up_to/set_aside.
+  repeatIntervalMonths: number | null;
 };
 
 // YNAB-style activity breakdown for a credit-card payment category, for a single
@@ -26,13 +36,26 @@ export type PaymentCategoryBreakdown = {
 export type BudgetCategory = {
   id: string;
   name: string;
-  role: "ready_to_assign" | null;
+  // "sinking_fund" is the single shared category the Spending Plan wizard's
+  // "fund in full now" pattern accumulates monthly contributions into (see
+  // app/(app)/budget/actions.ts getOrCreateSinkingFundCategory) — otherwise
+  // an ordinary category everywhere else in the app.
+  role: "ready_to_assign" | "sinking_fund" | null;
   isPinned: boolean;
   isHidden: boolean;
   assignedCents: number;
   activityCents: number;
   availableCents: number;
   target: TargetData | null;
+  // True iff this category is some account's credit-card payment category
+  // (accounts.payment_category_id), independent of whether that card has any
+  // register activity yet. Unlike cardRegisterBalanceCents (which is null
+  // until the card has at least one transaction), this is set from the
+  // account/category relationship itself, so callers that need to reliably
+  // identify payment categories (e.g. to exclude them from a manual-target
+  // picker — see CREDIT CARD LOGIC) should use this, not a null check on the
+  // derived balance.
+  isPaymentCategory: boolean;
   // For credit card payment categories: the card's register balance (negative = debt).
   // When abs(cardRegisterBalance) > availableCents the payment envelope is underfunded.
   cardRegisterBalanceCents: number | null;

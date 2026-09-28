@@ -1,4 +1,4 @@
--- Budget moves ledger (migration 20260928120000). Run with `supabase test db`.
+-- Budget moves ledger (migration 20260930120000). Run with `supabase test db`.
 BEGIN;
 SELECT plan(32);
 

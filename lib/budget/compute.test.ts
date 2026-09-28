@@ -4,11 +4,18 @@ import {
   buildBudgetGroups,
   buildHistory,
   computePaymentCategoryActivity,
+  computePlannedIncomeCents,
   computeRtaBreakdown,
+  deriveSinkingFundTarget,
+  effectiveTargetDate,
   findReadyToAssignId,
   monthsUntilTarget,
   paymentShortfallCents,
+  sinkingMonthlyContributionCents,
+  targetMonthlyCostCents,
   targetNeedCents,
+  totalTargetMonthlyCostCents,
+  withDerivedSinkingFundTarget,
   type CreditTxn,
   type RawGroup,
 } from "./compute";
@@ -589,6 +596,46 @@ describe("buildBudgetGroups", () => {
     expect(rent.cardRegisterBalanceCents).toBe(-250_00);
   });
 
+  it("marks isPaymentCategory from paymentCategoryIds, independent of register activity", () => {
+    // c-rent is a payment category with no transactions yet (no register-balance
+    // map entry) — isPaymentCategory must still be true, since a fresh card with
+    // no activity is exactly the case cardRegisterBalanceCents can't detect.
+    const { groups } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH,
+      catActivity: {},
+      catAssigned: {},
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+      paymentCategoryIds: new Set(["c-rent"]),
+    });
+    const rent = groups[0].categories.find((c) => c.id === "c-rent")!;
+    const water = groups[0].categories.find((c) => c.id === "c-water")!;
+    expect(rent.isPaymentCategory).toBe(true);
+    expect(rent.cardRegisterBalanceCents).toBeNull();
+    expect(water.isPaymentCategory).toBe(false);
+  });
+
+  it("defaults isPaymentCategory to false when paymentCategoryIds is omitted", () => {
+    const { groups } = buildBudgetGroups({
+      groups: baseGroups,
+      month: MONTH,
+      catActivity: {},
+      catAssigned: {},
+      grpActivity: {},
+      grpAssigned: {},
+      catTargets: {},
+      grpTargets: {},
+      cardRegisterBalance: new Map(),
+      cardBreakdown: {},
+    });
+    expect(groups[0].categories.every((c) => c.isPaymentCategory === false)).toBe(true);
+  });
+
   it("resets a cash-overspent category next month and reports the RTA charge", () => {
     // Water overspent $134.37 in May (no assignment). Viewing June, it should
     // read $0 (reset) and the overspend surfaces as priorCashOverspendCents.
@@ -648,21 +695,59 @@ describe("monthsUntilTarget", () => {
   });
 });
 
+describe("effectiveTargetDate", () => {
+  it("returns the anchor unchanged when not recurring", () => {
+    expect(effectiveTargetDate("2026-01-15", null, "2026-06-01")).toBe("2026-01-15");
+  });
+
+  it("returns the anchor unchanged when it hasn't arrived yet", () => {
+    expect(effectiveTargetDate("2026-12-01", 12, "2026-06-01")).toBe("2026-12-01");
+  });
+
+  it("returns the anchor unchanged in its own month", () => {
+    expect(effectiveTargetDate("2026-06-15", 6, "2026-06-01")).toBe("2026-06-15");
+  });
+
+  it("rolls a single-cycle-past due date forward, preserving the day", () => {
+    // Car insurance due every 6 months, last due Mar 15; viewing September ->
+    // next due Sep 15.
+    expect(effectiveTargetDate("2026-03-15", 6, "2026-09-01")).toBe("2026-09-15");
+  });
+
+  it("rolls forward multiple cycles when several have elapsed", () => {
+    // Anchored to Jan 2025, every 12 months: occurrences are Jan 2025/26/27/28.
+    // Viewed in March 2027, Jan 2027 has already passed, so the next one is
+    // Jan 2028.
+    expect(effectiveTargetDate("2025-01-01", 12, "2027-03-01")).toBe("2028-01-01");
+  });
+
+  it("lands exactly on the viewed month when a cycle boundary matches", () => {
+    expect(effectiveTargetDate("2026-01-01", 6, "2026-07-01")).toBe("2026-07-01");
+  });
+});
+
 describe("targetNeedCents", () => {
   const fillUpTo = (amountCents: number): TargetData => ({
     type: "fill_up_to",
     amountCents,
     targetDate: null,
+    repeatIntervalMonths: null,
   });
   const setAside = (amountCents: number): TargetData => ({
     type: "set_aside",
     amountCents,
     targetDate: null,
+    repeatIntervalMonths: null,
   });
-  const byDate = (amountCents: number, targetDate: string): TargetData => ({
+  const byDate = (
+    amountCents: number,
+    targetDate: string,
+    repeatIntervalMonths: number | null = null,
+  ): TargetData => ({
     type: "by_date",
     amountCents,
     targetDate,
+    repeatIntervalMonths,
   });
 
   it("fill_up_to needs the gap between available and the target", () => {
@@ -709,6 +794,222 @@ describe("targetNeedCents", () => {
   });
 
   it("unknown target types need nothing", () => {
-    expect(targetNeedCents({ type: "set_aside", amountCents: 0, targetDate: null }, MONTH, 0, 0)).toBe(0);
+    expect(
+      targetNeedCents(
+        { type: "set_aside", amountCents: 0, targetDate: null, repeatIntervalMonths: null },
+        MONTH,
+        0,
+        0,
+      ),
+    ).toBe(0);
+  });
+
+  it("by_date recurring: spreads the shortfall to the next occurrence, not the original anchor", () => {
+    // Car insurance: $700 every 6 months, anchored Mar 1; viewing September
+    // (the anchor has passed) -> next due date is Sep 1, due now (1 month).
+    const target = byDate(700_00, "2026-03-01", 6);
+    expect(targetNeedCents(target, "2026-09-01", 0, 0)).toBe(700_00);
+  });
+
+  it("by_date recurring: sinking-fund replenishment spreads over months remaining in the current cycle", () => {
+    // Vacations: $2,000 fund, anchored to renew every 12 months starting Jan;
+    // viewed in April with the fund spent down to $0, the next renewal is
+    // Jan 2027 (10 months out: Apr..Jan), so the shortfall spreads over 10.
+    const target = byDate(2_000_00, "2026-01-01", 12);
+    expect(targetNeedCents(target, "2026-04-01", 0, 0)).toBe(200_00); // 2000 / 10
+  });
+});
+
+describe("computePlannedIncomeCents", () => {
+  it("sums multiple sources", () => {
+    expect(
+      computePlannedIncomeCents([
+        { monthlyAmountCents: 500_000 },
+        { monthlyAmountCents: 150_000 },
+      ]),
+    ).toBe(650_000);
+  });
+
+  it("is 0 for no sources", () => {
+    expect(computePlannedIncomeCents([])).toBe(0);
+  });
+});
+
+describe("targetMonthlyCostCents", () => {
+  it("set_aside is always the full amount, regardless of already-assigned progress", () => {
+    // Reported bug: a category already 96%-assigned this month made a fresh
+    // $600 set_aside target look like it only cost $21.90/mo. The plan's
+    // "does my income cover this" figure must not depend on that snapshot.
+    const target: TargetData = {
+      type: "set_aside",
+      amountCents: 600_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(targetMonthlyCostCents(target, MONTH)).toBe(600_00);
+  });
+
+  it("fill_up_to is always the full amount, regardless of rolled-forward available", () => {
+    const target: TargetData = {
+      type: "fill_up_to",
+      amountCents: 400_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(targetMonthlyCostCents(target, MONTH)).toBe(400_00);
+  });
+
+  it("by_date spreads the full amount over the months remaining, ignoring current available", () => {
+    const target: TargetData = {
+      type: "by_date",
+      amountCents: 700_00,
+      targetDate: "2026-01-01",
+      repeatIntervalMonths: null,
+    };
+    // Sep -> Jan inclusive = 5 months; 700 / 5 = 140.
+    expect(targetMonthlyCostCents(target, "2025-09-01")).toBe(140_00);
+  });
+
+  it("recurring by_date costs amount ÷ cycle, not the catch-up rate near the due date", () => {
+    // $400 every December, viewed in October: the steady cost is $33.34/mo,
+    // not $400 / 3 months remaining.
+    const target: TargetData = {
+      type: "by_date",
+      amountCents: 400_00,
+      targetDate: "2026-12-01",
+      repeatIntervalMonths: 12,
+    };
+    expect(targetMonthlyCostCents(target, "2026-10-01")).toBe(33_34);
+  });
+
+  it("by_date with no target date costs nothing", () => {
+    const target: TargetData = {
+      type: "by_date",
+      amountCents: 700_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(targetMonthlyCostCents(target, MONTH)).toBe(0);
+  });
+});
+
+describe("totalTargetMonthlyCostCents", () => {
+  it("sums the steady-state cost across entries and ignores ones with no target", () => {
+    const total = totalTargetMonthlyCostCents(
+      [
+        { target: { type: "set_aside", amountCents: 600_00, targetDate: null, repeatIntervalMonths: null } },
+        { target: { type: "fill_up_to", amountCents: 400_00, targetDate: null, repeatIntervalMonths: null } },
+        { target: null },
+      ],
+      MONTH,
+    );
+    expect(total).toBe(1_000_00);
+  });
+
+  it("is 0 for no entries", () => {
+    expect(totalTargetMonthlyCostCents([], MONTH)).toBe(0);
+  });
+});
+
+const sinking = (amountCents: number, repeatIntervalMonths: number): TargetData => ({
+  type: "sinking",
+  amountCents,
+  targetDate: null,
+  repeatIntervalMonths,
+});
+
+describe("sinking targets", () => {
+  it("ask nothing from Ready to Assign themselves (funded by hand from the Sinking Fund)", () => {
+    expect(targetNeedCents(sinking(2_000_00, 12), MONTH, 0, 0)).toBe(0);
+  });
+
+  it("contribute amount ÷ cycle to the Sinking Fund, rounded up", () => {
+    expect(sinkingMonthlyContributionCents(sinking(2_000_00, 12))).toBe(166_67);
+    expect(sinkingMonthlyContributionCents(sinking(400_00, 12))).toBe(33_34);
+    expect(sinkingMonthlyContributionCents(sinking(600_00, 6))).toBe(100_00);
+  });
+
+  it("contribute nothing for a non-sinking target", () => {
+    const setAside: TargetData = {
+      type: "set_aside",
+      amountCents: 100_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    };
+    expect(sinkingMonthlyContributionCents(setAside)).toBe(0);
+  });
+
+  it("cost the same monthly share toward planned income", () => {
+    expect(targetMonthlyCostCents(sinking(2_000_00, 12), MONTH)).toBe(166_67);
+  });
+});
+
+describe("deriveSinkingFundTarget", () => {
+  it("is a monthly set-aside of every sinking target's share combined", () => {
+    // X = $2,000/yr and Y = $1,200/yr → (X + Y) / 12 = $266.67/mo.
+    expect(deriveSinkingFundTarget([sinking(2_000_00, 12), sinking(1_200_00, 12)])).toEqual({
+      type: "set_aside",
+      amountCents: 166_67 + 100_00,
+      targetDate: null,
+      repeatIntervalMonths: null,
+    });
+  });
+
+  it("mixes cycle lengths", () => {
+    expect(deriveSinkingFundTarget([sinking(1_200_00, 12), sinking(300_00, 3)])?.amountCents).toBe(
+      100_00 + 100_00,
+    );
+  });
+
+  it("ignores non-sinking targets and is null when there are none", () => {
+    const byDate: TargetData = {
+      type: "by_date",
+      amountCents: 400_00,
+      targetDate: "2026-12-01",
+      repeatIntervalMonths: 12,
+    };
+    expect(deriveSinkingFundTarget([byDate])).toBeNull();
+    expect(deriveSinkingFundTarget([])).toBeNull();
+  });
+});
+
+describe("withDerivedSinkingFundTarget", () => {
+  const groups: RawGroup[] = [
+    {
+      id: "g-fund",
+      name: "Sinking Funds",
+      budget_mode: "category",
+      is_pinned: false,
+      sort_index: 0,
+      categories: [
+        { id: "fund", name: "Sinking Fund", role: "sinking_fund", is_pinned: false, is_hidden: false, sort_index: 0 },
+        { id: "vacation", name: "Vacation", role: null, is_pinned: false, is_hidden: false, sort_index: 1 },
+      ],
+    },
+  ];
+  const stored: TargetData = {
+    type: "set_aside",
+    amountCents: 999_00,
+    targetDate: null,
+    repeatIntervalMonths: null,
+  };
+
+  it("replaces anything stored on the Sinking Fund with the derived target, counting group targets too", () => {
+    const result = withDerivedSinkingFundTarget(
+      groups,
+      { fund: stored, vacation: sinking(1_200_00, 12) },
+      { "g-trips": sinking(600_00, 6) },
+    );
+    expect(result.fund?.amountCents).toBe(100_00 + 100_00);
+    expect(result.vacation).toEqual(sinking(1_200_00, 12));
+  });
+
+  it("removes the Sinking Fund's target when there are no sinking targets", () => {
+    expect(withDerivedSinkingFundTarget(groups, { fund: stored }, {})).toEqual({});
+  });
+
+  it("leaves targets untouched when there's no Sinking Fund category", () => {
+    const targets = { vacation: sinking(1_200_00, 12) };
+    expect(withDerivedSinkingFundTarget([], targets, {})).toBe(targets);
   });
 });
