@@ -2,8 +2,7 @@
 
 import { Suspense, useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
-import Link from "next/link";
-import { ChevronLeft, X } from "lucide-react";
+import { X } from "lucide-react";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { AllTransactionsList } from "@/components/transactions/all-transactions-list";
 import { SearchBox } from "@/components/transactions/search-box";
@@ -14,8 +13,7 @@ import { useHasMounted } from "@/lib/use-has-mounted";
 type FiltersState = {
   q: string;
   account: string;
-  // Only ever arrives via URL (the budget screen's category drill-down) —
-  // there's no direct UI control for it, just the chip that shows/clears it.
+  // No direct UI control — kept so a `category` URL param still shows a chip.
   category: string;
   amountMin: string;
   amountMax: string;
@@ -81,16 +79,6 @@ function TransactionsContent() {
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const hasMounted = useHasMounted();
-
-  // Frozen at first render: the budget screen's category drill-down always
-  // arrives with both `category` and `dateFrom` set, and is the only entry
-  // point that wants a "back to budget" chevron instead of the plain header.
-  const [initialCategory] = useState(() => searchParams.get("category"));
-  const [initialDateFrom] = useState(() => searchParams.get("dateFrom"));
-  const cameFromBudget = !!initialCategory && !!initialDateFrom;
-  // /budget expects the full `YYYY-MM-01` DATE form (see BUDGET_MONTH_RE in
-  // app/(app)/budget/page.tsx), not a bare `YYYY-MM`.
-  const backHref = cameFromBudget ? `/budget?month=${initialDateFrom!.slice(0, 7)}-01` : null;
 
   // `draft` is what the controls show and updates on every keystroke/change.
   // `committed` only catches up ~300ms after `draft` goes quiet, and is what
@@ -170,11 +158,6 @@ function TransactionsContent() {
     <div className="max-w-2xl">
       <StickyHeader className="px-4 py-3">
         <div className="flex items-center gap-3 mb-3">
-          {backHref && (
-            <Link href={backHref} className="text-muted-foreground hover:text-foreground shrink-0">
-              <ChevronLeft size={20} />
-            </Link>
-          )}
           <h1 className="font-semibold text-sm">Transactions</h1>
         </div>
 
