@@ -1,0 +1,23 @@
+name: DB Tests
+
+# Applies every migration to a fresh local Postgres and runs the pgTAP suites
+# in supabase/tests (`supabase test db`). Only the database container is
+# started — no auth/REST/studio — to keep the run short.
+
+on:
+  push:
+
+jobs:
+  db-tests:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          # Pinned so a CLI release can't break CI unannounced; bump deliberately.
+          version: 2.117.0
+
+      - run: supabase db start
+      - run: supabase test db
