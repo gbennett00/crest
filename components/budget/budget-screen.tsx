@@ -210,7 +210,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
   const groupOptions = displayGroups.map((g) => ({ id: g.id, name: g.name }));
 
   return (
-    <div className="flex flex-col">
+    // pb-20 leaves room below the last row for the floating Add Transaction button.
+    <div className="flex flex-col pb-20">
       {assignOpen && (
         <AssignPopup data={data} onClose={() => setAssignOpen(false)} />
       )}
