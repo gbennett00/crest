@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
@@ -111,9 +112,11 @@ function ModalShell({
   onClose: () => void;
   children: React.ReactNode;
 }) {
-  return (
+  // Portal to <body> so the sheet escapes the sticky toolbar's stacking context
+  // and sits above the bottom nav and the floating Add Transaction button.
+  return createPortal(
     <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center">
-      <div className="bg-background w-full sm:max-w-md sm:rounded-2xl shadow-2xl">
+      <div className="bg-background w-full sm:max-w-md sm:rounded-2xl shadow-2xl max-h-[100dvh] overflow-y-auto pb-[env(safe-area-inset-bottom)]">
         <div className="flex items-center justify-between px-5 py-4 border-b">
           <h2 className="font-semibold text-base">{title}</h2>
           <button
@@ -125,7 +128,8 @@ function ModalShell({
         </div>
         <div className="p-5">{children}</div>
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }
 
