@@ -1,0 +1,41 @@
+name: Rehearse Migrations
+
+# Applies this branch's pending migrations to a copy of production data in a
+# throwaway local database and checks money totals don't change (see
+# scripts/rehearse-migrations.sh). Runs on branch pushes that touch
+# migrations, so problems surface before merge, and again as a gate before
+# production migrations are applied (deploy-migrations.yml).
+#
+# The repo is public: the script prints only counts and pass/fail, and the
+# data copy never leaves the runner (no artifacts).
+
+on:
+  push:
+    branches-ignore:
+      - main
+    paths:
+      - "supabase/migrations/**"
+      - "supabase/rehearsal/**"
+      - "scripts/rehearse-migrations.sh"
+      - ".github/workflows/rehearse-migrations.yml"
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+
+    env:
+      SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      SUPABASE_DB_PASSWORD: ${{ secrets.PRODUCTION_DB_PASSWORD }}
+      SUPABASE_PROJECT_ID: ${{ secrets.PRODUCTION_PROJECT_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: supabase/setup-cli@v1
+        with:
+          version: 2.117.0
+
+      - run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
+      - run: ./scripts/rehearse-migrations.sh

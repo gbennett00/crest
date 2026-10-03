@@ -6,6 +6,8 @@ name: DB Tests
 
 on:
   push:
+  # Also run as a gate before production migrations (deploy-migrations.yml).
+  workflow_call:
 
 jobs:
   db-tests:

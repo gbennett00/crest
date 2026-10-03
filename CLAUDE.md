@@ -59,6 +59,7 @@ Pure TypeScript business logic — no direct DB calls in the core modules; opera
 - Credit accounts require `payment_category_id`; non-credit accounts must not have one
 - Transfers use the `ledger_create_transfer` SQL function for atomicity
 - Assignments are written only as `budget_moves` rows (via `ledger_set_assigned` / `ledger_move_money`); `monthly_budgets` is a read-only view. Database tests for this live in `supabase/tests/` (`supabase test db`)
+- Production migrations only deploy after the pgTAP suite passes and `scripts/rehearse-migrations.sh` (pending migrations applied to a copy of production data) leaves the invariants in `supabase/rehearsal/snapshot.sql` unchanged; both also run on branch pushes
 
 ### Domain model summary
 
