@@ -46,3 +46,97 @@ export function resolveAssignmentCommit(params: {
     ? params.absoluteCents
     : params.original + params.deltaSign * params.deltaCents;
 }
+
+export type AssignmentEditState = {
+  mode: "absolute" | "delta";
+  /** The amount the delta applies to — the original, or the result of the
+   * last "=" press. */
+  base: number;
+  absoluteSign: 1 | -1;
+  absoluteCents: number; // magnitude
+  deltaSign: 1 | -1;
+  deltaCents: number; // magnitude
+  touched: boolean;
+};
+
+export type AssignmentKey =
+  | "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9"
+  | "+" | "-" | "=" | "backspace" | "clear";
+
+export function initialAssignmentEditState(original: number): AssignmentEditState {
+  return {
+    mode: "absolute",
+    base: original,
+    absoluteSign: original < 0 ? -1 : 1,
+    absoluteCents: Math.abs(original),
+    deltaSign: 1,
+    deltaCents: 0,
+    touched: false,
+  };
+}
+
+/**
+ * One keypress on the assignment keypad (the on-screen pad on touch devices;
+ * the physical +/-/digit keys follow the same rules). Digits shift in from
+ * the right, "+"/"-" start (or re-sign) a delta, "=" folds the delta into the
+ * amount and stays in the editor, "clear" zeroes the field being typed.
+ */
+export function pressAssignmentKey(
+  state: AssignmentEditState,
+  key: AssignmentKey,
+): AssignmentEditState {
+  const field = state.mode === "absolute" ? "absoluteCents" : "deltaCents";
+  const next = { ...state, touched: true };
+
+  if (key === "+" || key === "-") {
+    const sign = key === "+" ? 1 : -1;
+    return state.mode === "absolute"
+      ? { ...next, mode: "delta", deltaSign: sign, deltaCents: 0 }
+      : { ...next, deltaSign: sign };
+  }
+  if (key === "=") {
+    if (state.mode === "absolute") return state;
+    const result = state.base + state.deltaSign * state.deltaCents;
+    return {
+      ...next,
+      mode: "absolute",
+      base: result,
+      absoluteSign: result < 0 ? -1 : 1,
+      absoluteCents: Math.abs(result),
+      deltaSign: 1,
+      deltaCents: 0,
+    };
+  }
+  if (key === "clear") return { ...next, [field]: 0 };
+  if (key === "backspace") return { ...next, [field]: Math.floor(state[field] / 10) };
+  return {
+    ...next,
+    [field]: Math.min(state[field] * 10 + Number(key), MAX_MAGNITUDE_CENTS),
+  };
+}
+
+/** Applies a signed value from the native (desktop) CurrencyInput to the active field. */
+export function setAssignmentCents(
+  state: AssignmentEditState,
+  cents: number,
+): AssignmentEditState {
+  if (state.mode === "delta") return { ...state, touched: true, deltaCents: Math.abs(cents) };
+  return {
+    ...state,
+    touched: true,
+    absoluteSign: cents < 0 ? -1 : cents > 0 ? 1 : state.absoluteSign,
+    absoluteCents: Math.abs(cents),
+  };
+}
+
+/** What the editor should commit right now, or null if nothing was typed. */
+export function resolveAssignmentEditState(state: AssignmentEditState): number | null {
+  return resolveAssignmentCommit({
+    touched: state.touched,
+    mode: state.mode,
+    original: state.base,
+    absoluteCents: state.absoluteSign * state.absoluteCents,
+    deltaSign: state.deltaSign,
+    deltaCents: state.deltaCents,
+  });
+}

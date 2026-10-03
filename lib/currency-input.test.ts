@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  type AssignmentKey,
+  initialAssignmentEditState,
+  pressAssignmentKey,
+  resolveAssignmentEditState,
+  setAssignmentCents,
   centsFromDigits,
   formatCentsInput,
   MAX_MAGNITUDE_CENTS,
@@ -130,5 +135,65 @@ describe("resolveAssignmentCommit", () => {
         deltaCents: 0,
       }),
     ).toBe(15000);
+  });
+});
+
+describe("assignment keypad", () => {
+  function press(original: number, keys: AssignmentKey[]) {
+    const state = keys.reduce(pressAssignmentKey, initialAssignmentEditState(original));
+    return resolveAssignmentEditState(state);
+  }
+
+  it("commits nothing until a key is pressed", () => {
+    expect(press(15000, [])).toBeNull();
+  });
+
+  it("shifts digits in from the right on top of the prefilled value", () => {
+    expect(press(0, ["1", "2", "3"])).toBe(123);
+    expect(press(500, ["2"])).toBe(5002);
+  });
+
+  it("backspace and clear edit the active field", () => {
+    expect(press(0, ["1", "2", "3", "backspace"])).toBe(12);
+    expect(press(15000, ["clear"])).toBe(0);
+  });
+
+  it("types a negative amount from zero with the minus key", () => {
+    expect(press(0, ["-", "4", "8", "0", "0"])).toBe(-4800);
+  });
+
+  it("applies +/- as a delta on a non-zero original", () => {
+    expect(press(10000, ["-", "1", "4", "8", "0", "0"])).toBe(-4800);
+    expect(press(10000, ["+", "5", "0", "0"])).toBe(10500);
+  });
+
+  it("re-signs the delta when the other operator is pressed", () => {
+    expect(press(10000, ["-", "5", "0", "0", "+"])).toBe(10500);
+  });
+
+  it("= folds the delta in and keeps chaining from the result", () => {
+    expect(press(10000, ["+", "5", "0", "0", "="])).toBe(10500);
+    expect(press(10000, ["+", "5", "0", "0", "=", "-", "2", "0", "0"])).toBe(10300);
+  });
+
+  it("= can land on a negative amount and keep editing it as an absolute", () => {
+    const state = (["-", "1", "5", "0", "0", "0", "="] as AssignmentKey[]).reduce(
+      pressAssignmentKey,
+      initialAssignmentEditState(10000),
+    );
+    expect(state).toMatchObject({ mode: "absolute", absoluteSign: -1, absoluteCents: 5000 });
+    expect(resolveAssignmentEditState(pressAssignmentKey(state, "1"))).toBe(-50001);
+  });
+
+  it("clamps to the maximum magnitude", () => {
+    const keys = Array(15).fill("9") as AssignmentKey[];
+    expect(press(0, keys)).toBe(MAX_MAGNITUDE_CENTS);
+  });
+
+  it("applies native-input values to the active field, keeping a pending sign at zero", () => {
+    const negative = pressAssignmentKey(initialAssignmentEditState(-100), "backspace");
+    expect(setAssignmentCents(negative, 0).absoluteSign).toBe(-1);
+    const delta = pressAssignmentKey(initialAssignmentEditState(100), "-");
+    expect(resolveAssignmentEditState(setAssignmentCents(delta, 30))).toBe(70);
   });
 });
