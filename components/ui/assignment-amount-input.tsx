@@ -37,6 +37,9 @@ const flushInputClass =
  * same digit-shift way — accumulates below; the committed value becomes
  * `original + delta`.
  *
+ * A "+/-" button flips the sign of whichever value is being typed (the
+ * absolute amount, or the delta), for keypads with no minus key.
+ *
  * Nothing commits until the user actually types something (`touched`) —
  * focusing and blurring without a keystroke leaves the original value
  * alone, same as clicking away from a no-op edit anywhere else.
@@ -50,7 +53,11 @@ export function AssignmentAmountEditor({
   showDollarSign = false,
 }: AssignmentAmountEditorProps) {
   const [mode, setMode] = React.useState<"absolute" | "delta">("absolute");
-  const [absoluteCents, setAbsoluteCents] = React.useState(original);
+  // The absolute value is edited as a magnitude plus a separate sign so a
+  // pending "-" survives at $0 and can be set from the toggle button (mobile
+  // decimal keypads have no minus key).
+  const [absoluteSign, setAbsoluteSign] = React.useState<1 | -1>(original < 0 ? -1 : 1);
+  const [absoluteMagnitude, setAbsoluteMagnitude] = React.useState(Math.abs(original));
   const [deltaSign, setDeltaSign] = React.useState<1 | -1>(1);
   const [deltaCents, setDeltaCents] = React.useState(0);
   const [touched, setTouched] = React.useState(false);
@@ -60,7 +67,7 @@ export function AssignmentAmountEditor({
       touched,
       mode,
       original,
-      absoluteCents,
+      absoluteCents: absoluteSign * absoluteMagnitude,
       deltaSign,
       deltaCents,
     });
@@ -70,6 +77,28 @@ export function AssignmentAmountEditor({
     }
     onCommit(resolved);
   }
+
+  const activeSign = mode === "delta" ? deltaSign : absoluteSign;
+
+  function toggleSign() {
+    setTouched(true);
+    if (mode === "delta") setDeltaSign((s) => (s === 1 ? -1 : 1));
+    else setAbsoluteSign((s) => (s === 1 ? -1 : 1));
+  }
+
+  // Tapping the button must not blur the input — blur commits the edit.
+  const signToggle = (
+    <button
+      type="button"
+      tabIndex={-1}
+      aria-label={activeSign === 1 ? "Make negative" : "Make positive"}
+      onMouseDown={(e) => e.preventDefault()}
+      onClick={toggleSign}
+      className="shrink-0 rounded px-1 text-xs leading-none text-muted-foreground hover:bg-accent hover:text-foreground"
+    >
+      +/-
+    </button>
+  );
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if ((e.key === "+" || e.key === "-") && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -107,6 +136,7 @@ export function AssignmentAmountEditor({
           {formatCents(original)}
         </span>
         <div className="flex items-center gap-0.5 text-primary">
+          {signToggle}
           <span className="text-xs">{deltaSign === 1 ? "+" : "-"}</span>
           {showDollarSign && <span className="text-xs">$</span>}
           <CurrencyInput
@@ -132,12 +162,14 @@ export function AssignmentAmountEditor({
         className,
       )}
     >
+      {signToggle}
+      {absoluteSign === -1 && <span className="text-xs">-</span>}
       {showDollarSign && <span className="text-muted-foreground text-xs">$</span>}
       <CurrencyInput
         autoFocus
-        cents={absoluteCents}
+        cents={absoluteMagnitude}
         onCentsChange={(c) => {
-          setAbsoluteCents(c);
+          setAbsoluteMagnitude(c);
           setTouched(true);
         }}
         onKeyDown={handleKeyDown}
