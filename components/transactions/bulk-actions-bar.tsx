@@ -65,6 +65,12 @@ interface BulkActionsBarProps {
    * disabled once every selected row is locked, and warn otherwise.
    */
   lockedCount?: number;
+  /**
+   * How many of the selected rows have no category yet. When none do, Approve
+   * approves them as-is (keeping their categories, suggested or not) without
+   * asking for a category. Omit when unknown: Approve then always asks.
+   */
+  uncategorizedCount?: number;
   categories: CategoryOption[];
   accounts: AccountOption[];
   /** Actions shown as inline buttons on the bar. */
@@ -77,10 +83,26 @@ interface BulkActionsBarProps {
   onClearSelection: () => void;
 }
 
+/** Explains what bulk-approving with a chosen category will do. */
+function approvePrompt(count: number, uncategorized: number | undefined): string {
+  if (uncategorized === undefined) {
+    return `Approve ${count}. Uncategorized transactions get this category; ones already categorized keep theirs.`;
+  }
+  if (uncategorized === count) {
+    return `Approve ${count}. Choose a category for ${count === 1 ? "it" : "them"}.`;
+  }
+  const kept = count - uncategorized;
+  return (
+    `Approve ${count}. ${kept} already categorized ${kept === 1 ? "keeps its category" : "keep their categories"}; ` +
+    `choose one for the ${uncategorized} uncategorized.`
+  );
+}
+
 export function BulkActionsBar({
   selectedIds,
   selectedTotalCents,
   lockedCount = 0,
+  uncategorizedCount,
   categories,
   accounts,
   primary,
@@ -90,7 +112,9 @@ export function BulkActionsBar({
 }: BulkActionsBarProps) {
   // Which action's picker/dialog is currently open (null = just the bar).
   const [mode, setMode] = useState<BulkAction | null>(null);
-  const [category, setCategory] = useState(categories[0]?.id ?? "");
+  // No default category: pre-selecting the first option (Ready to Assign) made
+  // a bulk action look like it would send everything there.
+  const [category, setCategory] = useState("");
   const moveTargets = useMemo(
     () => accounts.filter((a) => a.id !== currentAccountId),
     [accounts, currentAccountId],
@@ -133,6 +157,18 @@ export function BulkActionsBar({
   }
   const lockHint = "Reconciled transactions can’t be moved or deleted.";
 
+  // Every selected row is already categorized: approving needs no category,
+  // so do it in one tap — each row keeps the category it has.
+  const approveAsIs = uncategorizedCount === 0;
+
+  function openAction(action: BulkAction, toggle: boolean) {
+    if (action === "approve" && approveAsIs) {
+      run(() => bulkApproveTransactions(selectedIds, null));
+      return;
+    }
+    setMode(toggle && mode === action ? null : action);
+  }
+
   // The picker row only applies to the non-destructive actions; delete uses a
   // confirmation dialog instead.
   const pickerMode =
@@ -150,7 +186,7 @@ export function BulkActionsBar({
         type="button"
         disabled={isPending || blocked}
         title={blocked ? lockHint : undefined}
-        onClick={() => setMode(active ? null : action)}
+        onClick={() => openAction(action, true)}
         className={cn(
           "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
           active
@@ -170,17 +206,35 @@ export function BulkActionsBar({
           {/* Picker row (approve / categorize / move) */}
           {pickerMode && (
             <div className="flex flex-col gap-2 px-3 pt-3">
-              {pickerMode === "approve" && (
+              {pickerMode === "approve" && approveAsIs && (
+                // The selection became all-categorized while the panel was open.
+                <div className="flex items-center gap-2">
+                  <p className="flex-1 text-xs text-muted-foreground">
+                    Approve {count} with {count === 1 ? "its" : "their"} current{" "}
+                    {count === 1 ? "category" : "categories"}.
+                  </p>
+                  <Button
+                    size="sm"
+                    className="h-8 text-xs shrink-0"
+                    disabled={isPending}
+                    onClick={() => run(() => bulkApproveTransactions(selectedIds, null))}
+                  >
+                    {isPending ? "…" : "Approve"}
+                  </Button>
+                </div>
+              )}
+
+              {pickerMode === "approve" && !approveAsIs && (
                 <>
                   <p className="text-xs text-muted-foreground">
-                    Approve {count}. Uncategorized transactions get this
-                    category; ones already categorized keep their splits.
+                    {approvePrompt(count, uncategorizedCount)}
                   </p>
                   <div className="flex items-center gap-2">
                     <CategoryPicker
                       value={category}
                       onChange={setCategory}
                       categories={categories}
+                      placeholder="Choose a category…"
                       disabled={isPending}
                       className="flex-1 min-w-0"
                     />
@@ -315,7 +369,7 @@ export function BulkActionsBar({
                           key={action}
                           disabled={blocked}
                           title={blocked ? lockHint : undefined}
-                          onSelect={() => setMode(action)}
+                          onSelect={() => openAction(action, false)}
                           className={cn(
                             destructive &&
                               "text-destructive focus:text-destructive",

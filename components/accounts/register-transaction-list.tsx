@@ -27,6 +27,8 @@ export type RegisterTxn = {
   categoryLabel: string;
   /** Pending, with a category filled in automatically (not yet approved). */
   suggested: boolean;
+  /** Pending with no category: approving it needs one. */
+  needsCategory: boolean;
 };
 
 function formatDateLong(dateStr: string): string {
@@ -83,6 +85,10 @@ export function RegisterTransactionList({
   // Reconciled (locked) rows can be categorized/approved but not moved/deleted.
   const lockedSelectedCount = transactions.reduce(
     (n, t) => (selected.has(t.id) && t.reconciled ? n + 1 : n),
+    0,
+  );
+  const uncategorizedSelectedCount = transactions.reduce(
+    (n, t) => (selected.has(t.id) && t.needsCategory ? n + 1 : n),
     0,
   );
 
@@ -237,6 +243,7 @@ export function RegisterTransactionList({
         selectedIds={[...selected]}
         selectedTotalCents={selectedTotalCents}
         lockedCount={lockedSelectedCount}
+        uncategorizedCount={uncategorizedSelectedCount}
         categories={categories}
         accounts={accounts}
         primary={["categorize", "move"]}

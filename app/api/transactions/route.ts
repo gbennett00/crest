@@ -15,6 +15,8 @@ export type AllTransactionsRow = {
   categoryLabel: string;
   /** Pending, with a category filled in automatically (not yet approved). */
   suggested: boolean;
+  /** Pending with no category: approving it needs one. */
+  needsCategory: boolean;
   accountId: string;
   accountName: string;
 };
@@ -148,6 +150,7 @@ export async function GET(request: NextRequest) {
       memo: (txn.memo as string) ?? null,
       categoryLabel,
       suggested: !txn.approved_at && txn.category_source !== null && allocs.length > 0,
+      needsCategory: !txn.approved_at && allocs.length === 0,
       accountId: txn.account_id as string,
       accountName: accountData?.name ?? "Unknown",
     };

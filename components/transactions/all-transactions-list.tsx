@@ -70,6 +70,10 @@ export function AllTransactionsList({
     (n, t) => (selected.has(t.id) && t.reconciled ? n + 1 : n),
     0,
   );
+  const uncategorizedSelectedCount = transactions.reduce(
+    (n, t) => (selected.has(t.id) && t.needsCategory ? n + 1 : n),
+    0,
+  );
 
   // Preserve incoming order (txn_date desc, created desc) while grouping by day.
   const groups: { date: string; txns: AllTransactionsRow[] }[] = [];
@@ -214,6 +218,7 @@ export function AllTransactionsList({
         selectedIds={[...selected]}
         selectedTotalCents={selectedTotalCents}
         lockedCount={lockedSelectedCount}
+        uncategorizedCount={uncategorizedSelectedCount}
         categories={categories}
         accounts={accounts}
         primary={["categorize", "move"]}

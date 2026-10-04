@@ -71,6 +71,11 @@ export function PendingApprovalList({
     (sum, t) => (selected.has(t.id) ? sum + t.amountCents : sum),
     0,
   );
+  // Every row here is pending, so no category means approving it needs one.
+  const uncategorizedSelectedCount = pending.reduce(
+    (n, t) => (selected.has(t.id) && t.categoryLabel === null ? n + 1 : n),
+    0,
+  );
 
   return (
     <>
@@ -184,6 +189,7 @@ export function PendingApprovalList({
       <BulkActionsBar
         selectedIds={selectedIds}
         selectedTotalCents={selectedTotalCents}
+        uncategorizedCount={uncategorizedSelectedCount}
         categories={categories}
         accounts={accounts}
         primary={["approve", "categorize"]}

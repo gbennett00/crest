@@ -113,6 +113,7 @@ export async function GET(
       memo: (txn.memo as string) ?? null,
       categoryLabel,
       suggested: !txn.approved_at && txn.category_source !== null && allocs.length > 0,
+      needsCategory: !txn.approved_at && allocs.length === 0,
     };
   });
 
