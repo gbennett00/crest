@@ -19,6 +19,10 @@ export type PendingTransaction = {
   amountCents: number;
   txnDate: string;
   accountName: string;
+  /** Category name, "Split (n)", or null when uncategorized. */
+  categoryLabel: string | null;
+  /** The category was filled in automatically (rule or payee history). */
+  suggested: boolean;
 };
 
 // Everything the home screen renders. Built from the shared budget view plus a
@@ -44,7 +48,9 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
     loadBudgetView(client, month),
     client
       .from("transactions")
-      .select("id, payee, amount_cents, txn_date, account_id, accounts!account_id(name)")
+      .select(
+        "id, payee, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(categories(name))",
+      )
       .is("approved_at", null)
       .order("txn_date", { ascending: false })
       .limit(25),
@@ -63,15 +69,27 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
       payee: string | null;
       amount_cents: number;
       txn_date: string;
+      category_source: string | null;
       accounts: { name: string } | null;
+      transaction_allocations: { categories: { name: string } | null }[] | null;
     }>
-  ).map((t) => ({
-    id: t.id,
-    payee: t.payee || "—",
-    amountCents: t.amount_cents,
-    txnDate: t.txn_date,
-    accountName: t.accounts?.name ?? "Unknown",
-  }));
+  ).map((t) => {
+    const allocs = t.transaction_allocations ?? [];
+    return {
+      id: t.id,
+      payee: t.payee || "—",
+      amountCents: t.amount_cents,
+      txnDate: t.txn_date,
+      accountName: t.accounts?.name ?? "Unknown",
+      categoryLabel:
+        allocs.length === 0
+          ? null
+          : allocs.length === 1
+            ? (allocs[0].categories?.name ?? "Unknown")
+            : `Split (${allocs.length})`,
+      suggested: t.category_source !== null && allocs.length > 0,
+    };
+  });
 
   const accounts: AccountOption[] = (
     (accountsRes.data ?? []) as { id: string; name: string; on_budget: boolean }[]

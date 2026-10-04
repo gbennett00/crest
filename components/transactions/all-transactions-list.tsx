@@ -13,6 +13,7 @@ import type {
   CategoryOption,
 } from "@/components/transactions/transaction-form";
 import type { AllTransactionsRow } from "@/app/api/transactions/route";
+import { SuggestedTag } from "./suggested-tag";
 import { cn } from "@/lib/utils";
 
 function formatDateLong(dateStr: string): string {
@@ -136,8 +137,11 @@ export function AllTransactionsList({
                       {txn.payee || "—"}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {txn.categoryLabel} · {txn.accountName}
+                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">
+                      {txn.categoryLabel} · {txn.accountName}
+                    </span>
+                    {txn.suggested && <SuggestedTag />}
                   </p>
                   {txn.memo && (
                     <p className="text-xs text-muted-foreground italic mt-0.5 truncate">

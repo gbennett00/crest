@@ -12,6 +12,7 @@ import type {
   AccountOption,
   CategoryOption,
 } from "@/components/transactions/transaction-form";
+import { SuggestedTag } from "@/components/transactions/suggested-tag";
 import { cn } from "@/lib/utils";
 
 export type RegisterTxn = {
@@ -24,6 +25,8 @@ export type RegisterTxn = {
   reconciled: boolean;
   memo: string | null;
   categoryLabel: string;
+  /** Pending, with a category filled in automatically (not yet approved). */
+  suggested: boolean;
 };
 
 function formatDateLong(dateStr: string): string {
@@ -151,8 +154,9 @@ export function RegisterTransactionList({
                       {txn.payee || "—"}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
                     {txn.categoryLabel}
+                    {txn.suggested && <SuggestedTag />}
                   </p>
                   {txn.memo && (
                     <p className="text-xs text-muted-foreground italic mt-0.5 truncate">

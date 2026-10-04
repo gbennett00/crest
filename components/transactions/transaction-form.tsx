@@ -25,6 +25,7 @@ import {
   saveTransaction,
 } from "@/app/(app)/transactions/actions";
 import { CategoryPicker } from "./category-picker";
+import { SuggestedTag } from "./suggested-tag";
 import { ChevronLeft, Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
@@ -40,6 +41,8 @@ export type TransactionEditData = {
   reconciledAt: string | null;
   transferAccountId: string | null;
   isApproved: boolean;
+  /** Where the current category came from when it was filled in automatically. */
+  categorySource: "rule" | "history" | null;
   categoryId: string | null;
   allocations: AllocationData[];
 };
@@ -118,6 +121,14 @@ export function TransactionForm({
   const [categoryId, setCategoryId] = useState(txn?.categoryId ?? "");
 
   const isTransfer = direction === "transfer";
+  // The category was filled in automatically and the user hasn't changed it
+  // (see docs § AUTO-CATEGORIZATION). Saving approves it as-is.
+  const showSuggestionHint =
+    !!txn &&
+    !txn.isApproved &&
+    txn.categorySource !== null &&
+    !!categoryId &&
+    categoryId === txn.categoryId;
   const sign = direction === "inflow" ? 1 : -1;
   const totalAbsCents = amountCents;
   // Tracking accounts are never categorized — no category/split UI for them.
@@ -621,14 +632,24 @@ export function TransactionForm({
           </div>
 
           {!isSplit ? (
-            <CategoryPicker
-              id="categoryId"
-              categories={categories}
-              value={categoryId}
-              onChange={setCategoryId}
-              placeholder="No category (approve later)"
-              noneLabel="No category (approve later)"
-            />
+            <>
+              <CategoryPicker
+                id="categoryId"
+                categories={categories}
+                value={categoryId}
+                onChange={setCategoryId}
+                placeholder="No category (approve later)"
+                noneLabel="No category (approve later)"
+              />
+              {showSuggestionHint && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <SuggestedTag />
+                  {txn!.categorySource === "rule"
+                    ? "from one of your rules. Saving approves it."
+                    : `from your past ${txn!.payee || "payee"} transactions. Saving approves it.`}
+                </p>
+              )}
+            </>
           ) : (
             <div className="space-y-2">
               {splits.map((s, i) => (
