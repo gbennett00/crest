@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { assignCategory } from "@/app/(app)/budget/actions";
-import { budgetViewKey } from "@/lib/queries/budget";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type { BudgetCategory } from "@/lib/budget/types";
 
@@ -78,7 +78,8 @@ export function PaymentCategoryActivity({
     startTransition(async () => {
       await assignCategory(cat.id, month, cat.assignedCents + shortfall);
       setOpen(false);
-      queryClient.invalidateQueries({ queryKey: budgetViewKey(month) });
+      // Changes RTA everywhere and later months' available.
+      invalidateAllLedgerQueries(queryClient);
     });
   }
 

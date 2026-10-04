@@ -15,11 +15,7 @@ import {
   renameCategory,
   renameGroup,
 } from "@/app/(app)/budget/actions";
-import {
-  useBudgetView,
-  prefetchBudgetView,
-  invalidateBudgetView,
-} from "@/lib/queries/budget";
+import { useBudgetView, prefetchBudgetView } from "@/lib/queries/budget";
 import {
   prefetchAllTransactions,
   monthToDateRange,
@@ -326,7 +322,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                     onAssignGroup={(cents) =>
                       startTransition(async () => {
                         await assignGroup(group.id, data.month, cents);
-                        invalidateBudgetView(queryClient, data.month);
+                        // Changes RTA everywhere and later months' available.
+                        invalidateAllLedgerQueries(queryClient);
                       })
                     }
                   />
@@ -342,7 +339,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                         onAssign={(cents) =>
                           startTransition(async () => {
                             await assignCategory(cat.id, data.month, cents);
-                            invalidateBudgetView(queryClient, data.month);
+                            // Changes RTA everywhere and later months' available.
+                            invalidateAllLedgerQueries(queryClient);
                           })
                         }
                       />
