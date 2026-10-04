@@ -437,14 +437,21 @@ Then:
 
 General-purpose move of assigned money between any two funding units (a
 category in a category-budgeted group, or a group-budgeted group) or Ready to
-Assign, for the month in view. Reached from the row's 3-dot menu ("Move
-money"), which opens with that unit as the source; a swap button flips it to
+Assign, for the month in view. Reached from the row's menu (long press, or
+right-click on desktop: "Move money"), which opens with that unit as the source; a swap button flips it to
 the destination.
 
 * the amount may exceed the source's available balance (the dialog warns that
   it will go negative) — same as editing assigned amounts directly
 * recorded as one budget move (`source = 'user'`) via `ledger_move_money`
   (`components/budget/move-money-popup.tsx`, `lib/budget/move-money.ts`)
+
+**View moves** (same row menu, `/budget/moves?category=|group=&month=`) lists
+every move into or out of that funding unit for the viewed budget month, or all
+months, grouped by the day it happened in the viewer's time zone and signed
+relative to the unit (+ in, − out). Backfilled moves, whose real dates are
+unknown, are grouped under "Before move history" (`lib/budget/moves-history.ts`,
+`app/api/budget-moves/route.ts`).
 
 ---
 

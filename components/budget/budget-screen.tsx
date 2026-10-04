@@ -15,11 +15,7 @@ import {
   renameCategory,
   renameGroup,
 } from "@/app/(app)/budget/actions";
-import {
-  useBudgetView,
-  prefetchBudgetView,
-  invalidateBudgetView,
-} from "@/lib/queries/budget";
+import { useBudgetView, prefetchBudgetView } from "@/lib/queries/budget";
 import {
   prefetchAllTransactions,
   monthToDateRange,
@@ -326,7 +322,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                     onAssignGroup={(cents) =>
                       startTransition(async () => {
                         await assignGroup(group.id, data.month, cents);
-                        invalidateBudgetView(queryClient, data.month);
+                        // Changes RTA everywhere and later months' available.
+                        invalidateAllLedgerQueries(queryClient);
                       })
                     }
                   />
@@ -342,7 +339,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                         onAssign={(cents) =>
                           startTransition(async () => {
                             await assignCategory(cat.id, data.month, cents);
-                            invalidateBudgetView(queryClient, data.month);
+                            // Changes RTA everywhere and later months' available.
+                            invalidateAllLedgerQueries(queryClient);
                           })
                         }
                       />
@@ -403,12 +401,16 @@ function GroupHeaderRow({
   const [targetOpen, setTargetOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const router = useRouter();
   const isGroupBudget = group.budgetMode === "group";
   const overspent = isGroupBudget && available < 0;
   const rowMenu = useRowMenu({
     onRename: () => setRenaming(true),
     onEditTarget: isGroupBudget ? () => setTargetOpen(true) : undefined,
     onMoveMoney: isGroupBudget ? () => setMoveOpen(true) : undefined,
+    onViewMoves: isGroupBudget
+      ? () => router.push(`/budget/moves?group=${group.id}&month=${data.month}`)
+      : undefined,
     hasTarget: !!group.target,
     disabled: renaming,
   });
@@ -550,6 +552,9 @@ function CategoryRow({
     onRename: () => setRenaming(true),
     onEditTarget: canEditTarget ? () => setTargetOpen(true) : undefined,
     onMoveMoney: isCategoryBudget ? () => setMoveOpen(true) : undefined,
+    onViewMoves: isCategoryBudget
+      ? () => router.push(`/budget/moves?category=${cat.id}&month=${month}`)
+      : undefined,
     hasTarget: !!cat.target,
     disabled: renaming,
   });

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftRight, Pencil, Target } from "lucide-react";
+import { ArrowLeftRight, History, Pencil, Target } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,13 +11,14 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLongPress } from "@/lib/use-long-press";
 
-// Per-row actions menu (rename, target, move money), opened by long-pressing the row on
+// Per-row actions menu (rename, target, move money, view moves), opened by long-pressing the row on
 // touch or right-clicking it on desktop. Spread `rowProps` onto the row (with
 // LONG_PRESS_ROW_CLASS) and render `menu` anywhere inside it.
 export function useRowMenu({
   onRename,
   onEditTarget,
   onMoveMoney,
+  onViewMoves,
   hasTarget,
   disabled = false,
 }: {
@@ -25,6 +26,8 @@ export function useRowMenu({
   onEditTarget?: () => void;
   /** Shown only for funding units (see lib/budget/entries). */
   onMoveMoney?: () => void;
+  /** Shown only for funding units, like onMoveMoney. */
+  onViewMoves?: () => void;
   hasTarget: boolean;
   disabled?: boolean;
 }) {
@@ -98,6 +101,11 @@ export function useRowMenu({
         {onMoveMoney && (
           <DropdownMenuItem onSelect={() => (pendingRef.current = onMoveMoney)} className="gap-2">
             <ArrowLeftRight size={14} /> Move money
+          </DropdownMenuItem>
+        )}
+        {onViewMoves && (
+          <DropdownMenuItem onSelect={() => (pendingRef.current = onViewMoves)} className="gap-2">
+            <History size={14} /> View moves
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>
