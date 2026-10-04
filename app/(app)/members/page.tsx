@@ -1,14 +1,12 @@
-import { Suspense } from "react";
+"use client";
+
+import { useQueryClient } from "@tanstack/react-query";
 import { Clock, Crown } from "lucide-react";
 
-import { createClient } from "@/lib/supabase/server";
-import { getActivePlanId } from "@/lib/plan/active-plan";
-import {
-  listPendingInvitations,
-  listPlanMembers,
-  listUserPlans,
-} from "@/lib/plan/invitations";
-import { getAppBaseUrl } from "@/lib/plan/invite-url";
+import { useMembers, invalidateMembers } from "@/lib/queries/members";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { useHasMounted } from "@/lib/use-has-mounted";
+import { LoadError } from "@/components/load-error";
 import { Badge } from "@/components/ui/badge";
 import { InviteForm } from "@/components/members/invite-form";
 import { CopyLink } from "@/components/members/copy-link";
@@ -27,9 +25,7 @@ export default function MembersPage() {
           People who can view and edit this plan.
         </p>
       </div>
-      <Suspense fallback={<MembersSkeleton />}>
-        <MembersContent />
-      </Suspense>
+      <MembersContent />
     </div>
   );
 }
@@ -43,39 +39,47 @@ function MembersSkeleton() {
   );
 }
 
-async function MembersContent() {
-  const supabase = await createClient();
+function inviteLinkBase(): string {
+  const envBase = process.env.NEXT_PUBLIC_APP_URL?.replace(/\/$/, "");
+  if (envBase) return envBase;
+  return typeof window !== "undefined" ? window.location.origin : "";
+}
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+function MembersContent() {
+  const hasMounted = useHasMounted();
+  const queryClient = useQueryClient();
+  const { data, isPending, error, refetch } = useMembers();
 
-  const planId = await getActivePlanId(supabase);
-  const [members, plans] = await Promise.all([
-    listPlanMembers(supabase, planId),
-    listUserPlans(supabase),
-  ]);
+  if (hasMounted && !data && error) {
+    return (
+      <LoadError what="members" error={error as Error} onRetry={() => refetch()} />
+    );
+  }
+  if (!hasMounted || (isPending && !data)) {
+    return <MembersSkeleton />;
+  }
 
-  const me = members.find((m) => m.userId === user?.id);
-  const isOwner = me?.role === "owner";
-  const activePlan = plans.find((p) => p.planId === planId);
-  const invitations = isOwner
-    ? await listPendingInvitations(supabase, planId)
-    : [];
-  const baseUrl = invitations.length > 0 ? await getAppBaseUrl() : "";
+  const { members, plans, invitations, isOwner, currentUserId, activePlanId, activePlanName } =
+    data!;
+  const base = inviteLinkBase();
 
   return (
     <>
-      {activePlan && (
+      {activePlanName && (
         <p className="-mt-4 text-sm text-muted-foreground">
-          Active plan: <span className="font-medium text-foreground">{activePlan.name}</span>
+          Active plan:{" "}
+          <span className="font-medium text-foreground">{activePlanName}</span>
         </p>
       )}
 
       {plans.length > 1 && (
         <section className="space-y-2">
           <h2 className="text-sm font-semibold">Your plans</h2>
-          <PlanSwitcher plans={plans} activePlanId={planId} />
+          <PlanSwitcher
+            plans={plans}
+            activePlanId={activePlanId}
+            onSwitched={() => invalidateAllLedgerQueries(queryClient)}
+          />
         </section>
       )}
 
@@ -87,7 +91,7 @@ async function MembersContent() {
               Create an invite link and send it to the person yourself.
             </p>
           </div>
-          <InviteForm />
+          <InviteForm onInvited={() => invalidateMembers(queryClient)} />
         </section>
       ) : (
         <p className="rounded-lg border bg-muted/40 p-3 text-sm text-muted-foreground">
@@ -115,10 +119,13 @@ async function MembersContent() {
                         Expired
                       </Badge>
                     )}
-                    <RevokeInvitationButton invitationId={inv.id} />
+                    <RevokeInvitationButton
+                      invitationId={inv.id}
+                      onRevoked={() => invalidateMembers(queryClient)}
+                    />
                   </div>
                 </div>
-                {!inv.expired && <CopyLink url={`${baseUrl}/invite/${inv.token}`} />}
+                {!inv.expired && <CopyLink url={`${base}/invite/${inv.token}`} />}
               </li>
             ))}
           </ul>
@@ -126,12 +133,10 @@ async function MembersContent() {
       )}
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">
-          Members ({members.length})
-        </h2>
+        <h2 className="text-sm font-semibold">Members ({members.length})</h2>
         <ul className="divide-y rounded-lg border">
           {members.map((member) => {
-            const isSelf = member.userId === user?.id;
+            const isSelf = member.userId === currentUserId;
             return (
               <li
                 key={member.userId}
@@ -140,9 +145,7 @@ async function MembersContent() {
                 <div className="min-w-0">
                   <p className="truncate text-sm font-medium">
                     {member.email}
-                    {isSelf && (
-                      <span className="text-muted-foreground"> (you)</span>
-                    )}
+                    {isSelf && <span className="text-muted-foreground"> (you)</span>}
                   </p>
                   <p className="flex items-center gap-1 text-xs text-muted-foreground">
                     {member.role === "owner" ? (
@@ -158,6 +161,7 @@ async function MembersContent() {
                   <RemoveMemberButton
                     userId={member.userId}
                     email={member.email}
+                    onRemoved={() => invalidateMembers(queryClient)}
                   />
                 )}
               </li>

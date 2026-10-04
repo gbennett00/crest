@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { UserMinus } from "lucide-react";
 import {
   AlertDialog,
@@ -19,11 +18,12 @@ import { removeMember, revokeInvitation } from "@/app/(app)/members/actions";
 export function RemoveMemberButton({
   userId,
   email,
+  onRemoved,
 }: {
   userId: string;
   email: string;
+  onRemoved?: () => void;
 }) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -32,7 +32,7 @@ export function RemoveMemberButton({
     startTransition(async () => {
       const result = await removeMember(userId);
       if (result?.error) setError(result.error);
-      else router.refresh();
+      else onRemoved?.();
     });
   }
 
@@ -73,14 +73,19 @@ export function RemoveMemberButton({
   );
 }
 
-export function RevokeInvitationButton({ invitationId }: { invitationId: string }) {
-  const router = useRouter();
+export function RevokeInvitationButton({
+  invitationId,
+  onRevoked,
+}: {
+  invitationId: string;
+  onRevoked?: () => void;
+}) {
   const [isPending, startTransition] = useTransition();
 
   function revoke() {
     startTransition(async () => {
       await revokeInvitation(invitationId);
-      router.refresh();
+      onRevoked?.();
     });
   }
 

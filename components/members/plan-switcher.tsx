@@ -1,7 +1,6 @@
 "use client";
 
 import { useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { Check } from "lucide-react";
 import { setActivePlan } from "@/app/(app)/members/actions";
 import { cn } from "@/lib/utils";
@@ -10,18 +9,19 @@ import type { UserPlan } from "@/lib/plan/invitations";
 export function PlanSwitcher({
   plans,
   activePlanId,
+  onSwitched,
 }: {
   plans: UserPlan[];
   activePlanId: string;
+  onSwitched?: () => void;
 }) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
   function switchTo(planId: string) {
     if (planId === activePlanId) return;
     startTransition(async () => {
       const result = await setActivePlan(planId);
-      if (!result?.error) router.refresh();
+      if (!result?.error) onSwitched?.();
     });
   }
 

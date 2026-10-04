@@ -8,7 +8,7 @@ import { Label } from "@/components/ui/label";
 import { inviteMember } from "@/app/(app)/members/actions";
 import { CopyLink } from "@/components/members/copy-link";
 
-export function InviteForm() {
+export function InviteForm({ onInvited }: { onInvited?: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ email: string; link: string } | null>(null);
   const [isPending, startTransition] = useTransition();
@@ -25,6 +25,7 @@ export function InviteForm() {
       } else if (result?.success) {
         setNotice({ email: result.email ?? email, link: result.inviteUrl ?? "" });
         formRef.current?.reset();
+        onInvited?.();
       }
     });
   }
