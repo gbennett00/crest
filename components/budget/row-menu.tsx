@@ -12,8 +12,8 @@ import {
 import { useLongPress } from "@/lib/use-long-press";
 
 // Per-row actions menu (rename + target), opened by long-pressing the row on
-// touch or right-clicking it on desktop. Spread `pressHandlers` onto the row
-// and render `menu` anywhere inside it.
+// touch or right-clicking it on desktop. Spread `rowProps` onto the row (with
+// LONG_PRESS_ROW_CLASS) and render `menu` anywhere inside it.
 export function useRowMenu({
   onRename,
   onEditTarget,
@@ -26,37 +26,54 @@ export function useRowMenu({
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  // Kept after close so the menu doesn't jump while animating out. Null until
-  // the first press, which also keeps the portal out of the server render.
-  const [point, setPoint] = useState<{ x: number; y: number } | null>(null);
+  // The row's on-screen box, which the menu is anchored to. Kept after close so
+  // the menu doesn't jump while animating out. Null until the first press,
+  // which also keeps the portal out of the server render.
+  const [anchor, setAnchor] = useState<DOMRect | null>(null);
   // The chosen action runs once the menu has fully closed; otherwise the
   // menu's focus trap pulls focus back out of the rename input / target popup.
   const pendingRef = useRef<(() => void) | null>(null);
 
-  const pressHandlers = useLongPress(
-    (p) => {
-      setPoint(p);
+  const { pressing, handlers } = useLongPress(
+    (row) => {
+      setAnchor(row.getBoundingClientRect());
       setOpen(true);
     },
     { disabled },
   );
+  // Tinted while held and while the menu is open, so it's clear the press
+  // registered even when the thumb hides the menu.
+  const rowProps = {
+    ...handlers,
+    "data-pressed": pressing || open ? "" : undefined,
+  };
 
   const menu = (
     <DropdownMenu open={open} onOpenChange={setOpen}>
-      {point &&
+      {anchor &&
         createPortal(
-          // Zero-size anchor at the press point for the menu to position against.
+          // Invisible copy of the row's box for the menu to position against.
           <DropdownMenuTrigger asChild>
             <span
               aria-hidden
-              className="pointer-events-none fixed size-0"
-              style={{ left: point.x, top: point.y }}
+              className="pointer-events-none fixed"
+              style={{
+                left: anchor.left,
+                top: anchor.top,
+                width: anchor.width,
+                height: anchor.height,
+              }}
             />
           </DropdownMenuTrigger>,
           document.body,
         )}
       <DropdownMenuContent
+        // Above the row, clear of the thumb doing the pressing; Radix flips it
+        // below when there's no room.
+        side="top"
         align="start"
+        alignOffset={16}
+        sideOffset={6}
         className="w-40"
         // Clicks inside the portaled menu still bubble through the row in
         // React's tree; don't let them trigger the row's tap action.
@@ -79,10 +96,11 @@ export function useRowMenu({
     </DropdownMenu>
   );
 
-  return { pressHandlers, menu };
+  return { rowProps, menu };
 }
 
 // Applied to long-pressable rows: suppress iOS text selection and the
-// link-preview callout, while keeping inputs inside the row editable.
+// link-preview callout (keeping inputs inside the row editable), and tint the
+// row while it's pressed / its menu is open.
 export const LONG_PRESS_ROW_CLASS =
-  "select-none [-webkit-touch-callout:none] [&_input]:select-text";
+  "select-none [-webkit-touch-callout:none] [&_input]:select-text data-[pressed]:!bg-primary/15 dark:data-[pressed]:!bg-primary/30";

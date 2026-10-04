@@ -411,7 +411,7 @@ function GroupHeaderRow({
 
   return (
     <div
-      {...rowMenu.pressHandlers}
+      {...rowMenu.rowProps}
       onClick={() => { if (!renaming) onToggle(); }}
       className={cn(
         COLS,
@@ -545,12 +545,12 @@ function CategoryRow({
     <div
       role="button"
       tabIndex={0}
-      {...rowMenu.pressHandlers}
+      {...rowMenu.rowProps}
       onClick={handleRowClick}
       onMouseEnter={handlePrefetch}
       onFocus={handlePrefetch}
       onPointerDown={(e) => {
-        rowMenu.pressHandlers.onPointerDown(e);
+        rowMenu.rowProps.onPointerDown(e);
         handlePrefetch();
       }}
       className={cn(

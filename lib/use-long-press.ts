@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
+import { haptic } from "./haptic";
 
 // How long a touch must be held, and how far the finger may drift, before it
 // counts as a long press. The drift allowance matters on real devices: a
@@ -9,22 +10,30 @@ import type React from "react";
 // gesture unreliable.
 const HOLD_MS = 500;
 const MOVE_TOLERANCE_PX = 10;
+// Delay before showing the "pressing" state, so a touch that starts a scroll
+// doesn't flash the row.
+const PRESSING_DELAY_MS = 120;
 
 // Long-pressing these should keep their native behavior (caret placement,
 // paste menu) instead of opening the row menu.
 const IGNORE_SELECTOR = "input, textarea, select, [contenteditable='true']";
 
-// Touch long-press + right-click handler that reports the press point.
+// Touch long-press + right-click handler that reports the pressed element.
 //
 // iOS Safari never fires `contextmenu` for a long press, so touch/pen presses
 // are timed manually. Android and desktop do fire `contextmenu` (long press /
 // right-click / keyboard menu key), which is handled too. The click that can
 // follow a long press is swallowed so the row's own tap action doesn't run.
+//
+// `pressing` is true while a touch is being held but hasn't fired yet, for
+// visual feedback.
 export function useLongPress(
-  onLongPress: (point: { x: number; y: number }) => void,
+  onLongPress: (element: HTMLElement) => void,
   { disabled = false }: { disabled?: boolean } = {},
 ) {
+  const [pressing, setPressing] = useState(false);
   const timerRef = useRef<number | null>(null);
+  const pressingTimerRef = useRef<number | null>(null);
   const startRef = useRef<{ x: number; y: number } | null>(null);
   const firedRef = useRef(false);
   const callbackRef = useRef(onLongPress);
@@ -32,8 +41,11 @@ export function useLongPress(
 
   const clear = useCallback(() => {
     if (timerRef.current !== null) window.clearTimeout(timerRef.current);
+    if (pressingTimerRef.current !== null) window.clearTimeout(pressingTimerRef.current);
     timerRef.current = null;
+    pressingTimerRef.current = null;
     startRef.current = null;
+    setPressing(false);
   }, []);
 
   useEffect(() => clear, [clear]);
@@ -42,11 +54,11 @@ export function useLongPress(
   }, [disabled, clear]);
 
   const fire = useCallback(
-    (point: { x: number; y: number }) => {
+    (element: HTMLElement) => {
       clear();
       firedRef.current = true;
-      navigator.vibrate?.(10);
-      callbackRef.current(point);
+      haptic();
+      callbackRef.current(element);
     },
     [clear],
   );
@@ -64,9 +76,10 @@ export function useLongPress(
     firedRef.current = false;
     if (disabled || e.pointerType === "mouse" || !isOwnTarget(e)) return;
     clear();
-    const point = { x: e.clientX, y: e.clientY };
-    startRef.current = point;
-    timerRef.current = window.setTimeout(() => fire(point), HOLD_MS);
+    const element = e.currentTarget;
+    startRef.current = { x: e.clientX, y: e.clientY };
+    pressingTimerRef.current = window.setTimeout(() => setPressing(true), PRESSING_DELAY_MS);
+    timerRef.current = window.setTimeout(() => fire(element), HOLD_MS);
   };
 
   const onPointerMove = (e: React.PointerEvent<HTMLElement>) => {
@@ -82,13 +95,7 @@ export function useLongPress(
     e.preventDefault();
     // Android fires this alongside our own timer; open only once.
     if (firedRef.current) return;
-    // Keyboard-invoked menus report (0, 0); anchor to the element instead.
-    if (e.clientX === 0 && e.clientY === 0) {
-      const rect = e.currentTarget.getBoundingClientRect();
-      fire({ x: rect.left + 16, y: rect.bottom });
-    } else {
-      fire({ x: e.clientX, y: e.clientY });
-    }
+    fire(e.currentTarget);
   };
 
   const onClickCapture = (e: React.MouseEvent<HTMLElement>) => {
@@ -99,12 +106,15 @@ export function useLongPress(
   };
 
   return {
-    onPointerDown,
-    onPointerMove,
-    onPointerUp: clear,
-    onPointerCancel: clear,
-    onPointerLeave: clear,
-    onContextMenu,
-    onClickCapture,
+    pressing,
+    handlers: {
+      onPointerDown,
+      onPointerMove,
+      onPointerUp: clear,
+      onPointerCancel: clear,
+      onPointerLeave: clear,
+      onContextMenu,
+      onClickCapture,
+    },
   };
 }
