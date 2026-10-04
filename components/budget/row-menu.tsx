@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Pencil, Target } from "lucide-react";
+import { ArrowLeftRight, Pencil, Target } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,17 +11,20 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLongPress } from "@/lib/use-long-press";
 
-// Per-row actions menu (rename + target), opened by long-pressing the row on
+// Per-row actions menu (rename, target, move money), opened by long-pressing the row on
 // touch or right-clicking it on desktop. Spread `rowProps` onto the row (with
 // LONG_PRESS_ROW_CLASS) and render `menu` anywhere inside it.
 export function useRowMenu({
   onRename,
   onEditTarget,
+  onMoveMoney,
   hasTarget,
   disabled = false,
 }: {
   onRename: () => void;
   onEditTarget?: () => void;
+  /** Shown only for funding units (see lib/budget/entries). */
+  onMoveMoney?: () => void;
   hasTarget: boolean;
   disabled?: boolean;
 }) {
@@ -31,7 +34,7 @@ export function useRowMenu({
   // which also keeps the portal out of the server render.
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   // The chosen action runs once the menu has fully closed; otherwise the
-  // menu's focus trap pulls focus back out of the rename input / target popup.
+  // menu's focus trap pulls focus back out of the rename input / popups.
   const pendingRef = useRef<(() => void) | null>(null);
 
   const { pressing, handlers } = useLongPress(
@@ -90,6 +93,11 @@ export function useRowMenu({
         {onEditTarget && (
           <DropdownMenuItem onSelect={() => (pendingRef.current = onEditTarget)} className="gap-2">
             <Target size={14} /> {hasTarget ? "Edit target" : "Set target"}
+          </DropdownMenuItem>
+        )}
+        {onMoveMoney && (
+          <DropdownMenuItem onSelect={() => (pendingRef.current = onMoveMoney)} className="gap-2">
+            <ArrowLeftRight size={14} /> Move money
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

@@ -125,14 +125,16 @@ export function TransactionForm({
   const isOffBudget =
     accounts.find((a) => a.id === accountId)?.onBudget === false;
 
-  // ---- Split state (absolute cents; sign re-applied on submit) ----
+  // ---- Split state (cents relative to the transaction's direction: positive
+  // matches it, negative opposes it, e.g. -$48 on an $860 inflow; the
+  // direction sign is re-applied on submit) ----
   const [isSplit, setIsSplit] = useState((txn?.allocations.length ?? 0) > 1);
   const [splits, setSplits] = useState<{ categoryId: string; amountCents: number }[]>(
     () =>
       (txn?.allocations.length ?? 0) > 1
         ? txn!.allocations.map((a) => ({
             categoryId: a.categoryId,
-            amountCents: Math.abs(a.amountCents),
+            amountCents: txn!.amountCents < 0 ? -a.amountCents : a.amountCents,
           }))
         : [],
   );
@@ -196,8 +198,8 @@ export function TransactionForm({
           setError("Every split needs a category.");
           return null;
         }
-        if (splits.some((s) => !(s.amountCents > 0))) {
-          setError("Every split needs an amount greater than zero.");
+        if (splits.some((s) => s.amountCents === 0)) {
+          setError("Every split needs a non-zero amount.");
           return null;
         }
         if (remainingCents !== 0) {
@@ -644,6 +646,7 @@ export function TransactionForm({
                     </span>
                     <CurrencyInput
                       cents={s.amountCents}
+                      allowNegative
                       onCentsChange={(cents) => updateSplit(i, { amountCents: cents })}
                       className="h-9 pl-6 text-sm tabular-nums"
                     />

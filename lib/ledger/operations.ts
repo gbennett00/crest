@@ -59,10 +59,13 @@ import type {
   TransactionAllocationInput,
   TransactionRow,
   UpdateTransactionInput,
+  BudgetMoveInput,
+  BudgetUnit,
+  SetAssignedInput,
   UpsertCategoryBudgetInput,
-  UpsertGroupBudgetInput,
   UpsertTransactionInput,
 } from "./types";
+import { READY_TO_ASSIGN } from "./types";
 import {
   assertIntegerCents,
   assertNonZeroAmount,
@@ -1392,8 +1395,9 @@ export async function getGroupAvailable(
 
 /**
  * Available balance for the Ready to Assign system category at the end of `month`.
- * Inflows increase activity; assignments to other categories decrease it via
- * negative `assigned_cents` on the RTA row in monthly_budgets.
+ * Only reflects RTA's own activity: the monthly_budgets view excludes Ready
+ * to Assign's side of budget moves, so assignments out of RTA aren't counted
+ * here. The budget screen computes RTA with computeRtaBreakdown instead.
  */
 export async function getReadyToAssignAvailable(
   client: SupabaseClient,
@@ -1403,47 +1407,87 @@ export async function getReadyToAssignAvailable(
   return getCategoryAvailable(client, categoryId, month);
 }
 
-/** Create or update the assigned amount for a category in a budget month. */
-export async function upsertCategoryBudget(
+/**
+ * Set absolute assigned amounts. Assignments are stored as an append-only log
+ * of budget moves (see ledger_set_assigned): each changed unit gets one move
+ * with Ready to Assign for the difference from its current total, and an
+ * unchanged unit writes nothing. The whole batch is one atomic round trip.
+ */
+export async function setAssigned(
   client: SupabaseClient,
-  input: UpsertCategoryBudgetInput,
+  inputs: SetAssignedInput[],
 ): Promise<void> {
-  assertBudgetMonth(input.month);
-  assertIntegerCents(input.assignedCents, "assignedCents");
+  if (inputs.length === 0) return;
 
-  const { data: existing } = await client
-    .from("monthly_budgets")
-    .select("id")
-    .eq("month", input.month)
-    .eq("category_id", input.categoryId)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await client
-      .from("monthly_budgets")
-      .update({ assigned_cents: input.assignedCents })
-      .eq("id", existing.id);
-    if (error) throw new LedgerError("db_error", error.message);
-  } else {
-    const { error } = await client.from("monthly_budgets").insert({
-      month: input.month,
-      category_id: input.categoryId,
-      group_id: null,
-      assigned_cents: input.assignedCents,
-    });
-    if (error) throw new LedgerError("db_error", error.message);
+  for (const input of inputs) {
+    assertBudgetMonth(input.month);
+    assertIntegerCents(input.assignedCents, "assignedCents");
   }
+
+  const { error } = await client.rpc("ledger_set_assigned", {
+    p_rows: inputs.map((input) => ({
+      month: input.month,
+      ...unitColumns(input.unit),
+      assigned_cents: input.assignedCents,
+    })),
+  });
+  if (error) throw new LedgerError("db_error", error.message);
 }
 
 /**
- * Bulk variant of upsertCategoryBudget: one round trip for the whole batch via
- * ledger_bulk_upsert_category_budgets, instead of one round trip per row. It's
- * a SQL function rather than a native PostgREST bulk .upsert() because
- * monthly_budgets_month_category_unique is a partial index (WHERE
- * category_id IS NOT NULL), which PostgREST's upsert helper can't target
- * directly. On conflict this is a no-op (not an overwrite): an assignment the
- * user has since edited in the Budget page is left alone on a re-import
- * rather than being reverted to the CSV's value.
+ * Record explicit moves of assigned money between funding units and/or Ready
+ * to Assign, atomically (see ledger_move_money). `source` labels the moves for
+ * the Moves history ("cover" for cover-overspending).
+ */
+export async function moveMoney(
+  client: SupabaseClient,
+  moves: BudgetMoveInput[],
+  source: "user" | "cover" = "user",
+): Promise<void> {
+  if (moves.length === 0) return;
+
+  for (const move of moves) {
+    assertBudgetMonth(move.month);
+    assertIntegerCents(move.amountCents, "amountCents");
+    if (move.amountCents <= 0) {
+      throw new LedgerError("invalid_amount", "amountCents must be positive");
+    }
+    if (move.from === READY_TO_ASSIGN && move.to === READY_TO_ASSIGN) {
+      throw new LedgerError("invalid_move", "cannot move from Ready to Assign to itself");
+    }
+  }
+
+  const { error } = await client.rpc("ledger_move_money", {
+    p_moves: moves.map((move) => ({
+      month: move.month,
+      // Ready to Assign is sent as a side with no ids; the SQL function
+      // resolves it to the plan's RTA category.
+      ...(move.from === READY_TO_ASSIGN ? {} : prefixed("from", unitColumns(move.from))),
+      ...(move.to === READY_TO_ASSIGN ? {} : prefixed("to", unitColumns(move.to))),
+      amount_cents: move.amountCents,
+    })),
+    p_source: source,
+  });
+  if (error) throw new LedgerError("db_error", error.message);
+}
+
+function unitColumns(unit: BudgetUnit): { category_id: string } | { group_id: string } {
+  return unit.type === "category" ? { category_id: unit.id } : { group_id: unit.id };
+}
+
+function prefixed(prefix: "from" | "to", columns: Record<string, string>): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(columns).map(([key, value]) => [`${prefix}_${key}`, value]),
+  );
+}
+
+/**
+ * Bulk assignment write for the YNAB importer: one round trip for the whole
+ * batch via ledger_bulk_upsert_category_budgets. Each amount is recorded as an
+ * 'import' budget move with Ready to Assign. A (month, category) that already
+ * has moves is left alone (not overwritten): an assignment the user has since
+ * edited in the Budget page survives a re-import rather than being reverted
+ * to the CSV's value.
  */
 export async function bulkUpsertCategoryBudgets(
   client: SupabaseClient,
@@ -1466,36 +1510,4 @@ export async function bulkUpsertCategoryBudgets(
     p_rows: payload,
   });
   if (error) throw new LedgerError("db_error", error.message);
-}
-
-/** Create or update the assigned amount for a group in a budget month (group-mode pools). */
-export async function upsertGroupBudget(
-  client: SupabaseClient,
-  input: UpsertGroupBudgetInput,
-): Promise<void> {
-  assertBudgetMonth(input.month);
-  assertIntegerCents(input.assignedCents, "assignedCents");
-
-  const { data: existing } = await client
-    .from("monthly_budgets")
-    .select("id")
-    .eq("month", input.month)
-    .eq("group_id", input.groupId)
-    .maybeSingle();
-
-  if (existing) {
-    const { error } = await client
-      .from("monthly_budgets")
-      .update({ assigned_cents: input.assignedCents })
-      .eq("id", existing.id);
-    if (error) throw new LedgerError("db_error", error.message);
-  } else {
-    const { error } = await client.from("monthly_budgets").insert({
-      month: input.month,
-      category_id: null,
-      group_id: input.groupId,
-      assigned_cents: input.assignedCents,
-    });
-    if (error) throw new LedgerError("db_error", error.message);
-  }
 }

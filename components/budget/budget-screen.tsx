@@ -32,6 +32,7 @@ import { RtaBreakdownPopup } from "./rta-breakdown-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
 import { CoverOverspendingPopup } from "./cover-overspending-popup";
 import { LONG_PRESS_ROW_CLASS, useRowMenu } from "./row-menu";
+import { MoveMoneyPopup } from "./move-money-popup";
 import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
@@ -209,7 +210,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
   const groupOptions = displayGroups.map((g) => ({ id: g.id, name: g.name }));
 
   return (
-    <div className="flex flex-col">
+    // pb-20 leaves room below the last row for the floating Add Transaction button.
+    <div className="flex flex-col pb-20">
       {assignOpen && (
         <AssignPopup data={data} onClose={() => setAssignOpen(false)} />
       )}
@@ -400,11 +402,13 @@ function GroupHeaderRow({
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const isGroupBudget = group.budgetMode === "group";
   const overspent = isGroupBudget && available < 0;
   const rowMenu = useRowMenu({
     onRename: () => setRenaming(true),
     onEditTarget: isGroupBudget ? () => setTargetOpen(true) : undefined,
+    onMoveMoney: isGroupBudget ? () => setMoveOpen(true) : undefined,
     hasTarget: !!group.target,
     disabled: renaming,
   });
@@ -431,6 +435,15 @@ function GroupHeaderRow({
           onDone={() => setRenaming(false)}
         />
         {rowMenu.menu}
+        {moveOpen && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <MoveMoneyPopup
+              data={data}
+              unit={{ type: "group", id: group.id }}
+              onClose={() => setMoveOpen(false)}
+            />
+          </span>
+        )}
         {isGroupBudget && (
           <span onClick={(e) => e.stopPropagation()}>
             <TargetButton
@@ -472,7 +485,6 @@ function GroupHeaderRow({
                 type: "group",
                 id: group.id,
                 name: group.name,
-                originalAssigned: group.groupAssignedCents,
                 overspentCents: available,
               }}
               onClose={() => setCoverOpen(false)}
@@ -506,6 +518,7 @@ function CategoryRow({
   const [targetOpen, setTargetOpen] = useState(false);
   const [ccOpen, setCcOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const isCategoryBudget = group.budgetMode === "category";
   const isCC = cat.cardRegisterBalanceCents !== null;
@@ -520,8 +533,7 @@ function CategoryRow({
     if (renaming) return;
     if (isCC) setCcOpen((o) => !o);
     else {
-      const { dateFrom, dateTo } = monthToDateRange(month);
-      router.push(`/transactions?category=${cat.id}&dateFrom=${dateFrom}&dateTo=${dateTo}`);
+      router.push(`/budget/category/${cat.id}?month=${month}`);
     }
   }
 
@@ -537,6 +549,7 @@ function CategoryRow({
   const rowMenu = useRowMenu({
     onRename: () => setRenaming(true),
     onEditTarget: canEditTarget ? () => setTargetOpen(true) : undefined,
+    onMoveMoney: isCategoryBudget ? () => setMoveOpen(true) : undefined,
     hasTarget: !!cat.target,
     disabled: renaming,
   });
@@ -568,6 +581,15 @@ function CategoryRow({
           onDone={() => setRenaming(false)}
         />
         {rowMenu.menu}
+        {moveOpen && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <MoveMoneyPopup
+              data={data}
+              unit={{ type: "category", id: cat.id }}
+              onClose={() => setMoveOpen(false)}
+            />
+          </span>
+        )}
         {canEditTarget && (
           <span onClick={(e) => e.stopPropagation()}>
             <TargetButton
@@ -639,7 +661,6 @@ function CategoryRow({
                   type: "category",
                   id: cat.id,
                   name: cat.name,
-                  originalAssigned: cat.assignedCents,
                   overspentCents: cat.availableCents,
                 }}
                 onClose={() => setCoverOpen(false)}

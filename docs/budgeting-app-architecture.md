@@ -277,20 +277,42 @@ A guided flow (Plan page's 3-dot menu → "Spending plan") for editing the whole
 
 ---
 
-MONTHLY BUDGETS
+BUDGET MOVES
+
+The source of truth for assignments: an append-only log of every movement of
+assigned money between funding units (a category, a group-budgeted group, or
+Ready to Assign). Powers the YNAB-style "Moves" history.
 
 Fields:
 
 * id
-* month
-* category_id (nullable)
-* group_id (nullable)
-* assigned_cents
+* plan_id (set and verified by the insert trigger from the two units)
+* month (budget month affected, first day of month)
+* moved_at (when the move happened; shown in the history — differs from `month` when assigning to another month)
+* from_category_id / from_group_id (exactly one set)
+* to_category_id / to_group_id (exactly one set)
+* amount_cents (> 0)
+* source ('user' | 'cover' | 'import' | 'backfill')
+* created_by (stamped from `auth.uid()`; null = system; no FK so history survives user deletion)
 
 Rules:
 
-* exactly one of category_id or group_id must be set
-* month must be first day of month
+* Ready to Assign is stored as the plan's RTA category id, never null
+* both sides must belong to the same plan, and must differ
+* append-only: no updates or deletes; corrections are new moves
+* write through `ledger_set_assigned` (absolute amounts → a move with RTA for the difference) or `ledger_move_money` (explicit pairs, e.g. cover overspending)
+
+---
+
+MONTHLY BUDGETS (view)
+
+`monthly_budgets` is a view over BUDGET MOVES with the columns readers have
+always used: month, category_id, group_id, assigned_cents. Each move counts
++amount for its destination and −amount for its source, summed per (month,
+unit). Ready to Assign's own side is excluded — RTA is computed separately (see
+READY TO ASSIGN). `category_monthly_assigned` / `group_monthly_assigned` read
+from it. The pre-moves table is kept frozen as `monthly_budgets_legacy` until it
+is dropped.
 
 ---
 
@@ -364,7 +386,7 @@ Ready to Assign is a **system category** (`role = ready_to_assign`), not a value
 
 **Inflows:** categorize positive transactions (paycheck, refunds, etc.) with splits to Ready to Assign. That increases Ready to Assign **activity** for the month.
 
-**Assignments:** when the user assigns money to another category, increase that category’s `assigned_cents` and decrease Ready to Assign by the same amount (negative `assigned_cents` on the Ready to Assign category for that month, or an equivalent transfer in application code).
+**Assignments:** assigning money to a category records a budget move from Ready to Assign to that category (and un-assigning records the reverse). The category's assigned total rises by the amount; Ready to Assign falls by the same amount because it is computed from the spending categories' assigned totals, not from its own row in `monthly_budgets` (the view excludes it).
 
 **Available** (computed, same as any category):
 
@@ -411,6 +433,21 @@ Then:
 
 ---
 
+## MOVE MONEY
+
+General-purpose move of assigned money between any two funding units (a
+category in a category-budgeted group, or a group-budgeted group) or Ready to
+Assign, for the month in view. Reached from the row's 3-dot menu ("Move
+money"), which opens with that unit as the source; a swap button flips it to
+the destination.
+
+* the amount may exceed the source's available balance (the dialog warns that
+  it will go negative) — same as editing assigned amounts directly
+* recorded as one budget move (`source = 'user'`) via `ledger_move_money`
+  (`components/budget/move-money-popup.tsx`, `lib/budget/move-money.ts`)
+
+---
+
 ## COVER OVERSPENDING
 
 YNAB-style action for fixing a negative available balance on a funding unit
@@ -425,11 +462,10 @@ red available amount.
 * the total pulled cannot exceed the overspent amount or any source's own
   available balance; partial covers (leaving some overspend uncovered) are
   allowed
-* implemented purely as `assigned_cents` moves for the viewed month — the
-  overspent unit's assigned amount increases by the total covered, each
-  category/group source's assigned amount decreases by its contribution;
-  Ready to Assign needs no explicit write since it is derived, not stored
-  (see READY TO ASSIGN)
+* implemented as one budget move per source into the overspent unit for the
+  viewed month (`source = 'cover'`), written atomically via
+  `ledger_move_money` — including a move from Ready to Assign when it is a
+  source (see BUDGET MOVES)
 * this is a different mechanic from a credit-card payment category's
   "assign to cover" (see CREDIT CARD LOGIC), which only ever pulls from
   Ready to Assign for that one category
