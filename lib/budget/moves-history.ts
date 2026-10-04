@@ -39,9 +39,12 @@ export type MoveHistoryGroup = {
 export const BACKFILL_GROUP_LABEL = "Before move history";
 
 /**
- * Groups `rows` (any order) newest day first. Backfilled moves — assignments
- * that existed before moves were recorded, so their real dates are unknown —
- * go in one trailing group instead of under a misleading date.
+ * Groups `rows` (any order) newest day first, newest move first within a day.
+ * Backfilled moves — assignments that existed before moves were recorded, so
+ * their real dates are unknown — go in one trailing group instead of under a
+ * misleading date. Their `movedAt` is only when the old row was first saved
+ * (often all at once by an import), so that group is ordered by budget month,
+ * newest first: the only real chronology they have.
  */
 export function buildMoveHistory(
   rows: MoveRow[],
@@ -55,7 +58,8 @@ export function buildMoveHistory(
     day: "numeric",
   });
 
-  const sorted = [...rows].sort((a, b) => b.movedAt.localeCompare(a.movedAt));
+  const time = (row: MoveRow) => new Date(row.movedAt).getTime();
+  const sorted = [...rows].sort((a, b) => time(b) - time(a));
   const groups: MoveHistoryGroup[] = [];
   const backfill: MoveHistoryItem[] = [];
 
@@ -78,6 +82,10 @@ export function buildMoveHistory(
     else groups.push({ label, items: [item] });
   }
 
-  if (backfill.length > 0) groups.push({ label: BACKFILL_GROUP_LABEL, items: backfill });
+  if (backfill.length > 0) {
+    // Stable sort: same-month moves keep their newest-saved-first order.
+    backfill.sort((a, b) => b.month.localeCompare(a.month));
+    groups.push({ label: BACKFILL_GROUP_LABEL, items: backfill });
+  }
   return groups;
 }

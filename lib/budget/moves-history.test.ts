@@ -72,6 +72,35 @@ describe("buildMoveHistory", () => {
     expect(groups[1].items[0].id).toBe("old");
   });
 
+  it("orders backfilled moves by budget month, newest first, not by when they were saved", () => {
+    // Saved out of month order, as an import or old edits leave them.
+    const groups = buildMoveHistory(
+      [
+        move({ id: "feb", movedAt: "2026-09-01T10:00:05Z", month: "2026-02-01", source: "backfill" }),
+        move({ id: "oct", movedAt: "2026-09-01T10:00:01Z", month: "2026-10-01", source: "backfill" }),
+        move({ id: "apr", movedAt: "2026-09-01T10:00:09Z", month: "2026-04-01", source: "backfill" }),
+        move({ id: "mar", movedAt: "2026-09-01T10:00:02Z", month: "2026-03-01", source: "backfill" }),
+      ],
+      "rent",
+      "UTC",
+    );
+    expect(groups).toHaveLength(1);
+    expect(groups[0].items.map((i) => i.id)).toEqual(["oct", "apr", "mar", "feb"]);
+  });
+
+  it("compares instants, not timestamp strings", () => {
+    // Same instant ordering regardless of offset formatting.
+    const [group] = buildMoveHistory(
+      [
+        move({ id: "earlier", movedAt: "2026-09-25T12:00:00-06:00" }), // 18:00Z
+        move({ id: "later", movedAt: "2026-09-25T19:00:00+00:00" }),
+      ],
+      "rent",
+      "UTC",
+    );
+    expect(group.items.map((i) => i.id)).toEqual(["later", "earlier"]);
+  });
+
   it("keeps each move's budget month", () => {
     const [group] = buildMoveHistory(
       [move({ id: "jul", movedAt: "2026-10-03T10:00:00Z", month: "2026-07-01" })],
