@@ -110,7 +110,8 @@ function SortableRuleRow({
         <div className="min-w-0 flex-1">
           {/* The category matters most: it never truncates before the payee. */}
           <p className="text-sm font-medium flex items-center gap-1.5 min-w-0">
-            <span className="truncate">{rule.matchText}</span>
+            {/* match_text is stored normalized (lowercase); display it title-cased. */}
+            <span className="truncate capitalize">{rule.matchText}</span>
             <span className="text-muted-foreground font-normal shrink-0" aria-hidden>
               →
             </span>
