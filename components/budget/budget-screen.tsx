@@ -401,6 +401,7 @@ function GroupHeaderRow({
   const [targetOpen, setTargetOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const router = useRouter();
   const isGroupBudget = group.budgetMode === "group";
   const overspent = isGroupBudget && available < 0;
 
@@ -429,6 +430,11 @@ function GroupHeaderRow({
               onRename={() => setRenaming(true)}
               onEditTarget={isGroupBudget ? () => setTargetOpen(true) : undefined}
               onMoveMoney={isGroupBudget ? () => setMoveOpen(true) : undefined}
+              onViewMoves={
+                isGroupBudget
+                  ? () => router.push(`/budget/moves?group=${group.id}&month=${data.month}`)
+                  : undefined
+              }
               hasTarget={!!group.target}
               showTarget={isGroupBudget}
             />
@@ -570,6 +576,11 @@ function CategoryRow({
               onRename={() => setRenaming(true)}
               onEditTarget={canEditTarget ? () => setTargetOpen(true) : undefined}
               onMoveMoney={isCategoryBudget ? () => setMoveOpen(true) : undefined}
+              onViewMoves={
+                isCategoryBudget
+                  ? () => router.push(`/budget/moves?category=${cat.id}&month=${month}`)
+                  : undefined
+              }
               hasTarget={!!cat.target}
               showTarget={canEditTarget}
             />

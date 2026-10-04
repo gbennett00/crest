@@ -446,6 +446,13 @@ the destination.
 * recorded as one budget move (`source = 'user'`) via `ledger_move_money`
   (`components/budget/move-money-popup.tsx`, `lib/budget/move-money.ts`)
 
+**View moves** (same row menu, `/budget/moves?category=|group=&month=`) lists
+every move into or out of that funding unit for the viewed budget month, or all
+months, grouped by the day it happened in the viewer's time zone and signed
+relative to the unit (+ in, − out). Backfilled moves, whose real dates are
+unknown, are grouped under "Before move history" (`lib/budget/moves-history.ts`,
+`app/api/budget-moves/route.ts`).
+
 ---
 
 ## COVER OVERSPENDING
