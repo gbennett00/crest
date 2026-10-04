@@ -7,6 +7,7 @@ import { AlertTriangle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
+import { InfoTip } from "@/components/ui/info-tip";
 import { RuleEditor } from "@/components/rules/rule-editor";
 import { useRules } from "@/lib/queries/rules";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
@@ -106,7 +107,14 @@ function RulesContent() {
         >
           <ChevronLeft size={20} />
         </button>
-        <h1 className="font-semibold text-sm flex-1">Categorization rules</h1>
+        <div className="flex items-center gap-0.5 flex-1 min-w-0">
+          <h1 className="font-semibold text-sm truncate">Categorization rules</h1>
+          <InfoTip label="About categorization rules">
+            Rules suggest a category for incoming transactions. You still approve every one. When
+            no rule matches, Crest suggests the category you’ve used for that payee at least 70% of
+            the time recently.
+          </InfoTip>
+        </div>
         <Button
           size="sm"
           onClick={() => {
@@ -119,12 +127,6 @@ function RulesContent() {
       </StickyHeader>
 
       <div className="p-4 space-y-4">
-        <p className="text-sm text-muted-foreground">
-          Rules suggest a category for incoming transactions. You still approve every one. When no
-          rule matches, Crest suggests the category you’ve used for that payee at least 70% of the
-          time recently.
-        </p>
-
         {notice && (
           <p className="text-sm rounded-md border bg-muted/30 px-3 py-2" role="status">
             {notice}
