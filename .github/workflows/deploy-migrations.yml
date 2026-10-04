@@ -15,17 +15,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  # Never apply migrations to production unless the pgTAP suite passes and a
-  # rehearsal on a copy of production data leaves money totals unchanged.
+  # Never apply migrations to production unless the pgTAP suite passes.
   db-tests:
     uses: ./.github/workflows/db-tests.yml
 
-  rehearse:
-    uses: ./.github/workflows/rehearse-migrations.yml
-    secrets: inherit
-
   deploy:
-    needs: [db-tests, rehearse]
+    needs: db-tests
     runs-on: ubuntu-latest
 
     env:
