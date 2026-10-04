@@ -437,8 +437,8 @@ Then:
 
 General-purpose move of assigned money between any two funding units (a
 category in a category-budgeted group, or a group-budgeted group) or Ready to
-Assign, for the month in view. Reached from the row's 3-dot menu ("Move
-money"), which opens with that unit as the source; a swap button flips it to
+Assign, for the month in view. Reached from the row's menu (long press, or
+right-click on desktop: "Move money"), which opens with that unit as the source; a swap button flips it to
 the destination.
 
 * the amount may exceed the source's available balance (the dialog warns that
