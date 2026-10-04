@@ -2,7 +2,13 @@
 
 import * as React from "react";
 import { cn } from "@/lib/utils";
-import { centsFromDigits, formatCentsInput } from "@/lib/currency-input";
+import {
+  centsFromDigits,
+  formatCentsInput,
+  pressMoneyKey,
+  type AssignmentKey,
+} from "@/lib/currency-input";
+import { MONEY_KEYPAD_ATTR, MoneyKeypad, useCoarsePointer } from "@/components/ui/money-keypad";
 
 export interface CurrencyInputProps
   extends Omit<
@@ -13,9 +19,10 @@ export interface CurrencyInputProps
    * never holds a "raw" intermediate string of its own. */
   cents: number;
   onCentsChange: (cents: number) => void;
-  /** Lets the user flip the sign with the "-" key (e.g. a reconciled
-   * balance). Digits-only fields (assignments, transaction amounts) omit
-   * this since a negative value never makes sense there. */
+  /** Lets the user flip the sign with the "-" key — or the "-"/"+" keys of
+   * the on-screen keypad (e.g. a reconciled balance, a split row). Digits-only
+   * fields (transaction amounts) omit this since a negative value never makes
+   * sense there. */
   allowNegative?: boolean;
 }
 
@@ -32,6 +39,10 @@ export interface CurrencyInputProps
  * IME/virtual keyboards); `handleChange` just re-derives cents from
  * whatever digits ended up in the field. The cursor is pinned to the end on
  * every interaction so it can never actually land mid-value.
+ *
+ * On touch devices the field becomes read-only (no native keyboard — its
+ * decimal pad has no minus key) and focusing it opens the on-screen
+ * MoneyKeypad instead; Done or a tap elsewhere closes it.
  */
 export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputProps>(
   (
@@ -41,6 +52,7 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
       allowNegative = false,
       className,
       onFocus,
+      onBlur,
       onClick,
       onSelect,
       onKeyUp,
@@ -62,6 +74,42 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
     }, [cents]);
 
     const display = formatCentsInput(cents);
+
+    const coarse = useCoarsePointer();
+    const [focused, setFocused] = React.useState(false);
+    const keypadOpen = coarse && focused;
+
+    // A read-only input doesn't reliably blur on iOS when the page is tapped,
+    // so close the keypad on any tap outside the field and the pad.
+    React.useEffect(() => {
+      if (!keypadOpen) return;
+      function onPointerDown(e: PointerEvent) {
+        const target = e.target as Element | null;
+        if (target === innerRef.current) return;
+        if (target?.closest(`[${MONEY_KEYPAD_ATTR}]`)) return;
+        // Tapping another field hands focus over natively; blurring here would
+        // drop the keypad's bottom padding and shift the layout under the tap.
+        if (target?.closest("input, textarea, select")) return;
+        innerRef.current?.blur();
+      }
+      document.addEventListener("pointerdown", onPointerDown, true);
+      return () => document.removeEventListener("pointerdown", onPointerDown, true);
+    }, [keypadOpen]);
+
+    // Bring the field into view above the keypad once it has mounted.
+    React.useEffect(() => {
+      if (!keypadOpen) return;
+      const id = requestAnimationFrame(() =>
+        innerRef.current?.scrollIntoView({ block: "center", behavior: "smooth" }),
+      );
+      return () => cancelAnimationFrame(id);
+    }, [keypadOpen]);
+
+    function handleKeypadKey(key: AssignmentKey) {
+      const next = pressMoneyKey(cents, sign, key, allowNegative);
+      setSign(next.sign);
+      onCentsChange(next.cents);
+    }
 
     function pinToEnd() {
       const el = innerRef.current;
@@ -99,35 +147,51 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
     }
 
     return (
-      <input
-        {...props}
-        ref={innerRef}
-        type="text"
-        inputMode={allowNegative ? "text" : "decimal"}
-        value={display}
-        onChange={handleChange}
-        onKeyDown={handleKeyDown}
-        onFocus={(e) => {
-          pinToEnd();
-          onFocus?.(e);
-        }}
-        onClick={(e) => {
-          pinToEnd();
-          onClick?.(e);
-        }}
-        onSelect={(e) => {
-          pinToEnd();
-          onSelect?.(e);
-        }}
-        onKeyUp={(e) => {
-          pinToEnd();
-          onKeyUp?.(e);
-        }}
-        className={cn(
-          "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
-          className,
+      <>
+        <input
+          {...props}
+          ref={innerRef}
+          type="text"
+          inputMode={coarse ? "none" : allowNegative ? "text" : "decimal"}
+          readOnly={coarse || props.readOnly}
+          value={display}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          onFocus={(e) => {
+            pinToEnd();
+            setFocused(true);
+            onFocus?.(e);
+          }}
+          onBlur={(e) => {
+            setFocused(false);
+            onBlur?.(e);
+          }}
+          onClick={(e) => {
+            pinToEnd();
+            onClick?.(e);
+          }}
+          onSelect={(e) => {
+            pinToEnd();
+            onSelect?.(e);
+          }}
+          onKeyUp={(e) => {
+            pinToEnd();
+            onKeyUp?.(e);
+          }}
+          className={cn(
+            "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-base shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm",
+            className,
+          )}
+        />
+        {keypadOpen && (
+          <MoneyKeypad
+            onKey={handleKeypadKey}
+            onDone={() => innerRef.current?.blur()}
+            anchorRef={innerRef}
+            operators={allowNegative ? "sign" : "none"}
+          />
         )}
-      />
+      </>
     );
   },
 );
