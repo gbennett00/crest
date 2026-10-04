@@ -1,6 +1,6 @@
 "use client";
 
-import { MoreVertical, Pencil, Target } from "lucide-react";
+import { ArrowLeftRight, MoreVertical, Pencil, Target } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -8,16 +8,19 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
-// Per-row actions menu (rename + target). Stops click propagation so it doesn't
-// trigger the row's navigation/popover behavior.
+// Per-row actions menu (rename, target, move money). Stops click propagation so
+// it doesn't trigger the row's navigation/popover behavior.
 export function RowMenu({
   onRename,
   onEditTarget,
+  onMoveMoney,
   hasTarget,
   showTarget = true,
 }: {
   onRename: () => void;
   onEditTarget?: () => void;
+  /** Shown only for funding units (see lib/budget/entries). */
+  onMoveMoney?: () => void;
   hasTarget: boolean;
   showTarget?: boolean;
 }) {
@@ -43,6 +46,11 @@ export function RowMenu({
         {showTarget && onEditTarget && (
           <DropdownMenuItem onSelect={onEditTarget} className="gap-2">
             <Target size={14} /> {hasTarget ? "Edit target" : "Set target"}
+          </DropdownMenuItem>
+        )}
+        {onMoveMoney && (
+          <DropdownMenuItem onSelect={onMoveMoney} className="gap-2">
+            <ArrowLeftRight size={14} /> Move money
           </DropdownMenuItem>
         )}
       </DropdownMenuContent>

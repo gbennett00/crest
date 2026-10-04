@@ -1,8 +1,7 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
 import { Money } from "@/components/money";
-import { buildBudgetEntries } from "@/lib/budget/entries";
 import { CoverOverspendingPopup, type CoverTarget } from "@/components/budget/cover-overspending-popup";
 import type { BudgetData, BudgetViewItem } from "@/lib/budget/types";
 
@@ -19,17 +18,12 @@ export function OverspentSection({
   items: BudgetViewItem[];
 }) {
   const [target, setTarget] = useState<BudgetViewItem | null>(null);
-  const entries = useMemo(() => buildBudgetEntries(data), [data]);
 
   const coverTarget: CoverTarget | null = target
     ? {
         type: target.isGroup ? "group" : "category",
         id: target.id,
         name: target.name,
-        originalAssigned:
-          entries.find(
-            (e) => e.id === target.id && e.type === (target.isGroup ? "group" : "category"),
-          )?.originalAssigned ?? 0,
         overspentCents: target.availableCents,
       }
     : null;

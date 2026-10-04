@@ -8,7 +8,8 @@ import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { AssignmentAmountEditor } from "@/components/ui/assignment-amount-input";
-import { bulkAssign } from "@/app/(app)/budget/actions";
+import { coverOverspending } from "@/app/(app)/budget/actions";
+import { READY_TO_ASSIGN, type BudgetMoveInput } from "@/lib/ledger";
 import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
 import type { BudgetData } from "./budget-screen";
 
@@ -18,8 +19,6 @@ export type CoverTarget = {
   type: "category" | "group";
   id: string;
   name: string;
-  // The target's own assigned_cents before this popup makes any changes.
-  originalAssigned: number;
   // The target's current (negative) available balance — the overspend amount.
   overspentCents: number;
 };
@@ -74,24 +73,26 @@ export function CoverOverspendingPopup({
     if (totalCovered <= 0) return;
     setError(null);
 
-    const assignments: { type: "category" | "group"; id: string; amountCents: number }[] = [
-      { type: target.type, id: target.id, amountCents: target.originalAssigned + totalCovered },
-    ];
+    const to = { type: target.type, id: target.id };
+    const moves: BudgetMoveInput[] = [];
 
+    const rtaAmount = amounts[RTA_KEY] ?? 0;
+    if (rtaAmount > 0) {
+      moves.push({ month: data.month, from: READY_TO_ASSIGN, to, amountCents: rtaAmount });
+    }
     for (const source of sources) {
       const amount = amounts[source.key] ?? 0;
       if (amount <= 0) continue;
-      assignments.push({
-        type: source.type,
-        id: source.id,
-        amountCents: source.originalAssigned - amount,
+      moves.push({
+        month: data.month,
+        from: { type: source.type, id: source.id },
+        to,
+        amountCents: amount,
       });
     }
-    // Ready to Assign isn't a real row — pulling from it only requires the
-    // target's own assignment above, same as the existing "assign to cover".
 
     startTransition(async () => {
-      const result = await bulkAssign(assignments, data.month);
+      const result = await coverOverspending(moves);
       if (result?.success) {
         invalidateAllLedgerQueries(queryClient);
         onClose();

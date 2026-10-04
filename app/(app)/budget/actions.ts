@@ -2,13 +2,13 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
-import { upsertCategoryBudget, upsertGroupBudget } from "@/lib/ledger";
+import { moveMoney, setAssigned, type BudgetMoveInput } from "@/lib/ledger";
 import { getActivePlanId } from "@/lib/plan/active-plan";
 import type { TargetType } from "@/lib/budget/types";
 
-// RTA is computed directly on read (see budget/page.tsx and home/page.tsx).
-// No monthly_budget entry is written for the RTA category — assignments to
-// spending categories simply reduce RTA implicitly.
+// Assignments are recorded as budget moves (lib/ledger setAssigned/moveMoney):
+// setting an amount moves the difference to/from Ready to Assign. RTA itself is
+// computed on read (see lib/budget/load-budget-view.ts).
 
 export async function assignCategory(
   categoryId: string,
@@ -16,7 +16,9 @@ export async function assignCategory(
   assignedCents: number,
 ) {
   const supabase = await createClient();
-  await upsertCategoryBudget(supabase, { categoryId, month, assignedCents });
+  await setAssigned(supabase, [
+    { unit: { type: "category", id: categoryId }, month, assignedCents },
+  ]);
   revalidatePath("/budget");
 }
 
@@ -26,7 +28,7 @@ export async function assignGroup(
   assignedCents: number,
 ) {
   const supabase = await createClient();
-  await upsertGroupBudget(supabase, { groupId, month, assignedCents });
+  await setAssigned(supabase, [{ unit: { type: "group", id: groupId }, month, assignedCents }]);
   revalidatePath("/budget");
 }
 
@@ -49,13 +51,37 @@ export async function bulkAssign(
   month: string,
 ) {
   const supabase = await createClient();
-  await Promise.all(
-    assignments.map(({ type, id, amountCents }) =>
-      type === "category"
-        ? upsertCategoryBudget(supabase, { categoryId: id, month, assignedCents: amountCents })
-        : upsertGroupBudget(supabase, { groupId: id, month, assignedCents: amountCents }),
-    ),
+  await setAssigned(
+    supabase,
+    assignments.map(({ type, id, amountCents }) => ({
+      unit: { type, id },
+      month,
+      assignedCents: amountCents,
+    })),
   );
+  revalidatePath("/budget");
+  return { success: true };
+}
+
+/**
+ * Cover overspending: move money from each source (a funded category/group or
+ * Ready to Assign) into the overspent target, as one atomic batch.
+ */
+export async function coverOverspending(moves: BudgetMoveInput[]) {
+  const supabase = await createClient();
+  await moveMoney(supabase, moves, "cover");
+  revalidatePath("/budget");
+  return { success: true };
+}
+
+/** Move assigned money between two funding units or Ready to Assign. */
+export async function moveBudgetMoney(move: BudgetMoveInput) {
+  const supabase = await createClient();
+  try {
+    await moveMoney(supabase, [move]);
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) };
+  }
   revalidatePath("/budget");
   return { success: true };
 }
