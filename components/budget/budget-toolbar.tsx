@@ -69,23 +69,23 @@ export function BudgetToolbar({
               <MoreHorizontal size={18} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-48">
+          <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuItem
               onSelect={() => setModal("category")}
-              className="gap-2"
+              
               disabled={groups.length === 0}
             >
               <ListPlus size={14} /> Add category
             </DropdownMenuItem>
-            <DropdownMenuItem onSelect={() => setModal("group")} className="gap-2">
+            <DropdownMenuItem onSelect={() => setModal("group")}>
               <FolderPlus size={14} /> Add group
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={() => setModal("spending-plan")} className="gap-2">
+            <DropdownMenuItem onSelect={() => setModal("spending-plan")}>
               <NotebookPen size={14} /> Spending plan
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={onToggleReorder} className="gap-2">
+            <DropdownMenuItem onSelect={onToggleReorder}>
               <ArrowUpDown size={14} /> Reorder
             </DropdownMenuItem>
           </DropdownMenuContent>
