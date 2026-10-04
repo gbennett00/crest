@@ -22,8 +22,8 @@ export function validateRuleInput(input: CategoryRuleInput): string | null {
     }
   }
   if (input.maxCents === 0) return "The upper amount must be more than $0.00.";
-  if (input.minCents !== null && input.maxCents !== null && input.minCents >= input.maxCents) {
-    return "The lower amount must be less than the upper amount.";
+  if (input.minCents !== null && input.maxCents !== null && input.minCents > input.maxCents) {
+    return "“At least” can’t be more than “At most”.";
   }
   return null;
 }
@@ -60,17 +60,22 @@ export function shouldOfferRule(
   return !(previousCategoryIds.length === 1 && previousCategoryIds[0] === chosen);
 }
 
-/** Human summary of a rule's conditions, e.g. "Outflow · under $20.00 · Checking". */
+/**
+ * Human summary of a rule's conditions, e.g. "$20.00 or more · Checking".
+ * Both amount bounds are inclusive. Outflow is the default and goes unsaid;
+ * empty when the rule has no conditions beyond the payee.
+ */
 export function describeRuleConditions(
   rule: Pick<CategoryRuleInput, "direction" | "minCents" | "maxCents">,
   accountName: string | null,
 ): string {
-  const parts: string[] = [rule.direction === "outflow" ? "Outflow" : "Inflow"];
+  const parts: string[] = [];
+  if (rule.direction === "inflow") parts.push("Inflow");
   const { minCents, maxCents } = rule;
   if (minCents !== null && maxCents !== null) {
-    parts.push(`${formatCents(minCents)} to under ${formatCents(maxCents)}`);
+    parts.push(`${formatCents(minCents)} to ${formatCents(maxCents)}`);
   } else if (maxCents !== null) {
-    parts.push(`under ${formatCents(maxCents)}`);
+    parts.push(`${formatCents(maxCents)} or less`);
   } else if (minCents !== null) {
     parts.push(`${formatCents(minCents)} or more`);
   }

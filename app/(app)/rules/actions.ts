@@ -7,6 +7,7 @@ import {
   createCategoryRule,
   deleteCategoryRule,
   previewCategoryRule,
+  reorderCategoryRules,
   resuggestPendingTransactions,
   updateCategoryRule,
   validateRuleInput,
@@ -72,6 +73,21 @@ export async function updateRuleAction(id: string, input: CategoryRuleInput): Pr
   } catch (e) {
     console.error("[rules] update failed", e);
     return { error: "Couldn’t save the rule." };
+  }
+}
+
+/** Saves a new rule order (first = checked first) and re-applies suggestions. */
+export async function reorderRulesAction(orderedIds: string[]): Promise<RuleResult> {
+  const supabase = await createClient();
+  try {
+    const planId = await getActivePlanId(supabase);
+    await reorderCategoryRules(supabase, planId, orderedIds);
+    const updatedPending = await resuggest(supabase, planId);
+    revalidateAll();
+    return { updatedPending };
+  } catch (e) {
+    console.error("[rules] reorder failed", e);
+    return { error: "Couldn’t save the new order." };
   }
 }
 

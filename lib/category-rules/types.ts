@@ -3,7 +3,7 @@ import type { Cents } from "@/lib/ledger/types";
 export type RuleMatchType = "exact" | "contains";
 export type RuleDirection = "outflow" | "inflow";
 
-/** What the user edits; amounts are absolute cents (min inclusive, max exclusive). */
+/** What the user edits; amounts are absolute cents, both bounds inclusive. */
 export type CategoryRuleInput = {
   matchType: RuleMatchType;
   matchText: string;
@@ -16,6 +16,8 @@ export type CategoryRuleInput = {
 
 export type CategoryRule = CategoryRuleInput & {
   id: string;
+  /** Rules are checked in ascending priority; the first match wins. */
+  priority: number;
   createdAt: string;
 };
 

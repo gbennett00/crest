@@ -1,6 +1,7 @@
--- Auto-categorization (migration 20261005120000). Run with `supabase test db`.
+-- Auto-categorization (migrations 20261005120000 and 20261005130000).
+-- Run with `supabase test db`.
 BEGIN;
-SELECT plan(53);
+SELECT plan(59);
 
 -- ---------------------------------------------------------------------------
 -- normalize_payee
@@ -200,9 +201,10 @@ SELECT is(pg_temp.category_of(pg_temp.fx('mav_hist')), pg_temp.fx('allowance'),
 
 -- Rules ---------------------------------------------------------------------
 
--- Under $20 at Maverik is the allowance; $20 and up is transportation.
+-- $19.99 or less at Maverik is the allowance; $20 or more is transportation.
+-- Both bounds are inclusive.
 INSERT INTO fx VALUES
-  ('rule_small', pg_temp.rule('Maverik', 'allowance', 'exact', NULL, 2000)),
+  ('rule_small', pg_temp.rule('Maverik', 'allowance', 'exact', NULL, 1999)),
   ('rule_big',   pg_temp.rule('MAVERIK', 'transport', 'exact', 2000, NULL));
 
 SELECT is((SELECT match_text FROM category_rules WHERE id = pg_temp.fx('rule_small')), 'maverik',
@@ -213,9 +215,10 @@ INSERT INTO fx VALUES
   ('mav_2000', pg_temp.txn('Maverik', -2000, '2026-09-22'));
 SELECT pg_temp.suggest(pg_temp.fx('mav_1999'), pg_temp.fx('mav_2000'));
 
-SELECT is(pg_temp.category_of(pg_temp.fx('mav_1999')), pg_temp.fx('allowance'), '$19.99 matches the under-$20 rule');
+SELECT is(pg_temp.category_of(pg_temp.fx('mav_1999')), pg_temp.fx('allowance'),
+  '$19.99 matches the "$19.99 or less" rule (max is inclusive)');
 SELECT is(pg_temp.category_of(pg_temp.fx('mav_2000')), pg_temp.fx('transport'),
-  '$20.00 matches the $20-and-up rule (max is exclusive), beating 75% allowance history');
+  '$20.00 matches the "$20.00 or more" rule, beating 75% allowance history');
 SELECT is(pg_temp.source_of(pg_temp.fx('mav_2000')), 'rule', 'tagged as a rule suggestion');
 SELECT is((SELECT category_rule_id FROM transactions WHERE id = pg_temp.fx('mav_2000')), pg_temp.fx('rule_big'),
   'records which rule matched');
@@ -230,24 +233,44 @@ SELECT is(pg_temp.source_of(pg_temp.fx('costco_new')), 'rule', 'and re-tagged as
 SELECT is(pg_temp.suggest(pg_temp.fx('costco_new'), pg_temp.fx('walmart_new')), 0,
   're-running with nothing new changes nothing');
 
--- Specificity: exact beats contains; longer contains beats shorter.
-SELECT pg_temp.rule('mav', 'groceries', 'contains');
-SELECT pg_temp.rule('maverik s', 'clothing', 'contains');
+-- Priority: rules are checked top to bottom (lowest priority first) and the
+-- first match wins. New rules go to the top.
+INSERT INTO fx VALUES ('rule_mav_contains', pg_temp.rule('mav', 'groceries', 'contains'));
+INSERT INTO fx VALUES ('rule_mav_s', pg_temp.rule('maverik s', 'clothing', 'contains'));
+SELECT ok(
+  (SELECT priority FROM category_rules WHERE id = pg_temp.fx('rule_mav_s'))
+    < (SELECT min(priority) FROM category_rules WHERE id <> pg_temp.fx('rule_mav_s')),
+  'a new rule goes to the top');
 INSERT INTO fx VALUES ('mav_slc', pg_temp.txn('MAVERIK #9 SLC', -500, '2026-09-23'));
 SELECT pg_temp.suggest(pg_temp.fx('mav_slc'), pg_temp.fx('mav_new'));
 SELECT is(pg_temp.category_of(pg_temp.fx('mav_slc')), pg_temp.fx('clothing'),
-  'the longest matching contains rule wins');
+  'the topmost matching rule wins');
 INSERT INTO fx VALUES ('mav_exact', pg_temp.txn('Maverik', -500, '2026-09-23'));
 SELECT pg_temp.suggest(pg_temp.fx('mav_exact'));
-SELECT is(pg_temp.category_of(pg_temp.fx('mav_exact')), pg_temp.fx('allowance'),
-  'an exact rule beats contains rules');
+SELECT is(pg_temp.category_of(pg_temp.fx('mav_exact')), pg_temp.fx('groceries'),
+  'a broad rule above a narrower one wins, because order decides');
 
--- An account-scoped rule beats an otherwise equal unscoped one.
+-- Reordering: move the exact amount rules above the contains rules.
+SELECT category_rules_reorder(pg_temp.fx('plan_a'),
+  ARRAY[pg_temp.fx('rule_small'), pg_temp.fx('rule_big')]);
+SELECT is(
+  (SELECT array_agg(id ORDER BY priority) FROM category_rules
+   WHERE plan_id = pg_temp.fx('plan_a') AND id IN (pg_temp.fx('rule_small'), pg_temp.fx('rule_big'), pg_temp.fx('rule_mav_s'))),
+  ARRAY[pg_temp.fx('rule_small'), pg_temp.fx('rule_big'), pg_temp.fx('rule_mav_s')],
+  'reorder puts the listed rules first and keeps the rest in their order after them');
+SELECT is(
+  (SELECT count(DISTINCT priority)::int = count(*)::int FROM category_rules WHERE plan_id = pg_temp.fx('plan_a')),
+  true, 'reorder leaves every rule a distinct priority');
+SELECT pg_temp.suggest(pg_temp.fx('mav_exact'));
+SELECT is(pg_temp.category_of(pg_temp.fx('mav_exact')), pg_temp.fx('allowance'),
+  'after reordering, re-running applies the new top match');
+
+-- An account-scoped rule above an unscoped one applies to that account only.
 SELECT pg_temp.rule('costco', 'transport', 'exact', NULL, NULL, 'outflow', 'savings');
 INSERT INTO fx VALUES ('costco_savings', pg_temp.txn('Costco', -500, '2026-09-23', NULL, 'savings'));
 SELECT pg_temp.suggest(pg_temp.fx('costco_savings'));
 SELECT is(pg_temp.category_of(pg_temp.fx('costco_savings')), pg_temp.fx('transport'),
-  'an account-scoped rule outranks an unscoped one');
+  'an account-scoped rule matches on its account');
 
 -- A rule pointing at an archived category is skipped (history applies instead).
 SELECT pg_temp.txn('Trader Joe''s', -6000, '2026-09-10', ARRAY['groceries']);
@@ -261,8 +284,11 @@ SELECT throws_ok(
   $$SELECT pg_temp.rule('ab', 'groceries', 'contains')$$,
   '23514', NULL, 'contains rules need at least 3 characters');
 SELECT throws_ok(
-  $$SELECT pg_temp.rule('x', 'groceries', 'exact', 2000, 1000)$$,
-  '23514', NULL, 'min must be below max');
+  $$SELECT pg_temp.rule('x', 'groceries', 'exact', 2000, 1999)$$,
+  '23514', NULL, 'min cannot exceed max');
+SELECT lives_ok(
+  $$SELECT pg_temp.rule('exact amount', 'groceries', 'exact', 2000, 2000)$$,
+  'min may equal max (an exact amount)');
 SELECT throws_ok(
   format($$INSERT INTO category_rules (plan_id, match_text, category_id) VALUES ('%s', 'kroger', '%s')$$,
     pg_temp.fx('plan_a'), pg_temp.fx('groceries_b')),
@@ -297,7 +323,7 @@ SELECT is(
   (SELECT match_count FROM category_rule_preview(pg_temp.fx('plan_a'), 'exact', 'MAVERIK #1', 'outflow', NULL, 2000, NULL)),
   (SELECT count(*)::int FROM transactions t JOIN accounts a ON a.id = t.account_id
    WHERE a.plan_id = pg_temp.fx('plan_a') AND a.on_budget AND t.transfer_account_id IS NULL
-     AND t.payee_key = 'maverik' AND t.amount_cents < 0 AND abs(t.amount_cents) < 2000),
+     AND t.payee_key = 'maverik' AND t.amount_cents < 0 AND abs(t.amount_cents) <= 2000),
   'preview counts the plan''s matching transactions, normalizing the match text');
 SELECT is(
   (SELECT match_count FROM category_rule_preview(pg_temp.fx('plan_a'), 'exact', 'maverik', 'inflow', NULL, NULL, NULL)),
@@ -324,9 +350,14 @@ SELECT pg_temp.act_as('20000000-0000-0000-0000-00000000000b');
 SELECT is((SELECT count(*) FROM category_rules), 0::bigint, 'another plan''s rules are invisible');
 SELECT is(ledger_apply_category_suggestions(ARRAY[pg_temp.fx('mav_rls')]), 0,
   'another plan''s transactions cannot be suggested');
+SELECT category_rules_reorder(pg_temp.fx('plan_a'), ARRAY[pg_temp.fx('rule_big')]);
 RESET ROLE;
 
 SELECT pg_temp.act_as('20000000-0000-0000-0000-00000000000a');
+SELECT isnt(
+  (SELECT min(priority) FROM category_rules WHERE plan_id = pg_temp.fx('plan_a')),
+  (SELECT priority FROM category_rules WHERE id = pg_temp.fx('rule_big')),
+  'another plan''s member cannot reorder its rules');
 SELECT is(ledger_apply_category_suggestions(ARRAY[pg_temp.fx('mav_rls')]), 1,
   'a plan member can apply suggestions');
 RESET ROLE;

@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/ui/info-tip";
 import { CategoryPicker } from "@/components/transactions/category-picker";
 import type {
   AccountOption,
@@ -69,8 +70,9 @@ function Segmented<T extends string>({
 /**
  * Create / edit form for one categorization rule, with a live preview of how
  * many past transactions it would match. `ruleId` switches it to edit mode.
- * Amount bounds use 0 for "no bound": a minimum of $0 matches everything and
- * a maximum must be above $0, so neither loses a meaningful value.
+ * Amount bounds are inclusive and use 0 for "no bound": a minimum of $0
+ * matches everything and a maximum must be above $0, so neither loses a
+ * meaningful value.
  */
 export function RuleEditor({
   ruleId,
@@ -155,16 +157,22 @@ export function RuleEditor({
 
   return (
     <form
-      className="space-y-4"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         save();
       }}
     >
       <div className="space-y-1.5">
-        <Label htmlFor="rule-match-text" className="text-xs">
-          When the payee
-        </Label>
+        <div className="flex items-center gap-0.5">
+          <Label htmlFor="rule-match-text" className="text-xs">
+            When the payee
+          </Label>
+          <InfoTip label="How payees are matched">
+            Case, punctuation and store numbers (like “#117”) are ignored, so “MAVERIK #117” and
+            “Maverik” match the same rule.
+          </InfoTip>
+        </div>
         <Segmented
           label="Match type"
           value={matchType}
@@ -181,9 +189,6 @@ export function RuleEditor({
           placeholder={matchType === "exact" ? "e.g. Maverik" : "e.g. amazon"}
           autoComplete="off"
         />
-        <p className="text-xs text-muted-foreground">
-          Case, punctuation and store numbers (like “#117”) are ignored.
-        </p>
       </div>
 
       <div className="space-y-1.5">
@@ -218,7 +223,7 @@ export function RuleEditor({
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="rule-max" className="text-xs">
-            Less than <span className="text-muted-foreground font-normal">(optional)</span>
+            At most <span className="text-muted-foreground font-normal">(optional)</span>
           </Label>
           <div className="relative">
             <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground text-sm">
@@ -293,10 +298,6 @@ export function RuleEditor({
           {isPending ? "Saving…" : ruleId ? "Save rule" : "Create rule"}
         </Button>
       </div>
-      <p className="text-xs text-muted-foreground">
-        Saving also updates suggestions on transactions still waiting for approval. Categories you
-        picked yourself are never changed.
-      </p>
     </form>
   );
 }

@@ -20,11 +20,12 @@ type RuleRow = {
   max_cents: number | null;
   account_id: string | null;
   category_id: string;
+  priority: number;
   created_at: string;
 };
 
 const RULE_COLUMNS =
-  "id, match_type, match_text, direction, min_cents, max_cents, account_id, category_id, created_at";
+  "id, match_type, match_text, direction, min_cents, max_cents, account_id, category_id, priority, created_at";
 
 function mapRuleRow(row: RuleRow): CategoryRule {
   return {
@@ -36,6 +37,7 @@ function mapRuleRow(row: RuleRow): CategoryRule {
     maxCents: row.max_cents,
     accountId: row.account_id,
     categoryId: row.category_id,
+    priority: row.priority,
     createdAt: row.created_at,
   };
 }
@@ -52,7 +54,7 @@ function toRow(input: CategoryRuleInput) {
   };
 }
 
-/** The plan's rules, newest first. match_text comes back normalized. */
+/** The plan's rules in match order (first match wins). match_text comes back normalized. */
 export async function listCategoryRules(
   client: SupabaseClient,
   planId: string,
@@ -61,11 +63,26 @@ export async function listCategoryRules(
     .from("category_rules")
     .select(RULE_COLUMNS)
     .eq("plan_id", planId)
-    .order("created_at", { ascending: false });
+    .order("priority")
+    .order("id");
   if (error) throw new LedgerError("db_error", error.message);
   return ((data ?? []) as RuleRow[]).map(mapRuleRow);
 }
 
+/** Renumbers the plan's rules in this order; the first is checked first. */
+export async function reorderCategoryRules(
+  client: SupabaseClient,
+  planId: string,
+  orderedIds: string[],
+): Promise<void> {
+  const { error } = await client.rpc("category_rules_reorder", {
+    p_plan_id: planId,
+    p_rule_ids: orderedIds,
+  });
+  if (error) throw new LedgerError("db_error", error.message);
+}
+
+/** New rules go to the top of the list (the DB assigns the priority). */
 export async function createCategoryRule(
   client: SupabaseClient,
   planId: string,

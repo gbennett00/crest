@@ -11,6 +11,7 @@ export {
   deleteCategoryRule,
   listCategoryRules,
   previewCategoryRule,
+  reorderCategoryRules,
   resuggestPendingTransactions,
   updateCategoryRule,
 } from "./operations";

@@ -3,15 +3,15 @@
 import { Suspense, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, ChevronLeft, ChevronRight, Plus } from "lucide-react";
+import { ChevronLeft, Plus } from "lucide-react";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { Button } from "@/components/ui/button";
 import { Modal } from "@/components/ui/modal";
 import { InfoTip } from "@/components/ui/info-tip";
 import { RuleEditor } from "@/components/rules/rule-editor";
+import { RuleList } from "@/components/rules/rule-list";
 import { useRules } from "@/lib/queries/rules";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
-import { describeRuleConditions } from "@/lib/category-rules/logic";
 import type { CategoryRuleInput } from "@/lib/category-rules/types";
 import type { RuleListRow } from "@/app/api/rules/route";
 import { useHasMounted } from "@/lib/use-has-mounted";
@@ -110,9 +110,10 @@ function RulesContent() {
         <div className="flex items-center gap-0.5 flex-1 min-w-0">
           <h1 className="font-semibold text-sm truncate">Categorization rules</h1>
           <InfoTip label="About categorization rules">
-            Rules suggest a category for incoming transactions. You still approve every one. When
-            no rule matches, Crest suggests the category you’ve used for that payee at least 70% of
-            the time recently.
+            Rules suggest a category for incoming transactions; you still approve every one. They’re
+            checked top to bottom and the first match wins — drag to reorder. When no rule matches,
+            Crest suggests the category you’ve used for that payee at least 70% of the time
+            recently.
           </InfoTip>
         </div>
         <Button
@@ -146,35 +147,21 @@ function RulesContent() {
             </p>
           </div>
         ) : (
-          <ul className="divide-y rounded-lg border">
-            {data.rules.map((rule) => (
-              <li key={rule.id}>
-                <button
-                  type="button"
-                  onClick={() => editRule(rule)}
-                  className="w-full text-left px-4 py-3 flex items-center gap-3 hover:bg-muted/30 transition-colors"
-                >
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium truncate">
-                      Payee {rule.matchType === "exact" ? "is" : "contains"} “{rule.matchText}”
-                      <span className="text-muted-foreground font-normal"> → </span>
-                      {rule.categoryName}
-                    </p>
-                    <p className="text-xs text-muted-foreground truncate">
-                      {describeRuleConditions(rule, rule.accountName)}
-                    </p>
-                    {rule.categoryHidden && (
-                      <p className="text-xs text-amber-700 dark:text-amber-400 flex items-center gap-1 mt-0.5">
-                        <AlertTriangle size={12} aria-hidden />
-                        Category is hidden — this rule is paused until you pick another or unhide it.
-                      </p>
-                    )}
-                  </div>
-                  <ChevronRight size={16} className="text-muted-foreground shrink-0" />
-                </button>
-              </li>
-            ))}
-          </ul>
+          <RuleList
+            // Remount when the set or order of rules changes on the server.
+            key={data.rules.map((r) => r.id).join(",")}
+            rules={data.rules}
+            onEdit={editRule}
+            onReordered={(result) => {
+              invalidateAllLedgerQueries(queryClient);
+              setNotice(
+                result.error ??
+                  (result.updatedPending
+                    ? `Order saved. Updated ${result.updatedPending} pending transaction${result.updatedPending === 1 ? "" : "s"}.`
+                    : null),
+              );
+            }}
+          />
         )}
       </div>
 

@@ -34,9 +34,9 @@ describe("validateRuleInput", () => {
     expect(validateRuleInput({ ...base, matchText: "76" })).toBeNull();
   });
 
-  it("requires an ordered, non-negative amount range", () => {
-    expect(validateRuleInput({ ...base, minCents: 2000, maxCents: 2000 })).toMatch(/less than/);
-    expect(validateRuleInput({ ...base, minCents: 2001, maxCents: 2000 })).toMatch(/less than/);
+  it("requires an ordered, non-negative amount range (equal bounds allowed)", () => {
+    expect(validateRuleInput({ ...base, minCents: 2000, maxCents: 2000 })).toBeNull();
+    expect(validateRuleInput({ ...base, minCents: 2001, maxCents: 2000 })).toMatch(/can’t be more/);
     expect(validateRuleInput({ ...base, minCents: -1 })).toMatch(/zero or more/);
     expect(validateRuleInput({ ...base, maxCents: 0 })).toMatch(/more than/);
     expect(validateRuleInput({ ...base, minCents: 0, maxCents: 2000 })).toBeNull();
@@ -88,21 +88,21 @@ describe("shouldOfferRule", () => {
 });
 
 describe("describeRuleConditions", () => {
-  it("describes direction alone", () => {
-    expect(describeRuleConditions(base, null)).toBe("Outflow");
+  it("is empty for an outflow rule with no other conditions", () => {
+    expect(describeRuleConditions(base, null)).toBe("");
   });
 
-  it("describes each amount range shape", () => {
-    expect(describeRuleConditions({ ...base, maxCents: 2000 }, null)).toBe("Outflow · under $20.00");
-    expect(describeRuleConditions({ ...base, minCents: 2000 }, null)).toBe("Outflow · $20.00 or more");
+  it("describes each amount range shape (both bounds inclusive)", () => {
+    expect(describeRuleConditions({ ...base, maxCents: 1999 }, null)).toBe("$19.99 or less");
+    expect(describeRuleConditions({ ...base, minCents: 2000 }, null)).toBe("$20.00 or more");
     expect(describeRuleConditions({ ...base, minCents: 500, maxCents: 2000 }, null)).toBe(
-      "Outflow · $5.00 to under $20.00",
+      "$5.00 to $20.00",
     );
   });
 
-  it("includes the account and inflow direction", () => {
-    expect(describeRuleConditions({ ...base, direction: "inflow" }, "Checking")).toBe(
-      "Inflow · Checking",
+  it("mentions inflow and the account", () => {
+    expect(describeRuleConditions({ ...base, direction: "inflow", minCents: 100 }, "Checking")).toBe(
+      "Inflow · $1.00 or more · Checking",
     );
   });
 });

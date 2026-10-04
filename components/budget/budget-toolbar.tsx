@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
@@ -11,6 +12,7 @@ import {
   ListPlus,
   MoreHorizontal,
   NotebookPen,
+  Wand2,
   X,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -46,6 +48,7 @@ export function BudgetToolbar({
   onToggleReorder: () => void;
 }) {
   const [modal, setModal] = useState<null | "category" | "group" | "spending-plan">(null);
+  const router = useRouter();
 
   return (
     <>
@@ -83,6 +86,9 @@ export function BudgetToolbar({
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={() => setModal("spending-plan")}>
               <NotebookPen size={14} /> Spending plan
+            </DropdownMenuItem>
+            <DropdownMenuItem onSelect={() => router.push("/rules")}>
+              <Wand2 size={14} /> Categorization rules
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem onSelect={onToggleReorder}>

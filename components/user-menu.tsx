@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
-import { Bell, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, UserRound, Wand2 } from "lucide-react";
+import { Bell, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, UserRound } from "lucide-react";
 import { usePrivacyMode } from "@/lib/privacy-mode";
 import { createClient } from "@/lib/supabase/client";
 import {
@@ -163,9 +163,6 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
           Hide amounts
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push("/rules")} className="pl-10">
-          <Wand2 size={ICON_SIZE} /> Categorization rules
-        </DropdownMenuItem>
         <DropdownMenuItem onClick={() => router.push("/import")} className="pl-10">
           <Upload size={ICON_SIZE} /> Import from YNAB
         </DropdownMenuItem>
