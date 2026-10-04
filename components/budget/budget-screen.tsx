@@ -31,7 +31,7 @@ import { AssignPopup } from "./assign-popup";
 import { RtaBreakdownPopup } from "./rta-breakdown-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
 import { CoverOverspendingPopup } from "./cover-overspending-popup";
-import { RowMenu } from "./row-menu";
+import { LONG_PRESS_ROW_CLASS, useRowMenu } from "./row-menu";
 import { MoveMoneyPopup } from "./move-money-popup";
 import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
@@ -405,12 +405,21 @@ function GroupHeaderRow({
   const [moveOpen, setMoveOpen] = useState(false);
   const isGroupBudget = group.budgetMode === "group";
   const overspent = isGroupBudget && available < 0;
+  const rowMenu = useRowMenu({
+    onRename: () => setRenaming(true),
+    onEditTarget: isGroupBudget ? () => setTargetOpen(true) : undefined,
+    onMoveMoney: isGroupBudget ? () => setMoveOpen(true) : undefined,
+    hasTarget: !!group.target,
+    disabled: renaming,
+  });
 
   return (
     <div
+      {...rowMenu.rowProps}
       onClick={() => { if (!renaming) onToggle(); }}
       className={cn(
         COLS,
+        LONG_PRESS_ROW_CLASS,
         "px-4 py-2 border-b bg-primary/5 hover:bg-primary/10 dark:bg-primary/15 dark:hover:bg-primary/25 text-sm font-medium items-center cursor-pointer transition-colors",
       )}
     >
@@ -425,23 +434,15 @@ function GroupHeaderRow({
           editing={renaming}
           onDone={() => setRenaming(false)}
         />
-        {!renaming && (
-          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-            <RowMenu
-              onRename={() => setRenaming(true)}
-              onEditTarget={isGroupBudget ? () => setTargetOpen(true) : undefined}
-              onMoveMoney={isGroupBudget ? () => setMoveOpen(true) : undefined}
-              hasTarget={!!group.target}
-              showTarget={isGroupBudget}
+        {rowMenu.menu}
+        {moveOpen && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <MoveMoneyPopup
+              data={data}
+              unit={{ type: "group", id: group.id }}
+              onClose={() => setMoveOpen(false)}
             />
-            {moveOpen && (
-              <MoveMoneyPopup
-                data={data}
-                unit={{ type: "group", id: group.id }}
-                onClose={() => setMoveOpen(false)}
-              />
-            )}
-          </div>
+          </span>
         )}
         {isGroupBudget && (
           <span onClick={(e) => e.stopPropagation()}>
@@ -545,16 +546,29 @@ function CategoryRow({
     }
   }
 
+  const rowMenu = useRowMenu({
+    onRename: () => setRenaming(true),
+    onEditTarget: canEditTarget ? () => setTargetOpen(true) : undefined,
+    onMoveMoney: isCategoryBudget ? () => setMoveOpen(true) : undefined,
+    hasTarget: !!cat.target,
+    disabled: renaming,
+  });
+
   return (
     <div
       role="button"
       tabIndex={0}
+      {...rowMenu.rowProps}
       onClick={handleRowClick}
       onMouseEnter={handlePrefetch}
       onFocus={handlePrefetch}
-      onPointerDown={handlePrefetch}
+      onPointerDown={(e) => {
+        rowMenu.rowProps.onPointerDown(e);
+        handlePrefetch();
+      }}
       className={cn(
         COLS,
+        LONG_PRESS_ROW_CLASS,
         "px-4 pl-8 py-2 border-b text-sm items-center cursor-pointer hover:bg-accent/40 transition-colors",
       )}
     >
@@ -566,23 +580,15 @@ function CategoryRow({
           editing={renaming}
           onDone={() => setRenaming(false)}
         />
-        {!renaming && (
-          <div onClick={(e) => e.stopPropagation()} className="shrink-0">
-            <RowMenu
-              onRename={() => setRenaming(true)}
-              onEditTarget={canEditTarget ? () => setTargetOpen(true) : undefined}
-              onMoveMoney={isCategoryBudget ? () => setMoveOpen(true) : undefined}
-              hasTarget={!!cat.target}
-              showTarget={canEditTarget}
+        {rowMenu.menu}
+        {moveOpen && (
+          <span onClick={(e) => e.stopPropagation()}>
+            <MoveMoneyPopup
+              data={data}
+              unit={{ type: "category", id: cat.id }}
+              onClose={() => setMoveOpen(false)}
             />
-            {moveOpen && (
-              <MoveMoneyPopup
-                data={data}
-                unit={{ type: "category", id: cat.id }}
-                onClose={() => setMoveOpen(false)}
-              />
-            )}
-          </div>
+          </span>
         )}
         {canEditTarget && (
           <span onClick={(e) => e.stopPropagation()}>
