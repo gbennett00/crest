@@ -7,11 +7,12 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
+import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { upsertTarget, deleteTarget } from "@/app/(app)/budget/actions";
 import { TARGET_REPEAT_INTERVALS, repeatIntervalLabel } from "@/lib/budget/compute";
 import type { TargetData, TargetType } from "@/lib/budget/types";
-import { Target, X } from "lucide-react";
+import { Target } from "lucide-react";
 
 const TYPE_LABELS: Record<TargetType, string> = {
   fill_up_to: "Fill up to",
@@ -121,18 +122,16 @@ export function TargetButton({
         </button>
       )}
 
-      {open && (
-        <div className="absolute left-0 bottom-7 z-50 w-64 bg-background border rounded-lg shadow-lg p-3 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <span className="text-xs font-medium">Target</span>
-            <button
-              type="button"
-              onClick={() => { setOpen(false); setError(null); }}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              <X size={13} />
-            </button>
-          </div>
+      <Modal
+        open={open}
+        onClose={() => {
+          setOpen(false);
+          setError(null);
+        }}
+        title="Target"
+        className="max-w-xs"
+      >
+        <div className="space-y-2.5">
 
           {/* Type */}
           <div className="space-y-1">
@@ -252,7 +251,7 @@ export function TargetButton({
             )}
           </div>
         </div>
-      )}
+      </Modal>
     </span>
   );
 }
