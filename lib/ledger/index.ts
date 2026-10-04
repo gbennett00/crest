@@ -38,6 +38,7 @@ export {
   validateTransferAccounts,
 } from "./validation";
 export {
+  applyCategorySuggestions,
   applyReconciliation,
   buildReconciliationCheck,
   bulkUpsertCategoryBudgets,
