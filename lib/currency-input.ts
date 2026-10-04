@@ -148,3 +148,27 @@ export function resolveAssignmentEditState(state: AssignmentEditState): number |
     deltaCents: state.deltaCents,
   });
 }
+
+/**
+ * One keypad press on a plain money field (CurrencyInput): digits shift in,
+ * backspace shifts out, clear zeroes, and — only when negatives are allowed —
+ * "-"/"+" set the sign. The sign is returned separately so a pending "-"
+ * survives at zero, like CurrencyInput's own sign state.
+ */
+export function pressMoneyKey(
+  cents: number,
+  sign: 1 | -1,
+  key: AssignmentKey,
+  allowNegative: boolean,
+): { cents: number; sign: 1 | -1 } {
+  let magnitude = Math.abs(cents);
+  let nextSign = sign;
+  if (key === "backspace") magnitude = Math.floor(magnitude / 10);
+  else if (key === "clear") magnitude = 0;
+  else if (key === "-" || key === "+") {
+    if (allowNegative) nextSign = key === "-" ? -1 : 1;
+  } else if (key !== "=") {
+    magnitude = Math.min(magnitude * 10 + Number(key), MAX_MAGNITUDE_CENTS);
+  }
+  return { cents: magnitude === 0 ? 0 : nextSign * magnitude, sign: nextSign };
+}

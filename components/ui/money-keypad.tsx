@@ -9,6 +9,32 @@ import { cn } from "@/lib/utils";
 /** Marks the keypad so outside-tap handlers can tell it apart from the page. */
 export const MONEY_KEYPAD_ATTR = "data-money-keypad";
 
+const subscribeCoarsePointer = (cb: () => void) => {
+  const mq = window.matchMedia("(pointer: coarse)");
+  mq.addEventListener("change", cb);
+  return () => mq.removeEventListener("change", cb);
+};
+
+/** True on touch-first devices, where the MoneyKeypad replaces the native keyboard. */
+export function useCoarsePointer(): boolean {
+  return React.useSyncExternalStore(
+    subscribeCoarsePointer,
+    () => window.matchMedia("(pointer: coarse)").matches,
+    () => false,
+  );
+}
+
+const KEYPAD_INSET = "20rem";
+
+/** The nearest ancestor that scrolls vertically (a modal overlay, say), else the body. */
+function scrollParentOf(el: Element | null): HTMLElement {
+  for (let node = el?.parentElement; node; node = node.parentElement) {
+    const { overflowY } = getComputedStyle(node);
+    if (overflowY === "auto" || overflowY === "scroll") return node;
+  }
+  return document.body;
+}
+
 const keyClass =
   "flex h-14 items-center justify-center rounded-lg text-2xl font-medium select-none touch-manipulation active:bg-accent";
 
@@ -23,18 +49,27 @@ const keyClass =
 export function MoneyKeypad({
   onKey,
   onDone,
+  anchorRef,
+  operators = "full",
 }: {
   onKey: (key: AssignmentKey) => void;
   onDone: () => void;
+  /** The field being edited. Its scroll container gets bottom padding while
+   * the pad is open so the field can scroll above it (modals scroll inside
+   * their own overlay, not the page). */
+  anchorRef?: React.RefObject<Element | null>;
+  /** "full": - + = (delta entry); "sign": - and + set the sign; "none":
+   * digits only (the operator keys are left blank). */
+  operators?: "full" | "sign" | "none";
 }) {
-  // Reserve room under the page so the edited row can scroll above the pad.
   React.useEffect(() => {
-    const previous = document.body.style.paddingBottom;
-    document.body.style.paddingBottom = "20rem";
+    const target = scrollParentOf(anchorRef?.current ?? null);
+    const previous = target.style.paddingBottom;
+    target.style.paddingBottom = KEYPAD_INSET;
     return () => {
-      document.body.style.paddingBottom = previous;
+      target.style.paddingBottom = previous;
     };
-  }, []);
+  }, [anchorRef]);
 
   function key(label: React.ReactNode, value: AssignmentKey, className?: string) {
     return (
@@ -51,6 +86,9 @@ export function MoneyKeypad({
   }
 
   const operator = "text-primary";
+  const blank = <span aria-hidden />;
+  const showSign = operators !== "none";
+  const showEquals = operators === "full";
 
   return createPortal(
     <div
@@ -60,15 +98,15 @@ export function MoneyKeypad({
       {key("7", "7")}
       {key("8", "8")}
       {key("9", "9")}
-      {key(<Minus size={22} />, "-", operator)}
+      {showSign ? key(<Minus size={22} />, "-", operator) : blank}
       {key("4", "4")}
       {key("5", "5")}
       {key("6", "6")}
-      {key(<Plus size={22} />, "+", operator)}
+      {showSign ? key(<Plus size={22} />, "+", operator) : blank}
       {key("1", "1")}
       {key("2", "2")}
       {key("3", "3")}
-      {key(<Equal size={22} />, "=", operator)}
+      {showEquals ? key(<Equal size={22} />, "=", operator) : blank}
       {key(<CircleX size={24} className="text-muted-foreground" />, "clear")}
       {key("0", "0")}
       {key(<Delete size={24} className="text-muted-foreground" />, "backspace")}

@@ -3,6 +3,7 @@ import {
   type AssignmentKey,
   initialAssignmentEditState,
   pressAssignmentKey,
+  pressMoneyKey,
   resolveAssignmentEditState,
   setAssignmentCents,
   centsFromDigits,
@@ -202,5 +203,31 @@ describe("assignment keypad", () => {
     expect(setAssignmentCents(negative, 0).absoluteSign).toBe(-1);
     const delta = pressAssignmentKey(initialAssignmentEditState(100), "-");
     expect(resolveAssignmentEditState(setAssignmentCents(delta, 30))).toBe(70);
+  });
+});
+
+describe("pressMoneyKey", () => {
+  it("shifts digits in and out and clears", () => {
+    expect(pressMoneyKey(12, 1, "3", false)).toEqual({ cents: 123, sign: 1 });
+    expect(pressMoneyKey(123, 1, "backspace", false)).toEqual({ cents: 12, sign: 1 });
+    expect(pressMoneyKey(123, 1, "clear", false)).toEqual({ cents: 0, sign: 1 });
+  });
+
+  it("ignores +, - and = unless negatives are allowed", () => {
+    expect(pressMoneyKey(500, 1, "-", false)).toEqual({ cents: 500, sign: 1 });
+    expect(pressMoneyKey(500, 1, "=", true)).toEqual({ cents: 500, sign: 1 });
+  });
+
+  it("sets the sign with - and +, and a pending sign survives at zero", () => {
+    expect(pressMoneyKey(500, 1, "-", true)).toEqual({ cents: -500, sign: -1 });
+    expect(pressMoneyKey(-500, -1, "+", true)).toEqual({ cents: 500, sign: 1 });
+    const pending = pressMoneyKey(0, 1, "-", true);
+    expect(pending).toEqual({ cents: 0, sign: -1 });
+    expect(pressMoneyKey(pending.cents, pending.sign, "4", true).cents).toBe(-4);
+  });
+
+  it("keeps typing into a negative value negative, and clamps", () => {
+    expect(pressMoneyKey(-12, -1, "3", true).cents).toBe(-123);
+    expect(pressMoneyKey(MAX_MAGNITUDE_CENTS, 1, "9", false).cents).toBe(MAX_MAGNITUDE_CENTS);
   });
 });

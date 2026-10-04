@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { CurrencyInput } from "@/components/ui/currency-input";
-import { MONEY_KEYPAD_ATTR, MoneyKeypad } from "@/components/ui/money-keypad";
+import { MONEY_KEYPAD_ATTR, MoneyKeypad, useCoarsePointer } from "@/components/ui/money-keypad";
 import {
   type AssignmentKey,
   formatCentsInput,
@@ -31,13 +31,6 @@ export interface AssignmentAmountEditorProps {
 
 const flushInputClass =
   "h-auto flex-1 min-w-0 border-0 bg-transparent p-0 shadow-none text-right tabular-nums focus-visible:ring-0";
-
-const subscribeCoarsePointer = (cb: () => void) => {
-  const mq = window.matchMedia("(pointer: coarse)");
-  mq.addEventListener("change", cb);
-  return () => mq.removeEventListener("change", cb);
-};
-const isCoarsePointer = () => window.matchMedia("(pointer: coarse)").matches;
 
 /**
  * The editing UI behind an assignable amount (category/group "Assigned"
@@ -71,11 +64,7 @@ export function AssignmentAmountEditor({
   showDollarSign = false,
 }: AssignmentAmountEditorProps) {
   const [state, setState] = React.useState(() => initialAssignmentEditState(original));
-  const useKeypad = React.useSyncExternalStore(
-    subscribeCoarsePointer,
-    isCoarsePointer,
-    () => false,
-  );
+  const useKeypad = useCoarsePointer();
   const rootRef = React.useRef<HTMLDivElement>(null);
 
   function commit() {
@@ -156,6 +145,7 @@ export function AssignmentAmountEditor({
     <MoneyKeypad
       onKey={(key) => setState((s) => pressAssignmentKey(s, key))}
       onDone={commit}
+      anchorRef={rootRef}
     />
   ) : null;
 
