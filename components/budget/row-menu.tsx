@@ -80,7 +80,7 @@ export function useRowMenu({
         align="start"
         alignOffset={16}
         sideOffset={6}
-        className="w-40"
+        className="w-52"
         // Clicks inside the portaled menu still bubble through the row in
         // React's tree; don't let them trigger the row's tap action.
         onClick={(e) => e.stopPropagation()}
@@ -90,16 +90,16 @@ export function useRowMenu({
           pendingRef.current = null;
         }}
       >
-        <DropdownMenuItem onSelect={() => (pendingRef.current = onRename)} className="gap-2">
+        <DropdownMenuItem onSelect={() => (pendingRef.current = onRename)}>
           <Pencil size={14} /> Rename
         </DropdownMenuItem>
         {onEditTarget && (
-          <DropdownMenuItem onSelect={() => (pendingRef.current = onEditTarget)} className="gap-2">
+          <DropdownMenuItem onSelect={() => (pendingRef.current = onEditTarget)}>
             <Target size={14} /> {hasTarget ? "Edit target" : "Set target"}
           </DropdownMenuItem>
         )}
         {onMoveMoney && (
-          <DropdownMenuItem onSelect={() => (pendingRef.current = onMoveMoney)} className="gap-2">
+          <DropdownMenuItem onSelect={() => (pendingRef.current = onMoveMoney)}>
             <ArrowLeftRight size={14} /> Move money
           </DropdownMenuItem>
         )}

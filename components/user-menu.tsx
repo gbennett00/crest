@@ -119,10 +119,10 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
           <UserRound size={16} />
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-44">
+      <DropdownMenuContent align="end" className="w-64">
         {mounted && (
           <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="gap-2 pl-8">
+            <DropdownMenuSubTrigger className="pl-10">
               {(() => {
                 const current = THEME_META[(theme as keyof typeof THEME_META) ?? "system"] ?? THEME_META.system;
                 const CurrentIcon = current.Icon;
@@ -140,13 +140,13 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
             <DropdownMenuPortal>
               <DropdownMenuSubContent>
                 <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-                  <DropdownMenuRadioItem value="light" className="gap-2">
+                  <DropdownMenuRadioItem value="light">
                     <Sun size={ICON_SIZE} /> Light
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="dark" className="gap-2">
+                  <DropdownMenuRadioItem value="dark">
                     <Moon size={ICON_SIZE} /> Dark
                   </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="system" className="gap-2">
+                  <DropdownMenuRadioItem value="system">
                     <Laptop size={ICON_SIZE} /> System
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
@@ -158,13 +158,12 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
         <DropdownMenuCheckboxItem
           checked={privacyMode}
           onCheckedChange={togglePrivacyMode}
-          className="gap-2"
         >
           {privacyMode ? <EyeOff size={ICON_SIZE} /> : <Eye size={ICON_SIZE} />}
           Hide amounts
         </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => router.push("/import")} className="gap-2 pl-8">
+        <DropdownMenuItem onClick={() => router.push("/import")} className="pl-10">
           <Upload size={ICON_SIZE} /> Import from YNAB
         </DropdownMenuItem>
         {notifSupported && (
@@ -174,7 +173,6 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
               checked={subscribed ?? false}
               onCheckedChange={toggleNotifications}
               disabled={notifPending || subscribed === null}
-              className="gap-2"
             >
               <Bell size={ICON_SIZE} />
               Push notifications
@@ -183,7 +181,7 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
               <DropdownMenuItem
                 onClick={handleTestPush}
                 disabled={testStatus === "sending"}
-                className="gap-2 pl-8"
+                className="pl-10"
               >
                 <Send size={ICON_SIZE} />
                 {testStatus === "sent"
@@ -196,7 +194,7 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
           </>
         )}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={logout} className="gap-2 pl-8">
+        <DropdownMenuItem onClick={logout} className="pl-10">
           <LogOut size={ICON_SIZE} /> Log out
         </DropdownMenuItem>
       </DropdownMenuContent>

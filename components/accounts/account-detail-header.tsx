@@ -68,7 +68,7 @@ export function AccountDetailHeader({
               <MoreHorizontal size={18} />
             </button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-56">
+          <DropdownMenuContent align="end" className="w-64">
             {isActive ? (
               <>
                 <DropdownMenuItem onClick={() => setReconcileOpen(true)}>
