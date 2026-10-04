@@ -1,6 +1,6 @@
 -- Auto-categorization (migration 20261005120000). Run with `supabase test db`.
 BEGIN;
-SELECT plan(49);
+SELECT plan(53);
 
 -- ---------------------------------------------------------------------------
 -- normalize_payee
@@ -290,6 +290,23 @@ UPDATE transactions SET amount_cents = -1100 WHERE id = pg_temp.fx('mav_exact');
 SELECT pg_temp.suggest(pg_temp.fx('mav_exact'));
 SELECT is((SELECT amount_cents FROM transaction_allocations WHERE transaction_id = pg_temp.fx('mav_exact')),
   -1100::bigint, 're-running resizes a suggestion to the new amount');
+
+-- Rule preview -----------------------------------------------------------------
+
+SELECT is(
+  (SELECT match_count FROM category_rule_preview(pg_temp.fx('plan_a'), 'exact', 'MAVERIK #1', 'outflow', NULL, 2000, NULL)),
+  (SELECT count(*)::int FROM transactions t JOIN accounts a ON a.id = t.account_id
+   WHERE a.plan_id = pg_temp.fx('plan_a') AND a.on_budget AND t.transfer_account_id IS NULL
+     AND t.payee_key = 'maverik' AND t.amount_cents < 0 AND abs(t.amount_cents) < 2000),
+  'preview counts the plan''s matching transactions, normalizing the match text');
+SELECT is(
+  (SELECT match_count FROM category_rule_preview(pg_temp.fx('plan_a'), 'exact', 'maverik', 'inflow', NULL, NULL, NULL)),
+  1, 'preview respects direction');
+SELECT ok('MAVERIK #9 SLC' = ANY (p.sample_payees), 'preview lists sample payees a contains rule catches')
+FROM category_rule_preview(pg_temp.fx('plan_a'), 'contains', 'maverik s', 'outflow', NULL, NULL, NULL) p;
+SELECT is(
+  (SELECT match_count FROM category_rule_preview(pg_temp.fx('plan_a'), 'exact', 'kroger', 'outflow', NULL, NULL, NULL)),
+  1, 'preview is scoped to the given plan (plan B''s Kroger is excluded)');
 
 -- RLS -------------------------------------------------------------------------
 

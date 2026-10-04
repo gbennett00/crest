@@ -667,6 +667,12 @@ Rules:
 * Never suggested: hidden categories, the Sinking Fund, credit-card payment categories; Ready to Assign only for inflows.
 * `ledger_apply_category_suggestions(uuid[])` runs the whole batch in one statement. Plaid sync calls it once per sync with every row it wrote; plan scoping is explicit because the webhook runs as `service_role`.
 
+UI:
+
+* Pending rows with a suggestion show a "Suggested" tag (home Needs Approval, All Transactions, account registers); the edit form says where the suggestion came from and that saving approves it.
+* **Make this a rule?** After an edit saves a single category that differs from what the row had (nothing, an overridden suggestion, or an earlier pick), and no rule already targets that payee (`ruleTargetsPayee`, ignoring amount/account conditions), `saveTransaction` returns a `rulePrompt`. A banner offers *Create rule* (exact match on the payee key), *Customize…* (opens the rule editor prefilled) or ✕, which stops offering it **for that payee on this device** (localStorage). It auto-hides after a few seconds without being remembered. Bulk actions never prompt.
+* **Rules page** (`/rules`, from the user menu): list, create, edit, delete. The editor shows a live preview (`category_rule_preview`: how many past transactions match, with sample payees). Saving a rule re-runs suggestions over the plan's pending transactions; deleting one leaves suggestions it already made. Rules for a hidden category are flagged as paused.
+
 ---
 
 ## TRANSACTION API

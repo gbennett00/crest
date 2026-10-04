@@ -342,6 +342,54 @@ $$;
 
 GRANT EXECUTE ON FUNCTION ledger_apply_category_suggestions(uuid[]) TO authenticated;
 
+-- Live preview for the rule editor: how many of the plan's past (non-transfer,
+-- on-budget) transactions a would-be rule matches, plus a few distinct payees
+-- it catches, so an overly broad "contains" rule is obvious before saving.
+-- Uses the same conditions as the rule join above (min inclusive, max
+-- exclusive). Runs as the caller, so RLS keeps it to their own plans.
+CREATE FUNCTION category_rule_preview(
+  p_plan_id    uuid,
+  p_match_type category_rule_match,
+  p_match_text text,
+  p_direction  category_rule_direction,
+  p_min_cents  bigint,
+  p_max_cents  bigint,
+  p_account_id uuid
+)
+RETURNS TABLE (match_count integer, sample_payees text[])
+LANGUAGE sql
+STABLE
+AS $$
+  WITH needle AS (SELECT normalize_payee(p_match_text) AS key),
+  matched AS (
+    SELECT t.payee
+    FROM transactions t
+    JOIN accounts a ON a.id = t.account_id
+    CROSS JOIN needle n
+    WHERE n.key IS NOT NULL
+      AND a.plan_id = p_plan_id
+      AND a.on_budget
+      AND t.transfer_account_id IS NULL
+      AND CASE p_match_type
+            WHEN 'exact' THEN t.payee_key = n.key
+            ELSE strpos(t.payee_key, n.key) > 0
+          END
+      AND (p_direction = 'outflow') = (t.amount_cents < 0)
+      AND (p_min_cents IS NULL OR abs(t.amount_cents) >= p_min_cents)
+      AND (p_max_cents IS NULL OR abs(t.amount_cents) < p_max_cents)
+      AND (p_account_id IS NULL OR t.account_id = p_account_id)
+  )
+  SELECT
+    (SELECT count(*)::int FROM matched),
+    ARRAY(
+      SELECT payee FROM matched GROUP BY payee ORDER BY count(*) DESC, payee LIMIT 5
+    );
+$$;
+
+GRANT EXECUTE ON FUNCTION
+  category_rule_preview(uuid, category_rule_match, text, category_rule_direction, bigint, bigint, uuid)
+  TO authenticated;
+
 -- ---------------------------------------------------------------------------
 -- Clear provenance when a caller changes a row's categories
 -- ---------------------------------------------------------------------------
