@@ -4,6 +4,7 @@ import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { offerRulePrompt } from "@/lib/category-rules/prompt-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
@@ -261,6 +262,7 @@ export function TransactionForm({
       if (result?.error) {
         setError(result.error);
       } else if (isEdit) {
+        if ("rulePrompt" in result && result.rulePrompt) offerRulePrompt(result.rulePrompt);
         invalidateLedgerCaches();
         router.push(backHref ?? "/accounts");
         router.refresh();
@@ -646,7 +648,7 @@ export function TransactionForm({
                   <SuggestedTag />
                   {txn!.categorySource === "rule"
                     ? "from one of your rules. Saving approves it."
-                    : `from your past ${txn!.payee || "payee"} transactions. Saving approves it.`}
+                    : "from your past transactions with this payee. Saving approves it."}
                 </p>
               )}
             </>
