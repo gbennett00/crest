@@ -522,8 +522,7 @@ function CategoryRow({
     if (renaming) return;
     if (isCC) setCcOpen((o) => !o);
     else {
-      const { dateFrom, dateTo } = monthToDateRange(month);
-      router.push(`/transactions?category=${cat.id}&dateFrom=${dateFrom}&dateTo=${dateTo}`);
+      router.push(`/budget/category/${cat.id}?month=${month}`);
     }
   }
 
