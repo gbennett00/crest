@@ -163,6 +163,13 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
             onFocus?.(e);
           }}
           onBlur={(e) => {
+            // Rapid taps on a keypad key (backspace) can still steal focus on
+            // some touch browsers; keep the field focused so the pad stays open.
+            const next = e.relatedTarget as Element | null;
+            if (coarse && next?.closest(`[${MONEY_KEYPAD_ATTR}]`)) {
+              innerRef.current?.focus({ preventScroll: true });
+              return;
+            }
             setFocused(false);
             onBlur?.(e);
           }}

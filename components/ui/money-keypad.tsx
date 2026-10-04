@@ -77,6 +77,7 @@ export function MoneyKeypad({
         type="button"
         aria-label={typeof label === "string" ? label : value}
         onPointerDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={() => onKey(value)}
         className={cn(keyClass, className)}
       >
@@ -113,6 +114,7 @@ export function MoneyKeypad({
       <button
         type="button"
         onPointerDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => e.preventDefault()}
         onClick={onDone}
         className="h-14 rounded-full bg-primary text-lg font-semibold text-primary-foreground select-none touch-manipulation active:opacity-80"
       >
