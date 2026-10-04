@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import type React from "react";
-import { haptic } from "./haptic";
 
 // How long a touch must be held, and how far the finger may drift, before it
 // counts as a long press. The drift allowance matters on real devices: a
@@ -57,7 +56,6 @@ export function useLongPress(
     (element: HTMLElement) => {
       clear();
       firedRef.current = true;
-      haptic();
       callbackRef.current(element);
     },
     [clear],
