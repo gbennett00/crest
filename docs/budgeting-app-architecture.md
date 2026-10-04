@@ -38,12 +38,12 @@ Included in MVP:
 * linked accounts via Plaid
 * transaction approval flow
 * mobile-first responsive UI
+* multi-person plans (email invitations to collaborate on a plan)
 
 Not included in MVP:
 
 * CSV import
 * yearly obligations
-* multi-user collaboration
 * investments
 * debt payoff planning
 * forecasting
