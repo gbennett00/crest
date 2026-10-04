@@ -15,7 +15,12 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Never apply migrations to production unless the pgTAP suite passes.
+  db-tests:
+    uses: ./.github/workflows/db-tests.yml
+
   deploy:
+    needs: db-tests
     runs-on: ubuntu-latest
 
     env:

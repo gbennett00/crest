@@ -32,6 +32,7 @@ import { RtaBreakdownPopup } from "./rta-breakdown-popup";
 import { PaymentCategoryActivity } from "./payment-category-activity";
 import { CoverOverspendingPopup } from "./cover-overspending-popup";
 import { RowMenu } from "./row-menu";
+import { MoveMoneyPopup } from "./move-money-popup";
 import { BudgetToolbar } from "./budget-toolbar";
 import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
@@ -401,6 +402,7 @@ function GroupHeaderRow({
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
   const isGroupBudget = group.budgetMode === "group";
   const overspent = isGroupBudget && available < 0;
 
@@ -428,9 +430,17 @@ function GroupHeaderRow({
             <RowMenu
               onRename={() => setRenaming(true)}
               onEditTarget={isGroupBudget ? () => setTargetOpen(true) : undefined}
+              onMoveMoney={isGroupBudget ? () => setMoveOpen(true) : undefined}
               hasTarget={!!group.target}
               showTarget={isGroupBudget}
             />
+            {moveOpen && (
+              <MoveMoneyPopup
+                data={data}
+                unit={{ type: "group", id: group.id }}
+                onClose={() => setMoveOpen(false)}
+              />
+            )}
           </div>
         )}
         {isGroupBudget && (
@@ -474,7 +484,6 @@ function GroupHeaderRow({
                 type: "group",
                 id: group.id,
                 name: group.name,
-                originalAssigned: group.groupAssignedCents,
                 overspentCents: available,
               }}
               onClose={() => setCoverOpen(false)}
@@ -508,6 +517,7 @@ function CategoryRow({
   const [targetOpen, setTargetOpen] = useState(false);
   const [ccOpen, setCcOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
+  const [moveOpen, setMoveOpen] = useState(false);
 
   const isCategoryBudget = group.budgetMode === "category";
   const isCC = cat.cardRegisterBalanceCents !== null;
@@ -561,9 +571,17 @@ function CategoryRow({
             <RowMenu
               onRename={() => setRenaming(true)}
               onEditTarget={canEditTarget ? () => setTargetOpen(true) : undefined}
+              onMoveMoney={isCategoryBudget ? () => setMoveOpen(true) : undefined}
               hasTarget={!!cat.target}
               showTarget={canEditTarget}
             />
+            {moveOpen && (
+              <MoveMoneyPopup
+                data={data}
+                unit={{ type: "category", id: cat.id }}
+                onClose={() => setMoveOpen(false)}
+              />
+            )}
           </div>
         )}
         {canEditTarget && (
@@ -637,7 +655,6 @@ function CategoryRow({
                   type: "category",
                   id: cat.id,
                   name: cat.name,
-                  originalAssigned: cat.assignedCents,
                   overspentCents: cat.availableCents,
                 }}
                 onClose={() => setCoverOpen(false)}
