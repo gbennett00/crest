@@ -55,7 +55,7 @@ export function MoneyKeypad({
   return createPortal(
     <div
       {...{ [MONEY_KEYPAD_ATTR]: "" }}
-      className="fixed inset-x-0 bottom-0 z-[60] grid grid-cols-4 gap-1 border-t bg-background px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.12)]"
+      className="animate-in slide-in-from-bottom duration-200 motion-reduce:animate-none fixed inset-x-0 bottom-0 z-[60] grid grid-cols-4 gap-1 border-t bg-background px-3 pt-2 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_12px_rgba(0,0,0,0.12)]"
     >
       {key("7", "7")}
       {key("8", "8")}

@@ -49,8 +49,8 @@ export function resolveAssignmentCommit(params: {
 
 export type AssignmentEditState = {
   mode: "absolute" | "delta";
-  /** The amount the delta applies to — the original, or the result of the
-   * last "=" press. */
+  /** The amount the delta applies to — the original, what was typed before
+   * "+"/"-", or the result of the last "=" press. */
   base: number;
   absoluteSign: 1 | -1;
   absoluteCents: number; // magnitude
@@ -90,8 +90,16 @@ export function pressAssignmentKey(
 
   if (key === "+" || key === "-") {
     const sign = key === "+" ? 1 : -1;
+    // Leaving absolute mode folds whatever was typed into the base, so
+    // "10.00" then "+" adds to $10.00 rather than to the original amount.
     return state.mode === "absolute"
-      ? { ...next, mode: "delta", deltaSign: sign, deltaCents: 0 }
+      ? {
+          ...next,
+          mode: "delta",
+          base: state.absoluteSign * state.absoluteCents,
+          deltaSign: sign,
+          deltaCents: 0,
+        }
       : { ...next, deltaSign: sign };
   }
   if (key === "=") {

@@ -165,13 +165,17 @@ export function AssignmentAmountEditor({
       ref={rootRef}
       className={cn(
         "rounded-md border border-input bg-background px-2 py-1",
+        "animate-in fade-in zoom-in-95 duration-150 motion-reduce:animate-none",
         isDelta ? "flex flex-col items-end leading-tight" : "flex items-center gap-0.5",
         className,
+        // The two-line delta layout needs more room than the cells' fixed
+        // single-line height (e.g. AssignedInput's h-7 py-0).
+        isDelta && "h-auto min-h-7 py-1",
       )}
     >
       {isDelta ? (
         <>
-          <span className="text-xs text-muted-foreground tabular-nums">
+          <span className="text-xs text-muted-foreground tabular-nums animate-in fade-in slide-in-from-top-1 duration-150 motion-reduce:animate-none">
             {formatCents(state.base)}
           </span>
           <div className="flex items-center gap-0.5 text-primary">

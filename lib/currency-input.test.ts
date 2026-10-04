@@ -167,6 +167,13 @@ describe("assignment keypad", () => {
     expect(press(10000, ["+", "5", "0", "0"])).toBe(10500);
   });
 
+  it("keeps a freshly typed amount as the base when +/- is pressed", () => {
+    // Typing 10.00 into a $0 cell and then "+" must not drop the 10.00.
+    expect(press(0, ["1", "0", "0", "0", "+", "5", "0", "0"])).toBe(1500);
+    expect(press(0, ["1", "0", "0", "0", "-", "5", "0", "0"])).toBe(500);
+    expect(press(10000, ["clear", "5", "0", "0", "0", "+", "1", "0", "0"])).toBe(5100);
+  });
+
   it("re-signs the delta when the other operator is pressed", () => {
     expect(press(10000, ["-", "5", "0", "0", "+"])).toBe(10500);
   });
