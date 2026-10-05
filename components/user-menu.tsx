@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { Bell, Crown, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
+import { Bell, Crown, Eye, EyeOff, Laptop, Layers, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
 import { usePrivacyMode } from "@/lib/privacy-mode";
 import { setActivePlan } from "@/app/(app)/members/actions";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
@@ -26,7 +26,6 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuLabel,
   DropdownMenuPortal,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -144,38 +143,52 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
         {membersData && membersData.plans.length > 0 && (
-          <>
-            <DropdownMenuLabel
-              inset
-              className="py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground"
-            >
-              Plans
-            </DropdownMenuLabel>
-            <DropdownMenuRadioGroup
-              value={membersData.activePlanId}
-              onValueChange={switchPlan}
-            >
-              {membersData.plans.map((plan) => (
-                <DropdownMenuRadioItem
-                  key={plan.planId}
-                  value={plan.planId}
-                  disabled={switchingPlan}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger className="pl-10" disabled={switchingPlan}>
+              <Layers size={ICON_SIZE} />
+              Plan
+              <span className="ml-auto mr-1 max-w-24 truncate text-xs text-muted-foreground">
+                {membersData.activePlanName}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuPortal>
+              {/* On a phone there's little room beside the menu, so keep the
+                  flyout narrow and let it overlap the menu a little. The
+                  menu is in a portal, so reading window here is client-only. */}
+              <DropdownMenuSubContent
+                className="w-36 min-w-0"
+                collisionPadding={8}
+                sideOffset={typeof window !== "undefined" && window.innerWidth < 480 ? -56 : 4}
+              >
+                <DropdownMenuRadioGroup
+                  value={membersData.activePlanId}
+                  onValueChange={switchPlan}
                 >
-                  <span className="min-w-0 flex-1 truncate">{plan.name}</span>
-                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                    {plan.role === "owner" ? (
-                      <>
-                        <Crown size={12} /> Owner
-                      </>
-                    ) : (
-                      "Shared"
-                    )}
-                  </span>
-                </DropdownMenuRadioItem>
-              ))}
-            </DropdownMenuRadioGroup>
-            <DropdownMenuSeparator />
-          </>
+                  {membersData.plans.map((plan) => (
+                    <DropdownMenuRadioItem
+                      key={plan.planId}
+                      value={plan.planId}
+                      disabled={switchingPlan}
+                      className="items-start"
+                    >
+                      <span className="flex min-w-0 flex-col">
+                        <span className="truncate" title={plan.name}>{plan.name}</span>
+                        <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                          {plan.role === "owner" ? (
+                            <>
+                              <Crown size={12} /> Owner
+                            </>
+                          ) : (
+                            "Shared"
+                          )}
+                        </span>
+                      </span>
+                    </DropdownMenuRadioItem>
+                  ))}
+                </DropdownMenuRadioGroup>
+              </DropdownMenuSubContent>
+            </DropdownMenuPortal>
+          </DropdownMenuSub>
         )}
         <DropdownMenuItem asChild className="pl-10">
           <Link href="/members">
