@@ -315,6 +315,27 @@ export async function claimPlaidTransaction(
 }
 
 /**
+ * Suggests a category for each of the given transactions that is still open
+ * to one (unapproved, on-budget, not a transfer, and uncategorized or holding
+ * an untouched earlier suggestion), from the plan's category rules and then
+ * the payee's history. Never approves anything. One round trip for the whole
+ * batch; returns how many rows changed. See
+ * docs/budgeting-app-architecture.md § AUTO-CATEGORIZATION.
+ */
+export async function applyCategorySuggestions(
+  client: SupabaseClient,
+  transactionIds: string[],
+): Promise<number> {
+  if (transactionIds.length === 0) return 0;
+
+  const { data, error } = await client.rpc("ledger_apply_category_suggestions", {
+    p_transaction_ids: transactionIds,
+  });
+  if (error) throw new LedgerError("db_error", error.message);
+  return (data as number | null) ?? 0;
+}
+
+/**
  * Bulk variant of upsertTransaction: one round trip for the whole batch via
  * ledger_bulk_upsert_transactions, instead of one round trip per row. Intended
  * for large imports (see lib/ynab-import) — dedupes by (account_id,

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { AccountBase, Transaction, RemovedTransaction } from "plaid";
 
 import {
+  applyCategorySuggestions,
   upsertTransaction,
   updateTransaction,
   deleteTransaction,
@@ -320,6 +321,10 @@ export async function syncItem(
   ]);
   let adoptedCount = 0;
 
+  // Every row this sync wrote, so categories can be suggested for them in one
+  // batch at the end rather than one round trip per transaction.
+  const writtenIds = new Set<string>();
+
   // Writes `txn` and reports whether it actually landed in the DB. A txn is
   // skipped (false) when its account isn't tracked (unmapped/ignored) or it's
   // a zero-amount entry — callers use this to count what was really written,
@@ -365,6 +370,7 @@ export async function syncItem(
           .update({ imported_id: input.importedId })
           .eq("id", pendingRow.id as string);
 
+        writtenIds.add(pendingRow.id as string);
         return true;
       }
     }
@@ -385,13 +391,15 @@ export async function syncItem(
           input.importedId,
           input.clearedAt ?? null,
         );
+        writtenIds.add(pool[matchIdx].id);
         pool.splice(matchIdx, 1);
         adoptedCount++;
         return true;
       }
     }
 
-    await upsertTransaction(client, input);
+    const { transaction } = await upsertTransaction(client, input);
+    writtenIds.add(transaction.id);
     return true;
   }
 
@@ -414,6 +422,18 @@ export async function syncItem(
     if (row) {
       await deleteTransaction(client, row.id as string);
     }
+  }
+
+  // Suggest categories for what this sync wrote (rules first, then payee
+  // history). The rows stay unapproved; the user still approves each one.
+  // Only rows still open to a suggestion are touched — the DB function skips
+  // approved and user-categorized rows, and anything removed above. A failure
+  // here must not block the cursor save below, or every later sync would
+  // re-fetch the same batch and fail the same way.
+  try {
+    await applyCategorySuggestions(client, [...writtenIds]);
+  } catch (e) {
+    console.error("[plaid sync] category suggestions failed", e);
   }
 
   for (const plaidAccount of syncAccounts) {

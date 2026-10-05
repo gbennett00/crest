@@ -13,6 +13,10 @@ export type AllTransactionsRow = {
   reconciled: boolean;
   memo: string | null;
   categoryLabel: string;
+  /** Pending, with a category filled in automatically (not yet approved). */
+  suggested: boolean;
+  /** Pending with no category: approving it needs one. */
+  needsCategory: boolean;
   accountId: string;
   accountName: string;
 };
@@ -71,7 +75,7 @@ export async function GET(request: NextRequest) {
   let query = supabase
     .from("transactions")
     .select(
-      "id, payee, amount_cents, txn_date, approved_at, cleared_at, reconciled_at, memo, account_id, " +
+      "id, payee, amount_cents, txn_date, approved_at, cleared_at, reconciled_at, memo, account_id, category_source, " +
         "accounts!transactions_account_id_fkey(name), " +
         "transaction_allocations(amount_cents, category_id, categories(name))",
     )
@@ -145,6 +149,8 @@ export async function GET(request: NextRequest) {
       reconciled: !!txn.reconciled_at,
       memo: (txn.memo as string) ?? null,
       categoryLabel,
+      suggested: !txn.approved_at && txn.category_source !== null && allocs.length > 0,
+      needsCategory: !txn.approved_at && allocs.length === 0,
       accountId: txn.account_id as string,
       accountName: accountData?.name ?? "Unknown",
     };
