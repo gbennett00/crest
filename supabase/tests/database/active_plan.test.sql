@@ -1,4 +1,4 @@
--- Active plan scoping (migration 20261005120000). Run with `supabase test db`.
+-- Active plan scoping (migration 20261005150000). Run with `supabase test db`.
 --
 -- Regression: a user who belongs to two plans (their personal plan + one they
 -- joined by invitation) must only see ONE plan's rows, otherwise the budget
