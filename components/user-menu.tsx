@@ -1,11 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { Bell, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
+import { Bell, ChevronDown, Crown, Eye, EyeOff, Laptop, Layers, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
 import { usePrivacyMode } from "@/lib/privacy-mode";
+import { setActivePlan } from "@/app/(app)/members/actions";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { useMembers } from "@/lib/queries/members";
+import { cn } from "@/lib/utils";
 import { createClient } from "@/lib/supabase/client";
 import {
   getExistingSubscription,
@@ -22,13 +27,9 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuPortal,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 
@@ -42,6 +43,16 @@ const THEME_META = {
 
 export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { data: membersData } = useMembers();
+  const [switchingPlan, startSwitchPlan] = useTransition();
+  // Options expand inline (accordion) rather than in a side flyout, which on a
+  // phone would cover the page behind the menu.
+  const [openSection, setOpenSection] = useState<"plan" | "theme" | null>(null);
+
+  function toggleSection(section: "plan" | "theme") {
+    setOpenSection((cur) => (cur === section ? null : section));
+  }
   const { theme, setTheme } = useTheme();
   const { privacyMode, togglePrivacyMode } = usePrivacyMode();
   const [mounted, setMounted] = useState(false);
@@ -104,6 +115,20 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
     setTimeout(() => setTestStatus("idle"), 3000);
   }
 
+  function switchPlan(planId: string) {
+    if (planId === membersData?.activePlanId) return;
+    startSwitchPlan(async () => {
+      const result = await setActivePlan(planId);
+      if (result?.error) {
+        console.error("Failed to switch plan", result.error);
+        return;
+      }
+      // Every cached screen belongs to the previous plan.
+      await invalidateAllLedgerQueries(queryClient);
+      router.refresh();
+    });
+  }
+
   async function logout() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -111,7 +136,7 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
   }
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={(open) => !open && setOpenSection(null)}>
       <DropdownMenuTrigger asChild>
         <button
           className="flex h-8 w-8 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
@@ -121,6 +146,55 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
+        {membersData && membersData.plans.length > 0 && (
+          <>
+            <DropdownMenuItem
+              className="pl-10"
+              disabled={switchingPlan}
+              onSelect={(e) => {
+                e.preventDefault();
+                toggleSection("plan");
+              }}
+            >
+              <Layers size={ICON_SIZE} />
+              Plan
+              <span className="ml-auto mr-1 max-w-24 truncate text-xs text-muted-foreground">
+                {membersData.activePlanName}
+              </span>
+              <ChevronDown
+                className={cn("transition-transform", openSection === "plan" && "rotate-180")}
+              />
+            </DropdownMenuItem>
+            {openSection === "plan" && (
+              <DropdownMenuRadioGroup
+                value={membersData.activePlanId}
+                onValueChange={switchPlan}
+              >
+                {membersData.plans.map((plan) => (
+                  <DropdownMenuRadioItem
+                    key={plan.planId}
+                    value={plan.planId}
+                    disabled={switchingPlan}
+                    className="ml-4 items-start"
+                  >
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate" title={plan.name}>{plan.name}</span>
+                      <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                        {plan.role === "owner" ? (
+                          <>
+                            <Crown size={12} /> Owner
+                          </>
+                        ) : (
+                          "Shared"
+                        )}
+                      </span>
+                    </span>
+                  </DropdownMenuRadioItem>
+                ))}
+              </DropdownMenuRadioGroup>
+            )}
+          </>
+        )}
         <DropdownMenuItem asChild className="pl-10">
           <Link href="/members">
             <Users size={ICON_SIZE} /> Members
@@ -128,8 +202,14 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
         </DropdownMenuItem>
         <DropdownMenuSeparator />
         {mounted && (
-          <DropdownMenuSub>
-            <DropdownMenuSubTrigger className="pl-10">
+          <>
+            <DropdownMenuItem
+              className="pl-10"
+              onSelect={(e) => {
+                e.preventDefault();
+                toggleSection("theme");
+              }}
+            >
               {(() => {
                 const current = THEME_META[(theme as keyof typeof THEME_META) ?? "system"] ?? THEME_META.system;
                 const CurrentIcon = current.Icon;
@@ -143,23 +223,24 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
                   </>
                 );
               })()}
-            </DropdownMenuSubTrigger>
-            <DropdownMenuPortal>
-              <DropdownMenuSubContent>
-                <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
-                  <DropdownMenuRadioItem value="light">
-                    <Sun size={ICON_SIZE} /> Light
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="dark">
-                    <Moon size={ICON_SIZE} /> Dark
-                  </DropdownMenuRadioItem>
-                  <DropdownMenuRadioItem value="system">
-                    <Laptop size={ICON_SIZE} /> System
-                  </DropdownMenuRadioItem>
-                </DropdownMenuRadioGroup>
-              </DropdownMenuSubContent>
-            </DropdownMenuPortal>
-          </DropdownMenuSub>
+              <ChevronDown
+                className={cn("transition-transform", openSection === "theme" && "rotate-180")}
+              />
+            </DropdownMenuItem>
+            {openSection === "theme" && (
+              <DropdownMenuRadioGroup value={theme} onValueChange={setTheme}>
+                <DropdownMenuRadioItem value="light" className="ml-4">
+                  <Sun size={ICON_SIZE} /> Light
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="dark" className="ml-4">
+                  <Moon size={ICON_SIZE} /> Dark
+                </DropdownMenuRadioItem>
+                <DropdownMenuRadioItem value="system" className="ml-4">
+                  <Laptop size={ICON_SIZE} /> System
+                </DropdownMenuRadioItem>
+              </DropdownMenuRadioGroup>
+            )}
+          </>
         )}
         <DropdownMenuSeparator />
         <DropdownMenuCheckboxItem

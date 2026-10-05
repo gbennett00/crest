@@ -1,9 +1,6 @@
 "use server";
 
-import { cookies } from "next/headers";
-
 import { createClient } from "@/lib/supabase/server";
-import { ACTIVE_PLAN_COOKIE } from "@/lib/plan/active-plan";
 
 const ACCEPT_ERROR_MESSAGES: Record<string, string> = {
   invitation_not_found: "This invitation link is not valid.",
@@ -16,8 +13,8 @@ const ACCEPT_ERROR_MESSAGES: Record<string, string> = {
 
 /**
  * Accept a plan invitation. Runs the SECURITY DEFINER `accept_plan_invitation`
- * RPC (validates token, expiry and that the signed-in email matches), then makes
- * the newly joined plan the user's active one so they land on the shared budget.
+ * RPC, which validates the token, expiry and that the signed-in email matches, and
+ * makes the newly joined plan the user's active one so they land on the shared budget.
  */
 export async function acceptInvitation(token: string) {
   const supabase = await createClient();
@@ -27,7 +24,7 @@ export async function acceptInvitation(token: string) {
   } = await supabase.auth.getUser();
   if (!user) return { error: ACCEPT_ERROR_MESSAGES.not_authenticated };
 
-  const { data: planId, error } = await supabase.rpc("accept_plan_invitation", {
+  const { error } = await supabase.rpc("accept_plan_invitation", {
     p_token: token,
   });
 
@@ -36,16 +33,6 @@ export async function acceptInvitation(token: string) {
       error.message.includes(k),
     );
     return { error: key ? ACCEPT_ERROR_MESSAGES[key] : error.message };
-  }
-
-  if (typeof planId === "string") {
-    const store = await cookies();
-    store.set(ACTIVE_PLAN_COOKIE, planId, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365,
-    });
   }
 
   return { success: true };
