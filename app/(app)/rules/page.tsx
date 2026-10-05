@@ -148,8 +148,6 @@ function RulesContent() {
           </div>
         ) : (
           <RuleList
-            // Remount when the set or order of rules changes on the server.
-            key={data.rules.map((r) => r.id).join(",")}
             rules={data.rules}
             onEdit={editRule}
             onReordered={(result) => {

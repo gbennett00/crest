@@ -28,7 +28,6 @@ import { cn } from "@/lib/utils";
  * The plan's rules in match order — checked top to bottom, first match wins.
  * Drag a row's handle to change the order; it's applied optimistically and
  * saved (which also re-applies suggestions to pending transactions).
- * Remount with a `key` derived from the rule ids to pick up server changes.
  */
 export function RuleList({
   rules,
@@ -39,7 +38,16 @@ export function RuleList({
   onEdit: (rule: RuleListRow) => void;
   onReordered: (result: { error?: string; updatedPending?: number }) => void;
 }) {
+  // Local copy so a drag shows its new order immediately. Whenever fresh
+  // rules arrive (a refetch after any edit, reorder or delete), they replace
+  // it — reset during render rather than via key/remount, so an edit that
+  // keeps the same ids (amount, category, …) still shows up.
   const [items, setItems] = useState(rules);
+  const [lastRules, setLastRules] = useState(rules);
+  if (rules !== lastRules) {
+    setLastRules(rules);
+    setItems(rules);
+  }
   const [isPending, startTransition] = useTransition();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
