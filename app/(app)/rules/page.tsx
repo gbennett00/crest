@@ -57,7 +57,9 @@ function RulesContent() {
   const hasMounted = useHasMounted();
   const { data, isPending, isError } = useRules();
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
+  // Only failures are reported; a successful save/reorder/delete is visible in
+  // the list itself.
+  const [error, setError] = useState<string | null>(null);
 
   // Open the editor prefilled when arriving from the banner's "Customize…".
   useEffect(() => {
@@ -70,18 +72,11 @@ function RulesContent() {
 
   function closeEditor(result?: { deleted?: boolean; updatedPending?: number }) {
     setEditing(null);
-    if (!result) return;
-    invalidateAllLedgerQueries(queryClient);
-    if (result.deleted) setNotice("Rule deleted.");
-    else if (result.updatedPending)
-      setNotice(
-        `Rule saved. Updated ${result.updatedPending} pending transaction${result.updatedPending === 1 ? "" : "s"}.`,
-      );
-    else setNotice("Rule saved.");
+    if (result) invalidateAllLedgerQueries(queryClient);
   }
 
   function editRule(rule: RuleListRow) {
-    setNotice(null);
+    setError(null);
     setEditing({
       ruleId: rule.id,
       initial: {
@@ -119,7 +114,7 @@ function RulesContent() {
         <Button
           size="sm"
           onClick={() => {
-            setNotice(null);
+            setError(null);
             setEditing({ initial: EMPTY_RULE });
           }}
         >
@@ -128,9 +123,9 @@ function RulesContent() {
       </StickyHeader>
 
       <div className="p-4 space-y-4">
-        {notice && (
-          <p className="text-sm rounded-md border bg-muted/30 px-3 py-2" role="status">
-            {notice}
+        {error && (
+          <p className="text-sm text-destructive" role="alert">
+            {error}
           </p>
         )}
 
@@ -152,12 +147,7 @@ function RulesContent() {
             onEdit={editRule}
             onReordered={(result) => {
               invalidateAllLedgerQueries(queryClient);
-              setNotice(
-                result.error ??
-                  (result.updatedPending
-                    ? `Order saved. Updated ${result.updatedPending} pending transaction${result.updatedPending === 1 ? "" : "s"}.`
-                    : null),
-              );
+              setError(result.error ?? null);
             }}
           />
         )}
