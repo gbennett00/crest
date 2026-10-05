@@ -1,11 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { Bell, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
+import { Bell, Crown, Eye, EyeOff, Laptop, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
 import { usePrivacyMode } from "@/lib/privacy-mode";
+import { setActivePlan } from "@/app/(app)/members/actions";
+import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { useMembers } from "@/lib/queries/members";
 import { createClient } from "@/lib/supabase/client";
 import {
   getExistingSubscription,
@@ -22,6 +26,7 @@ import {
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
   DropdownMenuPortal,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
@@ -42,6 +47,9 @@ const THEME_META = {
 
 export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const { data: membersData } = useMembers();
+  const [switchingPlan, startSwitchPlan] = useTransition();
   const { theme, setTheme } = useTheme();
   const { privacyMode, togglePrivacyMode } = usePrivacyMode();
   const [mounted, setMounted] = useState(false);
@@ -104,6 +112,20 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
     setTimeout(() => setTestStatus("idle"), 3000);
   }
 
+  function switchPlan(planId: string) {
+    if (planId === membersData?.activePlanId) return;
+    startSwitchPlan(async () => {
+      const result = await setActivePlan(planId);
+      if (result?.error) {
+        console.error("Failed to switch plan", result.error);
+        return;
+      }
+      // Every cached screen belongs to the previous plan.
+      await invalidateAllLedgerQueries(queryClient);
+      router.refresh();
+    });
+  }
+
   async function logout() {
     const supabase = createClient();
     await supabase.auth.signOut();
@@ -121,6 +143,40 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-64">
+        {membersData && membersData.plans.length > 0 && (
+          <>
+            <DropdownMenuLabel
+              inset
+              className="py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground"
+            >
+              Plans
+            </DropdownMenuLabel>
+            <DropdownMenuRadioGroup
+              value={membersData.activePlanId}
+              onValueChange={switchPlan}
+            >
+              {membersData.plans.map((plan) => (
+                <DropdownMenuRadioItem
+                  key={plan.planId}
+                  value={plan.planId}
+                  disabled={switchingPlan}
+                >
+                  <span className="min-w-0 flex-1 truncate">{plan.name}</span>
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                    {plan.role === "owner" ? (
+                      <>
+                        <Crown size={12} /> Owner
+                      </>
+                    ) : (
+                      "Shared"
+                    )}
+                  </span>
+                </DropdownMenuRadioItem>
+              ))}
+            </DropdownMenuRadioGroup>
+            <DropdownMenuSeparator />
+          </>
+        )}
         <DropdownMenuItem asChild className="pl-10">
           <Link href="/members">
             <Users size={ICON_SIZE} /> Members

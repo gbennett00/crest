@@ -1,14 +1,12 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { cookies } from "next/headers";
 
 import { createClient } from "@/lib/supabase/server";
-import { getActivePlanId, ACTIVE_PLAN_COOKIE } from "@/lib/plan/active-plan";
+import { getActivePlanId } from "@/lib/plan/active-plan";
 import {
   generateInvitationToken,
   isValidEmail,
-  listUserPlans,
   normalizeEmail,
 } from "@/lib/plan/invitations";
 import { buildInviteUrl } from "@/lib/plan/invite-url";
@@ -116,22 +114,21 @@ export async function removeMember(userId: string) {
   }
 }
 
-/** Switch which plan the user is viewing. Validates membership before setting. */
+/**
+ * Switch which plan the user is viewing. The `set_active_plan` RPC validates
+ * membership and records the choice in the database, where RLS picks it up.
+ */
 export async function setActivePlan(planId: string) {
   const supabase = await createClient();
   try {
-    const plans = await listUserPlans(supabase);
-    if (!plans.some((p) => p.planId === planId)) {
-      return { error: "You're not a member of that plan" };
+    const { error } = await supabase.rpc("set_active_plan", { p_plan_id: planId });
+    if (error) {
+      return {
+        error: error.message.includes("not_a_member")
+          ? "You're not a member of that plan"
+          : error.message,
+      };
     }
-
-    const store = await cookies();
-    store.set(ACTIVE_PLAN_COOKIE, planId, {
-      httpOnly: true,
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 365,
-    });
 
     revalidatePath("/", "layout");
     return { success: true };
