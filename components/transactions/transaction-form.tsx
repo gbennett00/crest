@@ -4,6 +4,7 @@ import React, { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { offerRulePrompt } from "@/lib/category-rules/prompt-store";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
@@ -25,6 +26,7 @@ import {
   saveTransaction,
 } from "@/app/(app)/transactions/actions";
 import { CategoryPicker } from "./category-picker";
+import { SuggestedTag } from "./suggested-tag";
 import { ChevronLeft, Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
@@ -40,6 +42,8 @@ export type TransactionEditData = {
   reconciledAt: string | null;
   transferAccountId: string | null;
   isApproved: boolean;
+  /** Where the current category came from when it was filled in automatically. */
+  categorySource: "rule" | "history" | null;
   categoryId: string | null;
   allocations: AllocationData[];
 };
@@ -118,6 +122,14 @@ export function TransactionForm({
   const [categoryId, setCategoryId] = useState(txn?.categoryId ?? "");
 
   const isTransfer = direction === "transfer";
+  // The category was filled in automatically and the user hasn't changed it
+  // (see docs § AUTO-CATEGORIZATION). Saving approves it as-is.
+  const showSuggestionHint =
+    !!txn &&
+    !txn.isApproved &&
+    txn.categorySource !== null &&
+    !!categoryId &&
+    categoryId === txn.categoryId;
   const sign = direction === "inflow" ? 1 : -1;
   const totalAbsCents = amountCents;
   // Tracking accounts are never categorized — no category/split UI for them.
@@ -250,6 +262,7 @@ export function TransactionForm({
       if (result?.error) {
         setError(result.error);
       } else if (isEdit) {
+        if ("rulePrompt" in result && result.rulePrompt) offerRulePrompt(result.rulePrompt);
         invalidateLedgerCaches();
         router.push(backHref ?? "/accounts");
         router.refresh();
@@ -621,14 +634,24 @@ export function TransactionForm({
           </div>
 
           {!isSplit ? (
-            <CategoryPicker
-              id="categoryId"
-              categories={categories}
-              value={categoryId}
-              onChange={setCategoryId}
-              placeholder="No category (approve later)"
-              noneLabel="No category (approve later)"
-            />
+            <>
+              <CategoryPicker
+                id="categoryId"
+                categories={categories}
+                value={categoryId}
+                onChange={setCategoryId}
+                placeholder="No category (approve later)"
+                noneLabel="No category (approve later)"
+              />
+              {showSuggestionHint && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1.5">
+                  <SuggestedTag />
+                  {txn!.categorySource === "rule"
+                    ? "from one of your rules. Saving approves it."
+                    : "from your past transactions with this payee. Saving approves it."}
+                </p>
+              )}
+            </>
           ) : (
             <div className="space-y-2">
               {splits.map((s, i) => (

@@ -12,6 +12,7 @@ import type {
   AccountOption,
   CategoryOption,
 } from "@/components/transactions/transaction-form";
+import { SuggestedTag } from "@/components/transactions/suggested-tag";
 import { cn } from "@/lib/utils";
 
 export type PendingRow = {
@@ -20,6 +21,8 @@ export type PendingRow = {
   amountCents: number;
   txnDate: string;
   accountName: string;
+  categoryLabel: string | null;
+  suggested: boolean;
 };
 
 function formatDate(dateStr: string): string {
@@ -66,6 +69,11 @@ export function PendingApprovalList({
   const selectedIds = [...selected];
   const selectedTotalCents = pending.reduce(
     (sum, t) => (selected.has(t.id) ? sum + t.amountCents : sum),
+    0,
+  );
+  // Every row here is pending, so no category means approving it needs one.
+  const uncategorizedSelectedCount = pending.reduce(
+    (n, t) => (selected.has(t.id) && t.categoryLabel === null ? n + 1 : n),
     0,
   );
 
@@ -117,6 +125,12 @@ export function PendingApprovalList({
                   <p className="text-xs text-muted-foreground">
                     {txn.accountName} · {formatDate(txn.txnDate)}
                   </p>
+                  {txn.categoryLabel && (
+                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
+                      <span className="truncate">{txn.categoryLabel}</span>
+                      {txn.suggested && <SuggestedTag />}
+                    </p>
+                  )}
                 </div>
                 <div className="text-right shrink-0">
                   <p
@@ -175,6 +189,7 @@ export function PendingApprovalList({
       <BulkActionsBar
         selectedIds={selectedIds}
         selectedTotalCents={selectedTotalCents}
+        uncategorizedCount={uncategorizedSelectedCount}
         categories={categories}
         accounts={accounts}
         primary={["approve", "categorize"]}

@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getActivePlanId } from "@/lib/plan/active-plan";
+import { buildRulePrompt, type RulePrompt } from "@/lib/category-rules";
 import {
   createTransaction,
   createTransfer,
@@ -154,6 +156,17 @@ export async function saveTransaction(formData: FormData) {
   const approvedAt = onBudget ? (hasAllocations ? now : null) : now;
   const finalAllocations = onBudget ? allocations : [];
 
+  // The categories the row had before this save, to decide afterwards whether
+  // to offer "make this a rule?" (only for an edited on-budget line).
+  let previousCategoryIds: string[] | null = null;
+  if (txnId && onBudget) {
+    const { data: prev } = await supabase
+      .from("transaction_allocations")
+      .select("category_id")
+      .eq("transaction_id", txnId);
+    previousCategoryIds = ((prev ?? []) as { category_id: string }[]).map((a) => a.category_id);
+  }
+
   try {
     if (txnId) {
       // An empty allocations array un-approves the transaction (back to pending).
@@ -183,10 +196,33 @@ export async function saveTransaction(formData: FormData) {
       });
     }
     revalidateAll();
-    return { success: true };
+    const rulePrompt =
+      txnId && previousCategoryIds
+        ? await offerRule(supabase, txnId, previousCategoryIds, finalAllocations)
+        : null;
+    return { success: true, rulePrompt };
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Failed to save transaction" };
+  }
+}
+
+/**
+ * Builds the "make this a rule?" offer for a just-saved edit, or null. Never
+ * fails the save it follows: the offer is a nicety, the save already landed.
+ */
+async function offerRule(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  txnId: string,
+  previousCategoryIds: string[],
+  allocations: Allocation[],
+): Promise<RulePrompt | null> {
+  try {
+    const planId = await getActivePlanId(supabase);
+    return await buildRulePrompt(supabase, planId, txnId, previousCategoryIds, allocations);
+  } catch (e) {
+    console.error("[saveTransaction] rule prompt failed", e);
+    return null;
   }
 }
 

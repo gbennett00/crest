@@ -12,6 +12,7 @@ import type {
   AccountOption,
   CategoryOption,
 } from "@/components/transactions/transaction-form";
+import { SuggestedTag } from "@/components/transactions/suggested-tag";
 import { cn } from "@/lib/utils";
 
 export type RegisterTxn = {
@@ -24,6 +25,10 @@ export type RegisterTxn = {
   reconciled: boolean;
   memo: string | null;
   categoryLabel: string;
+  /** Pending, with a category filled in automatically (not yet approved). */
+  suggested: boolean;
+  /** Pending with no category: approving it needs one. */
+  needsCategory: boolean;
 };
 
 function formatDateLong(dateStr: string): string {
@@ -80,6 +85,10 @@ export function RegisterTransactionList({
   // Reconciled (locked) rows can be categorized/approved but not moved/deleted.
   const lockedSelectedCount = transactions.reduce(
     (n, t) => (selected.has(t.id) && t.reconciled ? n + 1 : n),
+    0,
+  );
+  const uncategorizedSelectedCount = transactions.reduce(
+    (n, t) => (selected.has(t.id) && t.needsCategory ? n + 1 : n),
     0,
   );
 
@@ -151,8 +160,9 @@ export function RegisterTransactionList({
                       {txn.payee || "—"}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5">
+                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5">
                     {txn.categoryLabel}
+                    {txn.suggested && <SuggestedTag />}
                   </p>
                   {txn.memo && (
                     <p className="text-xs text-muted-foreground italic mt-0.5 truncate">
@@ -233,6 +243,7 @@ export function RegisterTransactionList({
         selectedIds={[...selected]}
         selectedTotalCents={selectedTotalCents}
         lockedCount={lockedSelectedCount}
+        uncategorizedCount={uncategorizedSelectedCount}
         categories={categories}
         accounts={accounts}
         primary={["categorize", "move"]}

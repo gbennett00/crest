@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 import {
+  applyCategorySuggestions,
   bulkUpsertCategoryBudgets,
   bulkUpsertTransactions,
   closeAccount,
@@ -1341,5 +1342,35 @@ describe("moveMoney", () => {
     const { client, rpc } = makeRpcClient();
     await moveMoney(client, []);
     expect(rpc).not.toHaveBeenCalled();
+  });
+});
+
+describe("applyCategorySuggestions", () => {
+  function makeSuggestMock(result: { data: number | null; error: { message: string } | null }) {
+    const rpc = vi.fn().mockResolvedValue(result);
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+    return { client, rpc };
+  }
+
+  it("returns 0 without calling the RPC for no ids", async () => {
+    const { client, rpc } = makeSuggestMock({ data: 0, error: null });
+    await expect(applyCategorySuggestions(client, [])).resolves.toBe(0);
+    expect(rpc).not.toHaveBeenCalled();
+  });
+
+  it("sends the whole batch in one RPC call and returns the changed count", async () => {
+    const { client, rpc } = makeSuggestMock({ data: 2, error: null });
+    await expect(applyCategorySuggestions(client, ["txn-a", "txn-b", "txn-c"])).resolves.toBe(2);
+    expect(rpc).toHaveBeenCalledTimes(1);
+    expect(rpc).toHaveBeenCalledWith("ledger_apply_category_suggestions", {
+      p_transaction_ids: ["txn-a", "txn-b", "txn-c"],
+    });
+  });
+
+  it("throws a LedgerError when the RPC fails", async () => {
+    const { client } = makeSuggestMock({ data: null, error: { message: "boom" } });
+    await expect(applyCategorySuggestions(client, ["txn-a"])).rejects.toMatchObject({
+      code: "db_error",
+    });
   });
 });

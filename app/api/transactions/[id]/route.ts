@@ -17,7 +17,7 @@ export async function GET(
   const [txnRes, accountsRes, categories] = await Promise.all([
     supabase
       .from("transactions")
-      .select("id, payee, amount_cents, txn_date, memo, cleared_at, reconciled_at, approved_at, account_id, transfer_account_id, transaction_allocations(category_id, amount_cents, categories(name))")
+      .select("id, payee, amount_cents, txn_date, memo, cleared_at, reconciled_at, approved_at, account_id, transfer_account_id, category_source, transaction_allocations(category_id, amount_cents, categories(name))")
       .eq("id", id)
       .single(),
     // All accounts (including closed) — active ones feed the pickers, while the
@@ -50,6 +50,7 @@ export async function GET(
     reconciledAt: raw.reconciled_at as string | null,
     transferAccountId: raw.transfer_account_id as string | null,
     isApproved: !!raw.approved_at,
+    categorySource: (raw.category_source as "rule" | "history" | null) ?? null,
     categoryId: primaryAlloc?.category_id ?? null,
     allocations,
   };

@@ -38,12 +38,12 @@ Included in MVP:
 * linked accounts via Plaid
 * transaction approval flow
 * mobile-first responsive UI
+* multi-person plans (shareable invite links to collaborate on a plan)
 
 Not included in MVP:
 
 * CSV import
 * yearly obligations
-* multi-user collaboration
 * investments
 * debt payoff planning
 * forecasting
@@ -649,6 +649,29 @@ Requirements:
 Do not tightly couple the ledger model to Plaid-specific behavior.
 
 Plaid should act as an import/sync layer, not the core transaction system.
+
+---
+
+## AUTO-CATEGORIZATION
+
+Incoming transactions get a **suggested** category; the user still approves every one.
+
+Rules:
+
+* A suggestion is an ordinary single, full-amount allocation on a still-**unapproved** transaction, tagged with `transactions.category_source` (`rule` | `history`, plus `category_rule_id` for rules). Nothing in auto-categorization ever sets `approved_at`, and approval keeps whatever allocations the row already has — so approving a suggested row approves the suggestion. Budget math is unaffected until approval (read models count approved rows only).
+* `category_source` is non-null only while the row's categories are exactly what was suggested. `ledger_replace_allocations` / `ledger_update_amount_and_allocations` clear it whenever a caller changes the **set of categories** (an amount-only edit keeps it), and linking the row into a transfer clears it.
+* Only rows still open to a suggestion are touched: unapproved, on-budget, not a transfer, with a payee, and either uncategorized or holding an untouched suggestion (which is recomputed, so a new rule replaces a history guess). A category the user picked is never overwritten.
+* Matching uses `transactions.payee_key`, a generated column: `normalize_payee(payee)` lowercases and strips store numbers (`#117`, `store 1234`, trailing digit words) and punctuation. Plaid's `merchant_name` is usually clean already; this covers the raw-name fallback and manual entries.
+* **Rules** (`category_rules`, per plan) match `exact` (equal key) or `contains` (substring, at least 3 characters), by direction (outflow / inflow), optionally an absolute amount range (`min_cents` and `max_cents`, both inclusive) and an account. `match_text` is stored normalized. Rules are checked in `priority` order (lowest first) and **the first match wins**; the user sets the order by dragging on the rules page (`category_rules_reorder`). New rules go to the top. Rules whose category is hidden are skipped (kept, not deleted).
+* **Payee history**, for rows no rule matched: among the payee's last 10 approved, non-transfer transactions of the same direction in the plan, the category used by at least 70% of them. A split counts as a vote for no category. One prior transaction is enough.
+* Never suggested: hidden categories, the Sinking Fund, credit-card payment categories; Ready to Assign only for inflows.
+* `ledger_apply_category_suggestions(uuid[])` runs the whole batch in one statement. Plaid sync calls it once per sync with every row it wrote; plan scoping is explicit because the webhook runs as `service_role`.
+
+UI:
+
+* Pending rows with a suggestion show a "Suggested" tag (home Needs Approval, All Transactions, account registers); the edit form says where the suggestion came from and that saving approves it.
+* **Make this a rule?** After an edit saves a single category that differs from what the row had (nothing, an overridden suggestion, or an earlier pick), and no rule already targets that payee (`ruleTargetsPayee`, ignoring amount/account conditions), `saveTransaction` returns a `rulePrompt`. A banner offers *Create rule* (exact match on the payee key), *Customize…* (opens the rule editor prefilled) or ✕, which stops offering it **for that payee on this device** (localStorage). It auto-hides after a few seconds without being remembered. Bulk actions never prompt.
+* **Rules page** (`/rules`, from the Plan page's ⋯ menu): list in match order (`payee → category`, conditions underneath as "$X or less" / "$X or more" / "$X to $Y"), drag to reorder, create, edit, delete. The editor shows a live preview (`category_rule_preview`: how many past transactions match, with sample payees). Saving a rule re-runs suggestions over the plan's pending transactions; deleting one leaves suggestions it already made. Rules for a hidden category are flagged as paused.
 
 ---
 

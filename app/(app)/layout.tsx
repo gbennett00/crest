@@ -2,6 +2,7 @@ import { Suspense } from "react";
 import { UserMenu } from "@/components/user-menu";
 import { BottomNav, Sidebar } from "@/components/nav";
 import { Logo } from "@/components/logo";
+import { RulePromptBanner } from "@/components/rules/rule-prompt-banner";
 import { QueryProvider } from "@/lib/query-client";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -31,6 +32,10 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           }
         >
           <BottomNav />
+        </Suspense>
+        {/* usePathname() needs a Suspense boundary under Cache Components. */}
+        <Suspense fallback={null}>
+          <RulePromptBanner />
         </Suspense>
       </div>
     </QueryProvider>

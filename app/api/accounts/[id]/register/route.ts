@@ -45,7 +45,7 @@ export async function GET(
     supabase
       .from("transactions")
       .select(
-        "id, payee, amount_cents, txn_date, approved_at, cleared_at, reconciled_at, memo, transaction_allocations(category_id, amount_cents, categories(name))",
+        "id, payee, amount_cents, txn_date, approved_at, cleared_at, reconciled_at, memo, category_source, transaction_allocations(category_id, amount_cents, categories(name))",
       )
       .eq("account_id", id)
       .order("txn_date", { ascending: false })
@@ -112,6 +112,8 @@ export async function GET(
       reconciled: !!txn.reconciled_at,
       memo: (txn.memo as string) ?? null,
       categoryLabel,
+      suggested: !txn.approved_at && txn.category_source !== null && allocs.length > 0,
+      needsCategory: !txn.approved_at && allocs.length === 0,
     };
   });
 

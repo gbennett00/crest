@@ -13,6 +13,7 @@ import type {
   CategoryOption,
 } from "@/components/transactions/transaction-form";
 import type { AllTransactionsRow } from "@/app/api/transactions/route";
+import { SuggestedTag } from "./suggested-tag";
 import { cn } from "@/lib/utils";
 
 function formatDateLong(dateStr: string): string {
@@ -67,6 +68,10 @@ export function AllTransactionsList({
   );
   const lockedSelectedCount = transactions.reduce(
     (n, t) => (selected.has(t.id) && t.reconciled ? n + 1 : n),
+    0,
+  );
+  const uncategorizedSelectedCount = transactions.reduce(
+    (n, t) => (selected.has(t.id) && t.needsCategory ? n + 1 : n),
     0,
   );
 
@@ -136,8 +141,11 @@ export function AllTransactionsList({
                       {txn.payee || "—"}
                     </span>
                   </div>
-                  <p className="text-xs text-muted-foreground mt-0.5 truncate">
-                    {txn.categoryLabel} · {txn.accountName}
+                  <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
+                    <span className="truncate">
+                      {txn.categoryLabel} · {txn.accountName}
+                    </span>
+                    {txn.suggested && <SuggestedTag />}
                   </p>
                   {txn.memo && (
                     <p className="text-xs text-muted-foreground italic mt-0.5 truncate">
@@ -210,6 +218,7 @@ export function AllTransactionsList({
         selectedIds={[...selected]}
         selectedTotalCents={selectedTotalCents}
         lockedCount={lockedSelectedCount}
+        uncategorizedCount={uncategorizedSelectedCount}
         categories={categories}
         accounts={accounts}
         primary={["categorize", "move"]}
