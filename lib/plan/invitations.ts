@@ -43,6 +43,8 @@ export interface InvitationDetails {
   inviteeEmail: string;
   status: InvitationStatus;
   expired: boolean;
+  /** Null until the get_invitation_details migration (expires_at) is deployed. */
+  expiresAt: string | null;
 }
 
 export interface UserPlan {
@@ -159,5 +161,6 @@ export async function getInvitationDetails(
     inviteeEmail: row.invitee_email as string,
     status: row.status as InvitationStatus,
     expired: row.expired as boolean,
+    expiresAt: (row.expires_at as string | undefined) ?? null,
   };
 }

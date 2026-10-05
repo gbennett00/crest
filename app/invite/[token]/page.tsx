@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { createClient } from "@/lib/supabase/server";
 import { getInvitationDetails, normalizeEmail } from "@/lib/plan/invitations";
+import { formatDate } from "@/lib/format";
 import {
   Card,
   CardContent,
@@ -71,7 +72,9 @@ async function InviteContent({
     return (
       <InfoCard
         title="Invitation expired"
-        description={`This invitation to “${details.planName}” has expired. Ask ${details.inviterEmail} to invite you again.`}
+        description={`This invitation to “${details.planName}” ${
+          details.expiresAt ? `expired on ${formatDate(details.expiresAt)}` : "has expired"
+        }. Ask ${details.inviterEmail} to invite you again.`}
       />
     );
   }
@@ -102,7 +105,9 @@ async function InviteContent({
           <span className="font-medium text-foreground">
             {details.inviteeEmail}
           </span>
-          . It expires 7 days after it was sent.
+          {details.expiresAt
+            ? `. It expires on ${formatDate(details.expiresAt)}.`
+            : ". It expires 7 days after it was sent."}
         </div>
 
         {!user ? (

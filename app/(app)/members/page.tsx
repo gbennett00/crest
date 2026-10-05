@@ -5,6 +5,7 @@ import { Clock, Crown } from "lucide-react";
 
 import { useMembers, invalidateMembers } from "@/lib/queries/members";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { formatDate } from "@/lib/format";
 import { useHasMounted } from "@/lib/use-has-mounted";
 import { LoadError } from "@/components/load-error";
 import { Badge } from "@/components/ui/badge";
@@ -110,7 +111,9 @@ function MembersContent() {
                     <p className="truncate text-sm font-medium">{inv.email}</p>
                     <p className="flex items-center gap-1 text-xs text-muted-foreground">
                       <Clock size={12} />
-                      {inv.expired ? "Expired" : "Invitation pending"}
+                      {inv.expired
+                        ? `Expired ${formatDate(inv.expiresAt)}`
+                        : `Expires ${formatDate(inv.expiresAt)}`}
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
