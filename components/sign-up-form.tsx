@@ -13,8 +13,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
+
+// Only accept same-origin relative paths as a post-auth destination.
+function safeNext(value: string | null): string {
+  return value && value.startsWith("/") && !value.startsWith("//") ? value : "/";
+}
 
 export function SignUpForm({
   className,
@@ -27,6 +32,8 @@ export function SignUpForm({
   const [isLoading, setIsLoading] = useState(false);
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const next = safeNext(searchParams.get("next"));
 
   const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -45,7 +52,7 @@ export function SignUpForm({
         email,
         password,
         options: {
-          emailRedirectTo: `${window.location.origin}/`,
+          emailRedirectTo: `${window.location.origin}${next}`,
         },
       });
       if (error) throw error;
@@ -65,7 +72,7 @@ export function SignUpForm({
     const { error } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {
-        redirectTo: `${window.location.origin}/auth/callback`,
+        redirectTo: `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
       },
     });
 
@@ -163,7 +170,14 @@ export function SignUpForm({
             </div>
             <div className="mt-4 text-center text-sm">
               Already have an account?{" "}
-              <Link href="/auth/login" className="underline underline-offset-4">
+              <Link
+                href={
+                  next === "/"
+                    ? "/auth/login"
+                    : `/auth/login?next=${encodeURIComponent(next)}`
+                }
+                className="underline underline-offset-4"
+              >
                 Login
               </Link>
             </div>
