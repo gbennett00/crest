@@ -58,6 +58,8 @@ export function TargetButton({
       ? [repeatIntervalMonths]
       : []),
   ];
+  // Optional ceiling for a set_aside target; 0 = no cap.
+  const [capCents, setCapCents] = useState(existingTarget?.capCents ?? 0);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -75,6 +77,11 @@ export function TargetButton({
       setError("Target date is required");
       return;
     }
+    const cap = type === "set_aside" && capCents > 0 ? capCents : null;
+    if (cap !== null && cap < amountCents) {
+      setError("Cap must be at least the monthly amount");
+      return;
+    }
     const interval =
       type === "sinking" ? (repeatIntervalMonths ?? 12) : type === "by_date" ? repeatIntervalMonths : null;
 
@@ -86,6 +93,7 @@ export function TargetButton({
         amountCents,
         targetDate,
         interval,
+        cap,
       );
       if (result?.error) {
         setError(result.error);
@@ -169,6 +177,24 @@ export function TargetButton({
               />
             </div>
           </div>
+
+          {/* Optional ceiling: stop setting money aside once available hits it */}
+          {type === "set_aside" && (
+            <div className="space-y-1">
+              <Label className="text-xs text-muted-foreground">Cap (optional)</Label>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
+                <CurrencyInput
+                  cents={capCents}
+                  onCentsChange={setCapCents}
+                  className="h-7 text-xs pl-5"
+                />
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                Stops setting money aside once the available balance reaches this amount.
+              </p>
+            </div>
+          )}
 
           {/* Target date for by_date */}
           {type === "by_date" && (

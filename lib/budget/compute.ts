@@ -600,7 +600,9 @@ export function deriveSinkingFundTarget(targets: TargetData[]): TargetData | nul
  *
  *  - `fill_up_to`: top up available to the target amount.
  *  - `set_aside`: assign the target amount every month, regardless of
- *    rolled-forward available.
+ *    rolled-forward available. With a `capCents`, never assign past the point
+ *    where available reaches the cap (a month's need is still bounded by the
+ *    monthly amount — no extra catch-up after an overspent month).
  *  - `by_date`: like `fill_up_to` (fill the shortfall in available, not just
  *    this month's assignment), but spread evenly across the months
  *    remaining until the target date rather than demanded in one month. A
@@ -619,7 +621,11 @@ export function targetNeedCents(
     return Math.max(0, target.amountCents - availableCents);
   }
   if (target.type === "set_aside") {
-    return Math.max(0, target.amountCents - assignedCents);
+    const need = Math.max(0, target.amountCents - assignedCents);
+    if (target.capCents == null) return need;
+    // Room left under the cap, counting what's already been assigned this
+    // month (available already includes it).
+    return Math.max(0, Math.min(need, target.capCents - availableCents));
   }
   if (target.type === "by_date") {
     const shortfall = Math.max(0, target.amountCents - availableCents);

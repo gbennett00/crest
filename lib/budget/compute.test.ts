@@ -762,6 +762,48 @@ describe("targetNeedCents", () => {
     expect(targetNeedCents(setAside(200_00), MONTH, 50_00, 900_00)).toBe(150_00);
   });
 
+  describe("set_aside with a cap", () => {
+    const capped = (amountCents: number, capCents: number): TargetData => ({
+      ...setAside(amountCents),
+      capCents,
+    });
+
+    it("assigns the full monthly amount while there is room under the cap", () => {
+      expect(targetNeedCents(capped(150_00, 300_00), MONTH, 0, 100_00)).toBe(150_00);
+    });
+
+    it("trims the assignment to the room left under the cap", () => {
+      expect(targetNeedCents(capped(150_00, 300_00), MONTH, 0, 220_00)).toBe(80_00);
+    });
+
+    it("needs nothing once available reaches or exceeds the cap", () => {
+      expect(targetNeedCents(capped(150_00, 300_00), MONTH, 0, 300_00)).toBe(0);
+      expect(targetNeedCents(capped(150_00, 300_00), MONTH, 0, 450_00)).toBe(0);
+    });
+
+    it("counts what is already assigned this month (available includes it)", () => {
+      // $100 assigned toward the $150 amount; available $250 → $50 left, and
+      // only $50 of room under the cap.
+      expect(targetNeedCents(capped(150_00, 300_00), MONTH, 100_00, 250_00)).toBe(50_00);
+      // Same assignment but available $290 → only $10 of room.
+      expect(targetNeedCents(capped(150_00, 300_00), MONTH, 100_00, 290_00)).toBe(10_00);
+    });
+
+    it("never asks for more than the monthly amount, even after an overspent month", () => {
+      expect(targetNeedCents(capped(150_00, 300_00), MONTH, 0, -200_00)).toBe(150_00);
+    });
+
+    it("treats a null cap as uncapped", () => {
+      expect(
+        targetNeedCents({ ...setAside(150_00), capCents: null }, MONTH, 0, 900_00),
+      ).toBe(150_00);
+    });
+
+    it("still costs the full monthly amount in the spending plan", () => {
+      expect(targetMonthlyCostCents(capped(150_00, 300_00), MONTH)).toBe(150_00);
+    });
+  });
+
   it("by_date splits the shortfall in available across the remaining months", () => {
     // $700 by Jan 1st, budgeting September with nothing available yet →
     // 5 months (Sep, Oct, Nov, Dec, Jan) share the $700 shortfall.

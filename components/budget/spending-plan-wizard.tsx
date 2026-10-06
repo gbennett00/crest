@@ -80,6 +80,8 @@ type ExpenseLineDraft = {
   recurringKind: RecurringKind;
   amountCents: number;
   targetType: "fill_up_to" | "set_aside";
+  // Optional ceiling for a monthly set_aside line; 0 = no cap.
+  capCents: number;
   targetDate: string;
 };
 
@@ -107,6 +109,7 @@ function emptyExpenseLine(): ExpenseLineDraft {
     recurringKind: "by_date",
     amountCents: 0,
     targetType: "set_aside",
+    capCents: 0,
     targetDate: "",
   };
 }
@@ -119,6 +122,7 @@ function draftTargetData(line: ExpenseLineDraft): TargetData {
       amountCents: line.amountCents,
       targetDate: null,
       repeatIntervalMonths: null,
+      capCents: line.targetType === "set_aside" && line.capCents > 0 ? line.capCents : null,
     };
   }
   if (line.recurringKind === "sinking") {
@@ -149,7 +153,12 @@ function targetToLine(entityId: string, target: TargetData, month: string): Expe
     amountCents: target.amountCents,
   };
   if (target.type === "set_aside" || target.type === "fill_up_to") {
-    return { ...base, cadence: "monthly", targetType: target.type };
+    return {
+      ...base,
+      cadence: "monthly",
+      targetType: target.type,
+      capCents: target.capCents ?? 0,
+    };
   }
   if (!target.repeatIntervalMonths) return null;
   if (target.type === "sinking") {
@@ -180,6 +189,13 @@ function lineError(line: ExpenseLineDraft): string | null {
       return "Group name is required";
   }
   if (line.amountCents <= 0) return "Enter an amount";
+  if (
+    line.cadence === "monthly" &&
+    line.targetType === "set_aside" &&
+    line.capCents > 0 &&
+    line.capCents < line.amountCents
+  )
+    return "Cap must be at least the monthly amount";
   if (line.cadence === "recurring" && line.recurringKind === "by_date" && !line.targetDate)
     return "Due date is required";
   return null;
@@ -205,6 +221,7 @@ function toServerLine(line: ExpenseLineDraft): SpendingPlanExpenseLineInput {
     amountCents: target.amountCents,
     targetDate: target.targetDate,
     repeatIntervalMonths: target.repeatIntervalMonths,
+    capCents: target.capCents ?? null,
   };
 }
 
@@ -929,6 +946,19 @@ function ExpenseLineEditor({
               </button>
             ))}
           </div>
+          {line.targetType === "set_aside" && (
+            <div className="space-y-1 pt-1">
+              <Label className="text-xs text-muted-foreground">Cap (optional)</Label>
+              <DecimalAmountInput
+                cents={line.capCents}
+                onCentsChange={(c) => onChange({ capCents: c })}
+                className="h-9 text-sm"
+              />
+              <p className="text-[11px] text-muted-foreground">
+                Stops setting money aside once the available balance reaches this amount.
+              </p>
+            </div>
+          )}
         </div>
       ) : (
         <>
