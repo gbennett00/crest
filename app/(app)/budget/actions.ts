@@ -217,6 +217,7 @@ export async function upsertTarget(
   amountCents: number,
   targetDate: string | null,
   repeatIntervalMonths: number | null = null,
+  capCents: number | null = null,
 ) {
   if (!Number.isInteger(amountCents) || amountCents <= 0)
     return { error: "Amount must be a positive integer (cents)" };
@@ -231,6 +232,12 @@ export async function upsertTarget(
       return { error: "Repeat interval only applies to by_date and sinking targets" };
     if (!Number.isInteger(repeatIntervalMonths) || repeatIntervalMonths <= 0)
       return { error: "Repeat interval must be a positive number of months" };
+  }
+
+  if (capCents !== null) {
+    if (type !== "set_aside") return { error: "A cap only applies to set aside targets" };
+    if (!Number.isInteger(capCents) || capCents < amountCents)
+      return { error: "Cap must be at least the monthly amount" };
   }
 
   const supabase = await createClient();
@@ -253,6 +260,7 @@ export async function upsertTarget(
     amount_cents: amountCents,
     target_date: targetDate,
     repeat_interval_months: repeatIntervalMonths,
+    cap_cents: capCents,
   };
 
   if (existing) {
@@ -389,6 +397,7 @@ export type SpendingPlanExpenseLineInput = {
   amountCents: number;
   targetDate: string | null;
   repeatIntervalMonths: number | null;
+  capCents?: number | null;
 };
 
 /**
@@ -544,6 +553,7 @@ export async function applySpendingPlan(input: {
       line.amountCents,
       line.targetDate,
       line.repeatIntervalMonths,
+      line.capCents ?? null,
     );
     if (result?.error) return { error: result.error };
   }

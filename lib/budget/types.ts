@@ -19,6 +19,9 @@ export type TargetData = {
   // occurrence on read (see effectiveTargetDate); null for a one-shot target.
   // `sinking`: the cycle length (always set). Null for fill_up_to/set_aside.
   repeatIntervalMonths: number | null;
+  // `set_aside` only: stop assigning once available reaches this ceiling
+  // (see targetNeedCents). Null/undefined = uncapped. Always >= amountCents.
+  capCents?: number | null;
 };
 
 // YNAB-style activity breakdown for a credit-card payment category, for a single

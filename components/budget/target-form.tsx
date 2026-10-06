@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { upsertTarget, deleteTarget } from "@/app/(app)/budget/actions";
@@ -58,6 +59,8 @@ export function TargetButton({
       ? [repeatIntervalMonths]
       : []),
   ];
+  // Optional ceiling for a set_aside target; 0 = no cap.
+  const [capCents, setCapCents] = useState(existingTarget?.capCents ?? 0);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
@@ -75,6 +78,11 @@ export function TargetButton({
       setError("Target date is required");
       return;
     }
+    const cap = type === "set_aside" && capCents > 0 ? capCents : null;
+    if (cap !== null && cap < amountCents) {
+      setError("Cap must be at least the monthly amount");
+      return;
+    }
     const interval =
       type === "sinking" ? (repeatIntervalMonths ?? 12) : type === "by_date" ? repeatIntervalMonths : null;
 
@@ -86,6 +94,7 @@ export function TargetButton({
         amountCents,
         targetDate,
         interval,
+        cap,
       );
       if (result?.error) {
         setError(result.error);
@@ -169,6 +178,26 @@ export function TargetButton({
               />
             </div>
           </div>
+
+          {/* Optional ceiling: stop setting money aside once available hits it */}
+          {type === "set_aside" && (
+            <div className="space-y-1">
+              <div className="flex items-center gap-0.5">
+                <Label className="text-xs text-muted-foreground">Cap (optional)</Label>
+                <InfoTip label="About the cap">
+                Stops setting money aside once the available balance reaches this amount.
+              </InfoTip>
+              </div>
+              <div className="relative">
+                <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
+                <CurrencyInput
+                  cents={capCents}
+                  onCentsChange={setCapCents}
+                  className="h-7 text-xs pl-5"
+                />
+              </div>
+            </div>
+          )}
 
           {/* Target date for by_date */}
           {type === "by_date" && (
