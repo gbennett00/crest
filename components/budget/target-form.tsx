@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { Label } from "@/components/ui/label";
+import { InfoTip } from "@/components/ui/info-tip";
 import { Modal } from "@/components/ui/modal";
 import { cn } from "@/lib/utils";
 import { upsertTarget, deleteTarget } from "@/app/(app)/budget/actions";
@@ -181,7 +182,12 @@ export function TargetButton({
           {/* Optional ceiling: stop setting money aside once available hits it */}
           {type === "set_aside" && (
             <div className="space-y-1">
-              <Label className="text-xs text-muted-foreground">Cap (optional)</Label>
+              <div className="flex items-center gap-0.5">
+                <Label className="text-xs text-muted-foreground">Cap (optional)</Label>
+                <InfoTip label="About the cap">
+                Stops setting money aside once the available balance reaches this amount.
+              </InfoTip>
+              </div>
               <div className="relative">
                 <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">$</span>
                 <CurrencyInput
@@ -190,9 +196,6 @@ export function TargetButton({
                   className="h-7 text-xs pl-5"
                 />
               </div>
-              <p className="text-[11px] text-muted-foreground">
-                Stops setting money aside once the available balance reaches this amount.
-              </p>
             </div>
           )}
 
