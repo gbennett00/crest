@@ -987,6 +987,23 @@ describe("createTransfer", () => {
     );
   });
 
+  it("rejects a result that is missing either leg", async () => {
+    const rpc = vi.fn().mockResolvedValue({
+      data: { outflow_transaction_id: "out-1", inflow_transaction_id: null },
+      error: null,
+    });
+    const client = { from: vi.fn(), rpc } as unknown as SupabaseClient;
+
+    await expect(
+      createTransfer(client, {
+        fromAccountId: "acc-1",
+        toAccountId: "acc-2",
+        amountCents: 5000,
+        txnDate: "2026-01-15",
+      }),
+    ).rejects.toThrow("both accounts");
+  });
+
   it("defaults p_imported_id to null when not provided", async () => {
     const { client, rpc } = makeTransferMock();
 

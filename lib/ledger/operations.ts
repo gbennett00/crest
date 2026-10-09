@@ -668,6 +668,13 @@ export async function createTransfer(
     throw new LedgerError("db_error", "transfer RPC returned no rows");
   }
 
+  if (!row.outflow_transaction_id || !row.inflow_transaction_id) {
+    throw new LedgerError(
+      "db_error",
+      "transfer must have a transaction on both accounts",
+    );
+  }
+
   return {
     outflowTransactionId: row.outflow_transaction_id as string,
     inflowTransactionId: row.inflow_transaction_id as string,
