@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, X } from "lucide-react";
@@ -33,6 +33,9 @@ function formatDate(dateStr: string): string {
   });
 }
 
+// Cap so a large import backlog doesn't fire hundreds of requests on load.
+const PRELOAD_LIMIT = 20;
+
 export function PendingApprovalList({
   pending,
   categories,
@@ -45,6 +48,14 @@ export function PendingApprovalList({
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
   const queryClient = useQueryClient();
+
+  // Pending rows are almost always opened to set a category, so warm their
+  // detail cache up front instead of waiting for hover/tap.
+  useEffect(() => {
+    for (const txn of pending.slice(0, PRELOAD_LIMIT)) {
+      prefetchTransactionDetail(queryClient, txn.id);
+    }
+  }, [pending, queryClient]);
 
   function toggle(id: string) {
     setSelected((prev) => {
