@@ -1,109 +1,156 @@
-<a href="https://demo-nextjs-with-supabase.vercel.app/">
-  <img alt="Next.js and Supabase Starter Kit - the fastest way to build apps with Next.js and Supabase" src="https://demo-nextjs-with-supabase.vercel.app/opengraph-image.png">
-  <h1 align="center">Next.js and Supabase Starter Kit</h1>
-</a>
+# Crest
 
-<p align="center">
- The fastest way to build apps with Next.js and Supabase
-</p>
+Crest is a zero-based budgeting web app in the style of YNAB. You give every dollar a job: income lands in **Ready to Assign**, and you assign it to categories until nothing is left over.
 
-<p align="center">
-  <a href="#features"><strong>Features</strong></a> ·
-  <a href="#demo"><strong>Demo</strong></a> ·
-  <a href="#deploy-to-vercel"><strong>Deploy to Vercel</strong></a> ·
-  <a href="#clone-and-run-locally"><strong>Clone and run locally</strong></a> ·
-  <a href="#feedback-and-issues"><strong>Feedback and issues</strong></a>
-  <a href="#more-supabase-examples"><strong>More Examples</strong></a>
-</p>
-<br/>
+- Budget by category or by category group, with targets, recurring bills and sinking funds
+- Accounts, transactions and splits, credit cards, transfers, and tracking accounts
+- Optional bank sync through [Plaid](https://plaid.com), with imported transactions waiting for your approval
+- Auto-categorization rules and suggestions from your payee history
+- Shared budgets: invite a partner or family member to the same plan with a link
+- Installable on your phone, with push notifications for new transactions
 
-## Features
+Built with Next.js 15, Supabase (Postgres + auth), TypeScript and shadcn/ui. The design reference is [`docs/budgeting-app-architecture.md`](docs/budgeting-app-architecture.md).
 
-- Works across the entire [Next.js](https://nextjs.org) stack
-  - App Router
-  - Pages Router
-  - Proxy
-  - Client
-  - Server
-  - It just works!
-- supabase-ssr. A package to configure Supabase Auth to use cookies
-- Password-based authentication block installed via the [Supabase UI Library](https://supabase.com/ui/docs/nextjs/password-based-auth)
-- Styling with [Tailwind CSS](https://tailwindcss.com)
-- Components with [shadcn/ui](https://ui.shadcn.com/)
-- Optional deployment with [Supabase Vercel Integration and Vercel deploy](#deploy-your-own)
-  - Environment variables automatically assigned to Vercel project
+## Running your own copy
 
-## Demo
+Crest isn't a hosted service. Each person or household runs **their own copy** with their own database and their own bank connections, so nobody else can see your finances. Everything below has a free tier that's enough for personal use:
 
-You can view a fully working demo at [demo-nextjs-with-supabase.vercel.app](https://demo-nextjs-with-supabase.vercel.app/).
+| Service | What it does | Cost |
+| --- | --- | --- |
+| [GitHub](https://github.com) | Holds your copy of the code | Free |
+| [Supabase](https://supabase.com) | Database and logins | Free plan |
+| [Vercel](https://vercel.com) | Hosts the website | Free Hobby plan (personal, non-commercial use) |
+| [Plaid](https://plaid.com) | Connects to your bank (optional) | Free Trial plan, up to 10 bank connections |
 
-## Deploy to Vercel
+Allow about 45 minutes. You never need to write code, but you'll copy a handful of keys between websites. Keep a notes file open and paste each value into it as you go. **Treat the keys marked 🔒 like passwords. Never post them or commit them to GitHub.**
 
-Vercel deployment will guide you through creating a Supabase account and project.
+> **Skipping the bank connection?** Leave out Part 4 and the Plaid keys. You can still enter transactions by hand or import them from a CSV. You'll still need the push-notification keys in Part 5.
 
-After installation of the Supabase integration, all relevant environment variables will be assigned to the project so the deployment is fully functioning.
+### Part 1: Create a GitHub account and fork the repo
 
-[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&project-name=nextjs-with-supabase&repository-name=nextjs-with-supabase&demo-title=nextjs-with-supabase&demo-description=This+starter+configures+Supabase+Auth+to+use+cookies%2C+making+the+user%27s+session+available+throughout+the+entire+Next.js+app+-+Client+Components%2C+Server+Components%2C+Route+Handlers%2C+Server+Actions+and+Middleware.&demo-url=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2F&external-id=https%3A%2F%2Fgithub.com%2Fvercel%2Fnext.js%2Ftree%2Fcanary%2Fexamples%2Fwith-supabase&demo-image=https%3A%2F%2Fdemo-nextjs-with-supabase.vercel.app%2Fopengraph-image.png)
+1. Go to [github.com/signup](https://github.com/signup) and create a free account. Skip this if you have one.
+2. Open this repository's page on GitHub and click **Fork** (top right), then **Create fork**. You now have your own copy under your account.
+3. Enable the automated workflows on your fork. GitHub turns them off on forks by default. Open the **Actions** tab and click **I understand my workflows, go ahead and enable them**.
 
-The above will also clone the Starter kit to your GitHub, you can clone that locally and develop locally.
+### Part 2: Create the database (Supabase)
 
-If you wish to just develop locally and not deploy to Vercel, [follow the steps below](#clone-and-run-locally).
+1. Sign up at [supabase.com](https://supabase.com) (**Sign in with GitHub** is easiest). **Use the same email address you'll use to log in to Crest.** Supabase's built-in email sender only delivers to people on your Supabase team, so this is what lets sign-up and password-reset emails reach you.
+2. Click **New project**. Pick a name (for example `crest`) and a region near you.
+3. Set a **database password** and save it in your notes. 🔒 Use the **Generate a password** button if you like. You'll need it in Part 3.
+4. Click **Create new project** and wait a couple of minutes while it starts.
+5. Collect these values. In the project, click the **Connect** button at the top, or open **Project Settings**:
+   - **Project URL** looks like `https://abcdefghijkl.supabase.co`. The part before `.supabase.co` is your **project ref**.
+   - **Publishable key** is under **Project Settings → API Keys**. It starts with `sb_publishable_`. If none exists yet, click **Create new API Keys**. This key is safe to expose.
+   - **Secret key** is in the same place, in the **Secret keys** section. It starts with `sb_secret_`. 🔒 It bypasses all security rules, so only ever put it in Vercel.
 
-## Clone and run locally
+   If your Supabase dashboard only shows the older **Legacy API Keys** tab, use the `anon` key as the publishable key and the `service_role` key as the secret key.
+6. Create an **access token**. Click your avatar (bottom left), then **Account preferences → Access Tokens → Generate new token** (or visit [supabase.com/dashboard/account/tokens](https://supabase.com/dashboard/account/tokens)). Name it `crest`, then copy it. 🔒 It's shown only once.
 
-1. You'll first need a Supabase project which can be made [via the Supabase dashboard](https://database.new)
+### Part 3: Create the database tables (GitHub Actions)
 
-2. Create a Next.js app using the Supabase Starter template npx command
+Crest ships with a workflow that builds the whole database for you. It needs three secrets from Part 2.
 
-   ```bash
-   npx create-next-app --example with-supabase with-supabase-app
-   ```
+1. In your fork on GitHub, go to **Settings → Secrets and variables → Actions → New repository secret**. Add these three, one at a time:
 
-   ```bash
-   yarn create next-app --example with-supabase with-supabase-app
-   ```
+   | Name | Value |
+   | --- | --- |
+   | `SUPABASE_ACCESS_TOKEN` | The access token from step 6 |
+   | `PRODUCTION_DB_PASSWORD` | The database password from step 3 |
+   | `PRODUCTION_PROJECT_ID` | Your project ref (the part before `.supabase.co`) |
 
-   ```bash
-   pnpm create next-app --example with-supabase with-supabase-app
-   ```
+2. Open the **Actions** tab, click **Deploy Migrations to Production** in the left list, then **Run workflow → Run workflow**.
+3. Wait for the run to finish with a green check. In Supabase, **Table Editor** should now list tables such as `accounts` and `transactions`. If the run is red, open it and read the error. A wrong password or project ref is the usual cause.
 
-3. Use `cd` to change into the app's directory
+This workflow runs again automatically whenever you pull in new database changes (see [Getting updates](#getting-updates)).
 
-   ```bash
-   cd with-supabase-app
-   ```
+### Part 4: Get Plaid keys (optional, for bank sync)
 
-4. Rename `.env.example` to `.env.local` and update the following:
+1. Sign up at [dashboard.plaid.com/signup](https://dashboard.plaid.com/signup).
+2. Your keys are at [dashboard.plaid.com/developers/keys](https://dashboard.plaid.com/developers/keys) (**Developers → Keys**). You'll see a **client_id**, which is the same for every environment, and a separate **secret** for each environment (Sandbox and Production).
+3. **Try it first in Sandbox.** The Sandbox secret works immediately and connects to fake banks only. In Link, pick any bank and log in with username `user_good` and password `pass_good`. This is a good way to confirm everything works before connecting a real bank.
+4. **To connect real banks**, request production access from the Plaid dashboard (the **Get production access** link). New Plaid teams are put on the **Trial plan**, which is free and allows up to **10 real bank connections** (Items). Plaid counts each connected bank login as one Item. Disconnecting one doesn't give the slot back, so connect each bank once. Once production access is approved, the Production secret appears on the same Keys page.
 
-  ```env
-  NEXT_PUBLIC_SUPABASE_URL=[INSERT SUPABASE PROJECT URL]
-  NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY=[INSERT SUPABASE PROJECT API PUBLISHABLE OR ANON KEY]
-  ```
-  > [!NOTE]
-  > This example uses `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`, which refers to Supabase's new **publishable** key format.
-  > Both legacy **anon** keys and new **publishable** keys can be used with this variable name during the transition period. Supabase's dashboard may show `NEXT_PUBLIC_SUPABASE_ANON_KEY`; its value can be used in this example.
-  > See the [full announcement](https://github.com/orgs/supabase/discussions/29260) for more information.
+Write down the `client_id`, the secret 🔒, and which environment it belongs to. Use `sandbox` or `production` as `PLAID_ENV`. Plaid's old `development` environment has been retired. The Plaid steps and limits change over time, so check [Plaid's docs](https://plaid.com/docs/) if anything here looks different.
 
-  Both `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` can be found in [your Supabase project's API settings](https://supabase.com/dashboard/project/_?showConnect=true)
+### Part 5: Generate push-notification keys
 
-5. You can now run the Next.js local development server:
+Crest sends a notification when new bank transactions arrive. This needs a pair of keys that you generate yourself. They aren't tied to any account, but the app expects them to be set.
 
-   ```bash
-   npm run dev
-   ```
+You need a terminal with Node.js for this. If you don't have one, GitHub provides one for free: on your fork, click **Code → Codespaces → Create codespace on main**, then run this in the terminal at the bottom:
 
-   The starter kit should now be running on [localhost:3000](http://localhost:3000/).
+```bash
+npx web-push generate-vapid-keys
+```
 
-6. This template comes with the default shadcn/ui style initialized. If you instead want other ui.shadcn styles, delete `components.json` and [re-install shadcn/ui](https://ui.shadcn.com/docs/installation/next)
+You'll get a **Public Key** and a **Private Key** 🔒. Save both. You can delete the codespace afterwards.
 
-> Check out [the docs for Local Development](https://supabase.com/docs/guides/getting-started/local-development) to also run Supabase locally.
+### Part 6: Deploy the website (Vercel)
 
-## Feedback and issues
+1. Sign up at [vercel.com/signup](https://vercel.com/signup) with **Continue with GitHub** and choose the free **Hobby** plan.
+2. Click **Add New… → Project**, find your `crest` fork under **Import Git Repository**, and click **Import**.
+3. Open **Environment Variables** and add the following. Names must match exactly.
 
-Please file feedback and issues over on the [Supabase GitHub org](https://github.com/supabase/supabase/issues/new/choose).
+   | Name | Value |
+   | --- | --- |
+   | `NEXT_PUBLIC_SUPABASE_URL` | Project URL from Part 2 |
+   | `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY` | Publishable key from Part 2 |
+   | `SUPABASE_SERVICE_ROLE_KEY` | Secret key from Part 2 (`sb_secret_…`) 🔒 |
+   | `VAPID_PUBLIC_KEY` | Public key from Part 5 |
+   | `NEXT_PUBLIC_VAPID_PUBLIC_KEY` | The same public key again |
+   | `VAPID_PRIVATE_KEY` | Private key from Part 5 🔒 |
+   | `VAPID_SUBJECT` | `mailto:` followed by your email, e.g. `mailto:you@example.com` |
+   | `PLAID_CLIENT_ID` | From Part 4 (skip all `PLAID_` rows if you're not using Plaid) |
+   | `PLAID_SECRET` | From Part 4 🔒 |
+   | `PLAID_ENV` | `sandbox` or `production` |
 
-## More Supabase examples
+4. Click **Deploy** and wait for the confetti. Vercel shows your site address, such as `https://crest-yourname.vercel.app`. This is your **app URL**.
+5. Add two more variables using that URL. In the project, go to **Settings → Environment Variables**:
 
-- [Next.js Subscription Payments Starter](https://github.com/vercel/nextjs-subscription-payments)
-- [Cookie-based Auth and the Next.js 13 App Router (free course)](https://youtube.com/playlist?list=PL5S4mPUpp4OtMhpnp93EFSo42iQ40XjbF)
-- [Supabase Auth and the Next.js App Router](https://github.com/supabase/supabase/tree/master/examples/auth/nextjs)
+   | Name | Value |
+   | --- | --- |
+   | `NEXT_PUBLIC_APP_URL` | Your app URL, e.g. `https://crest-yourname.vercel.app` (no trailing slash) |
+   | `PLAID_WEBHOOK_URL` | Your app URL plus `/api/plaid/webhook` (skip if not using Plaid) |
+
+6. Redeploy so the new values take effect. Go to **Deployments**, open the **⋯** menu on the latest one, and click **Redeploy**. Any time you change a variable, redeploy.
+
+### Part 7: Tell Supabase your website address
+
+Supabase only sends people back to addresses you've approved.
+
+1. In Supabase, go to **Authentication → URL Configuration**.
+2. Set **Site URL** to your app URL.
+3. Under **Redirect URLs**, click **Add URL** and enter your app URL followed by `/**`, e.g. `https://crest-yourname.vercel.app/**`. Then save.
+
+### Part 8: Create your account
+
+Open your app URL, click **Sign up**, and use the **same email as your Supabase account**. Click the link in the confirmation email, log in, and you're in. From **Accounts** you can add accounts by hand or connect a bank.
+
+On a phone, open the site in your browser and choose **Add to Home Screen** to install it like an app.
+
+**Optional: stop strangers from signing up.** Your site is public, and anyone who finds the address could create an account. Once you and your household have signed up, go to Supabase **Authentication → Sign In / Providers** and turn off **Allow new users to sign up**. Switch it back on temporarily if you need someone new to create an account.
+
+## Good to know
+
+- **Free Supabase projects pause after a week of inactivity.** Your data is kept. Open the project in the Supabase dashboard and click **Restore project**. Using the app regularly avoids this.
+- **Backups aren't included on the free plan.** Export your data now and then.
+- **Real-bank limits.** Plaid's Trial plan allows 10 real connections, and some banks need extra Plaid approval or "OAuth" setup before they can connect. This copy of Crest hasn't been tested against every bank. If a specific bank won't connect, it's usually this. Smaller banks and credit unions tend to be easier.
+- **Sharing one copy.** If your household shares a budget, you don't each need a copy. One person can run it and invite others from the **Members** page. Everyone shares the owner's 10 Plaid connections, though.
+
+## Getting updates
+
+When the original project gets improvements, open your fork on GitHub and click **Sync fork → Update branch**. Vercel redeploys automatically, and any new database changes are applied by the **Deploy Migrations to Production** workflow. Check the **Actions** tab to confirm it succeeded.
+
+## Developing locally
+
+You only need this if you want to change the code. Requires Node 22, [pnpm](https://pnpm.io), and the [Supabase CLI](https://supabase.com/docs/guides/cli) with Docker for a local database.
+
+```bash
+pnpm install
+cp .env.example .env.local   # fill in the values described above
+pnpm dev                     # http://localhost:3000
+pnpm test                    # unit tests
+pnpm lint
+supabase test db             # database (pgTAP) tests
+```
+
+See [`CLAUDE.md`](CLAUDE.md) and [`docs/`](docs/) for architecture notes and conventions.
