@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Crest is a zero-based budgeting web app (YNAB-inspired) built with Next.js 15, Supabase (PostgreSQL), and TypeScript. The authoritative design reference is `docs/budgeting-app-architecture.md` — read it before implementing any feature, schema change, calculation, or UI flow.
 
+## Design system migration
+
+The UI is mid-migration to a new design system. For any UI/styling work, read `docs/design-migration.md` first: it explains the token layers, conventions and per-page status. Do not use the legacy shadcn colour names in new code.
+
 ## Commands
 
 ```bash
