@@ -2,59 +2,129 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Theme variables. Values come from the Crest design system (its tokens.json);
+   `.dark` and `[data-theme="dark"]` are both set by next-themes, so either
+   selector styles dark mode. The shadcn-named variables are compatibility
+   aliases for pages not yet migrated to the new tokens. */
 @layer base {
   :root {
-    --background: 0 0% 96.5%;
-    --foreground: 0 0% 3.9%;
-    --card: 0 0% 100%;
-    --card-foreground: 0 0% 3.9%;
-    --popover: 0 0% 100%;
-    --popover-foreground: 0 0% 3.9%;
-    --primary: 162 84% 32%;
+    /* Legacy (shadcn) names, valued from the Crest design system. HSL triplets so opacity modifiers keep working. */
+    --background: 160 14.3% 95.9%; /* bg */
+    --foreground: 163 21.2% 6.5%; /* ink */
+    --card: 0 0% 100%; /* surface */
+    --card-foreground: 163 21.2% 6.5%; /* ink */
+    --popover: 0 0% 100%; /* surface-raised */
+    --popover-foreground: 163 21.2% 6.5%; /* ink */
+    --primary: 161 89.7% 22.9%; /* brand-text */
     --primary-foreground: 0 0% 100%;
-    --secondary: 0 0% 96.1%;
-    --secondary-foreground: 0 0% 9%;
-    --muted: 0 0% 96.1%;
-    --muted-foreground: 0 0% 45.1%;
-    --accent: 165 60% 95%;
-    --accent-foreground: 162 84% 22%;
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 89.8%;
-    --input: 0 0% 89.8%;
-    --ring: 162 84% 32%;
-    --chart-1: 12 76% 61%;
-    --chart-2: 173 58% 39%;
-    --chart-3: 197 37% 24%;
-    --chart-4: 43 74% 66%;
-    --chart-5: 27 87% 67%;
-    --radius: 0.5rem;
+    --secondary: 160 15.8% 92.5%; /* surface-sunken */
+    --secondary-foreground: 163 21.2% 6.5%; /* ink */
+    --muted: 160 15.8% 92.5%; /* surface-sunken */
+    --muted-foreground: 162 8.1% 31.6%; /* ink-muted */
+    --accent: 155 51.4% 92.7%; /* brand-subtle */
+    --accent-foreground: 161 89.7% 22.9%; /* brand-text */
+    --destructive: 4 72.5% 40%; /* neg-text */
+    --destructive-foreground: 0 0% 100%;
+    --border: 157 10.5% 85.1%; /* border */
+    --input: 160 4.8% 51%; /* border-strong */
+    --ring: 224 76.3% 48%; /* focus */
+    --chart-1: 160 88.1% 26.5%; /* chart-1 */
+    --chart-2: 221 83.2% 53.3%; /* chart-2 */
+    --chart-3: 26 90.5% 37.1%; /* chart-3 */
+    --chart-4: 262 83.3% 57.8%; /* chart-4 */
+    --chart-5: 335 77.6% 42%; /* chart-5 */
+    --chart-6: 215 19.3% 34.5%; /* chart-6 */
+    /* Design system tokens (hex; no opacity modifiers). Prefer these in new code. */
+    --ds-bg: #f3f6f5;
+    --ds-surface: #ffffff;
+    --ds-surface-raised: #ffffff;
+    --ds-surface-sunken: #e9efed;
+    --ds-border-strong: #7c8884;
+    --ds-ink: #0d1412;
+    --ds-ink-muted: #4a5753;
+    --ds-ink-subtle: #5f6c68;
+    --ds-brand: #34d399;
+    --ds-brand-ink: #04281d;
+    --ds-brand-text: #066f4d;
+    --ds-brand-subtle: #e3f6ee;
+    --ds-pos-bg: #d6f4e6;
+    --ds-pos-ink: #05603f;
+    --ds-pos-text: #05603f;
+    --ds-warn-bg: #fcebc5;
+    --ds-warn-ink: #6b3f00;
+    --ds-neg-bg: #fce0dd;
+    --ds-neg-ink: #9f1a12;
+    --ds-neg-text: #b0261c;
+    --ds-zero-bg: #e4eae8;
+    --ds-zero-ink: #44514d;
+    --ds-focus: #1d4ed8;
+    --ds-scrim: #0d141266;
+    --shadow-float: 0 8px 24px 0 rgba(13,20,18,0.14);
+    --shadow-sheet: 0 -8px 32px 0 rgba(13,20,18,0.16);
+    --radius: 0.875rem; /* radius-md; Tailwind lg/md/sm derive from it */
   }
-  .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 9%;
-    --popover-foreground: 0 0% 98%;
-    --primary: 158 64% 52%;
-    --primary-foreground: 155 80% 8%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 160 30% 16%;
-    --accent-foreground: 158 64% 80%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 158 64% 52%;
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
+  .dark,
+  [data-theme="dark"] {
+    /* Legacy (shadcn) names, valued from the Crest design system. HSL triplets so opacity modifiers keep working. */
+    --background: 180 4.8% 4.1%; /* bg */
+    --foreground: 150 18.2% 95.7%; /* ink */
+    --card: 160 7% 8.4%; /* surface */
+    --card-foreground: 150 18.2% 95.7%; /* ink */
+    --popover: 160 9.4% 12.5%; /* surface-raised */
+    --popover-foreground: 150 18.2% 95.7%; /* ink */
+    --primary: 158 64.4% 51.6%; /* brand-text */
+    --primary-foreground: 162 81.8% 8.6%;
+    --secondary: 160 9.1% 6.5%; /* surface-sunken */
+    --secondary-foreground: 150 18.2% 95.7%; /* ink */
+    --muted: 160 9.1% 6.5%; /* surface-sunken */
+    --muted-foreground: 158 6.4% 66.1%; /* ink-muted */
+    --accent: 161 48.3% 11.4%; /* brand-subtle */
+    --accent-foreground: 158 64.4% 51.6%; /* brand-text */
+    --destructive: 3 100% 76.7%; /* neg-text */
+    --destructive-foreground: 180 4.8% 4.1%;
+    --border: 160 6.7% 17.6%; /* border */
+    --input: 160 5.6% 42.4%; /* border-strong */
+    --ring: 212 100% 73.9%; /* focus */
+    --chart-1: 158 64.4% 51.6%; /* chart-1 */
+    --chart-2: 215 100% 70.8%; /* chart-2 */
+    --chart-3: 36 100% 63.9%; /* chart-3 */
+    --chart-4: 266 100% 80.4%; /* chart-4 */
+    --chart-5: 7 100% 71.6%; /* chart-5 */
+    --chart-6: 168 7.5% 61%; /* chart-6 */
+    /* Design system tokens (hex; no opacity modifiers). Prefer these in new code. */
+    --ds-bg: #0a0b0b;
+    --ds-surface: #141716;
+    --ds-surface-raised: #1d2321;
+    --ds-surface-sunken: #0f1211;
+    --ds-border-strong: #66726e;
+    --ds-ink: #f2f6f4;
+    --ds-ink-muted: #a3aeaa;
+    --ds-ink-subtle: #8a9692;
+    --ds-brand: #34d399;
+    --ds-brand-ink: #04281d;
+    --ds-brand-text: #34d399;
+    --ds-brand-subtle: #0f2b22;
+    --ds-pos-bg: #11382b;
+    --ds-pos-ink: #6debba;
+    --ds-pos-text: #4fe0aa;
+    --ds-warn-bg: #3b2b0a;
+    --ds-warn-ink: #ffc25c;
+    --ds-neg-bg: #421618;
+    --ds-neg-ink: #ff9b97;
+    --ds-neg-text: #ff8d88;
+    --ds-zero-bg: #232927;
+    --ds-zero-ink: #b3bdb9;
+    --ds-focus: #7ab8ff;
+    --ds-scrim: #000000b3;
+    --shadow-float: 0 8px 24px 0 rgba(0,0,0,0.55);
+    --shadow-sheet: 0 -8px 32px 0 rgba(0,0,0,0.6);
+  }
+}
+
+@layer utilities {
+  /* Tabular figures for currency so columns of amounts align. */
+  .num {
+    font-variant-numeric: tabular-nums;
   }
 }
 

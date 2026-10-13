@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Geist } from "next/font/google";
+import { Inter } from "next/font/google";
 import { ThemeProvider } from "next-themes";
 import { PrivacyModeProvider } from "@/lib/privacy-mode";
 import { RegisterServiceWorker } from "@/components/register-service-worker";
@@ -30,8 +30,8 @@ export const viewport: Viewport = {
   themeColor: "#0d946e",
 };
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
+  variable: "--font-inter",
   display: "swap",
   subsets: ["latin"],
 });
@@ -43,9 +43,11 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
-      <body className={`${geistSans.className} antialiased`}>
+      <body className={`${inter.variable} font-sans antialiased`}>
         <ThemeProvider
-          attribute="class"
+          // Legacy styles key off the `dark` class, the design system off
+          // `data-theme`; set both so one toggle drives either.
+          attribute={["class", "data-theme"]}
           defaultTheme="system"
           enableSystem
           disableTransitionOnChange
