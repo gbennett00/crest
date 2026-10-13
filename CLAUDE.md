@@ -6,6 +6,14 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 Crest is a zero-based budgeting web app (YNAB-inspired) built with Next.js 15, Supabase (PostgreSQL), and TypeScript. The authoritative design reference is `docs/budgeting-app-architecture.md` — read it before implementing any feature, schema change, calculation, or UI flow.
 
+## Design system migration
+
+The UI is mid-migration to a new design system. For any UI/styling work, read `docs/design-migration.md` first: it explains the token layers, conventions and per-page status. Do not use the legacy shadcn colour names in new code.
+
+## Git authorship
+
+Always author and commit as the repo owner, never as Claude: `Garrett Bennett <46851255+gbennett00@users.noreply.github.com>` (set via `git -c user.name=... -c user.email=...` or `GIT_AUTHOR_*`/`GIT_COMMITTER_*`). Vercel's Hobby plan only deploys commits whose author maps to the owner's account, so commits authored as Claude get no preview deployment. Keep any `Co-Authored-By` trailer; it does not affect this.
+
 ## Commands
 
 ```bash
