@@ -7,7 +7,8 @@
    selector styles dark mode. The shadcn-named variables are compatibility
    aliases for pages not yet migrated to the new tokens. */
 @layer base {
-  :root {
+  :root,
+  [data-theme="light"] {
     /* Legacy (shadcn) names, valued from the Crest design system. HSL triplets so opacity modifiers keep working. */
     --background: 160 14.3% 95.9%; /* bg */
     --foreground: 163 21.2% 6.5%; /* ink */

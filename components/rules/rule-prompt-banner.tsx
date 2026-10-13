@@ -91,7 +91,7 @@ export function RulePromptBanner() {
 
   return (
     <div
-      className="fixed inset-x-0 z-30 px-4 bottom-[calc(4.75rem+env(safe-area-inset-bottom))] md:bottom-4 md:left-auto md:right-4 md:w-[26rem] md:px-0"
+      className="fixed inset-x-0 z-30 px-4 bottom-[calc(7.5rem+env(safe-area-inset-bottom))] md:bottom-4 md:left-auto md:right-4 md:w-[26rem] md:px-0"
       role="status"
     >
       <div className="rounded-lg border bg-background shadow-lg p-3">

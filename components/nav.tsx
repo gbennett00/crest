@@ -6,6 +6,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { BarChart2, Home, Landmark, PieChart, Receipt } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { AddTransaction } from "@/components/add-transaction";
 import { currentBudgetMonth } from "@/lib/ledger";
 import { prefetchHomeView } from "@/lib/queries/home";
 import { prefetchBudgetView } from "@/lib/queries/budget";
@@ -16,7 +17,7 @@ import { prefetchReportsDashboard } from "@/lib/queries/reports";
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
   { href: "/budget", label: "Plan", Icon: BarChart2, exact: false },
-  { href: "/transactions", label: "Transactions", Icon: Receipt, exact: false },
+  { href: "/transactions", label: "Activity", Icon: Receipt, exact: false },
   { href: "/accounts", label: "Accounts", Icon: Landmark, exact: false },
   { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
@@ -44,24 +45,33 @@ export function BottomNav() {
   const pathname = usePathname();
   useEagerPrefetch();
   return (
-    <nav className="fixed bottom-0 inset-x-0 min-h-16 border-t bg-background flex md:hidden z-20 pb-[env(safe-area-inset-bottom)]">
-      {NAV_LINKS.map(({ href, label, Icon, exact }) => {
-        const active = exact ? pathname === href : pathname.startsWith(href);
-        return (
-          <Link
-            key={href}
-            href={href}
-            className={cn(
-              "flex-1 flex flex-col items-center justify-center gap-1 pt-2.5 pb-1.5 text-xs font-medium transition-colors",
-              active ? "text-primary" : "text-muted-foreground",
-            )}
-          >
-            <Icon size={20} />
-            {label}
-          </Link>
-        );
-      })}
-    </nav>
+    <>
+      {/* Floating dock: a five-tab capsule, with the round Add button beside it. */}
+      <nav
+        aria-label="Main"
+        className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-dock-inset right-[76px] z-30 flex h-[72px] gap-0 rounded-ds-xl border bg-surface-raised p-1.5 shadow-float md:hidden"
+      >
+        {NAV_LINKS.map(({ href, label, Icon, exact }) => {
+          const active = exact ? pathname === href : pathname.startsWith(href);
+          return (
+            <Link
+              key={href}
+              href={href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex h-14 min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-ds-lg text-[12px] font-semibold leading-4 transition-colors",
+                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+                active ? "bg-brand-subtle text-brand-text" : "text-ink-muted",
+              )}
+            >
+              <Icon size={24} strokeWidth={active ? 2 : 1.75} />
+              {label}
+            </Link>
+          );
+        })}
+      </nav>
+      <AddTransaction />
+    </>
   );
 }
 

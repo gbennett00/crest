@@ -88,6 +88,46 @@ If you cannot open the artifacts, say so and ask; do not invent a design.
 - Match this repo's conventions (shadcn-style files in `components/ui`, `cn()`,
   co-located tests). Do not copy preview CSS from the design artifacts.
 
+## Components built so far
+
+All are tokens-only (no hex, no shadcn colour names) and shown in both themes
+at `/dev/gallery` (dev only, 404s on Vercel production). Look there before
+building anything similar.
+
+- `ui/button.tsx`: restyled in place, props unchanged. `default` is the brand
+  fill (one per screen/sheet), `secondary`/`outline` the bordered one, `quiet`
+  text-only, `destructive` the red tint. Default is 44px, `size="sm"` is 36px
+  with a 44px tap area.
+- `ui/available-pill.tsx` (+ `lib/available-pill.ts` for the state rule):
+  `<AvailablePill cents={...} />`; pass `state="warn"` for underfunded.
+- `ui/segmented.tsx`: 2-4 options as a track, more as scrolling chips.
+- `ui/sheet.tsx`: the one overlay (Radix Dialog). `tall` for the drawer form,
+  `onBack` for a step; never stack sheets. Cancel + primary go in `footer`.
+- `budget/ready-to-assign-banner.tsx` (+ `lib/ready-to-assign.ts`): Plan banner.
+- `add-transaction.tsx` + the dock in `nav.tsx`: the shell. The round Add
+  button lives here and opens the Add sheet; **pages must not render their own
+  Add button** (the old per-page ones were removed). Its account/category
+  options come from the home view cache (`useHomeView`), which the nav warms.
+
+Not built yet (build with the page that needs it): CategoryRow and the Plan
+table, Keypad restyle, TransactionRow, Review drawer, Home's Ready to Assign
+row, DetailList.
+
+## Gotchas
+
+- `globals.css` bumps `.text-xs`/`.text-sm` on mobile. For a size the design
+  specifies exactly (e.g. the 12px tab label), use a type-scale class or
+  `text-[12px]`, not `text-xs`.
+- The ds colours are hex vars: no `/50` opacity modifiers. For a hover state
+  use `hover:brightness-95` or a different token.
+- Anything fixed to the bottom must clear the dock: use
+  `bottom-[calc(7.5rem+env(safe-area-inset-bottom))]` (see the bulk actions bar
+  and rule prompt banner). Scrolling content gets `pb-tabbar-clearance` from
+  the shell.
+- The dock's tab label is "Activity" (route is still `/transactions`).
+- The Keypad and the selection action bar should replace the dock when open;
+  the Keypad does this by covering it (z-60). Revisit with the Plan PR.
+
 ## How to do a chunk of work
 
 1. Read this file, the design system README, and the card(s) for what you build.
@@ -103,7 +143,7 @@ Order: tokens, shell + primitives (with a dev gallery at `app/dev/gallery`,
 hidden in production), Plan, Home, then the rest in batches.
 
 - [x] Tokens, Inter, type scale, theme attributes
-- [ ] Shell (tab bar dock, Add button, bottom clearance) and primitives
+- [x] Shell (dock, round Add button, bottom clearance) and Button, Pill, Segmented, Sheet, banner, dev gallery
 - [ ] `/budget` (Plan), `/budget/category/[id]`, `/budget/moves`
 - [ ] `/` (Home)
 - [ ] `/transactions`, `/transactions/[id]`
