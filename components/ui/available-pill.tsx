@@ -6,7 +6,7 @@ import { Money } from "@/components/money";
 import { availablePillState, type PillState } from "@/lib/available-pill";
 
 const pillVariants = cva(
-  "num inline-flex min-h-7 items-center gap-1 whitespace-nowrap rounded-pill px-3 py-1 text-pill",
+  "num inline-flex min-h-7 items-center gap-1 whitespace-nowrap rounded-pill px-2.5 py-1 text-pill",
   {
     variants: {
       state: {
