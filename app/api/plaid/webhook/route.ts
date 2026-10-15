@@ -75,19 +75,27 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (itemRow) {
+      let result: Awaited<ReturnType<typeof syncItem>>;
       try {
-        const result = await syncItem(supabase, itemRow as never);
-        if (result.addedCount > 0) {
+        result = await syncItem(supabase, itemRow as never);
+      } catch (e) {
+        console.error(`[plaid webhook] sync failed for item ${body.item_id}`, e);
+        return NextResponse.json({ error: "Sync failed" }, { status: 500 });
+      }
+
+      // The sync already succeeded and saved its cursor; a push failure must not
+      // turn that into a 500 (Plaid would retry the webhook for nothing).
+      if (result.addedCount > 0) {
+        try {
           const planId = (itemRow as { plan_id: string }).plan_id;
           await sendPushToPlan(supabase, planId, {
             title: "New transactions",
             body: `${result.addedCount} new transaction${result.addedCount === 1 ? "" : "s"} to review`,
             url: "/#pending",
           });
+        } catch (e) {
+          console.error(`[plaid webhook] push failed for item ${body.item_id}`, e);
         }
-      } catch (e) {
-        console.error(`[plaid webhook] sync failed for item ${body.item_id}`, e);
-        return NextResponse.json({ error: "Sync failed" }, { status: 500 });
       }
     }
   }

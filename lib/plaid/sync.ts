@@ -36,8 +36,6 @@ type SyncResult = {
   accountsCreated: number;
   /** YNAB-imported rows adopted by a matching Plaid txn instead of duplicated. */
   adoptedCount: number;
-  /** Transactions that threw while being written and were skipped (see logs). */
-  failedCount: number;
 };
 
 /**
@@ -405,34 +403,28 @@ export async function syncItem(
     return true;
   }
 
-  // One bad row must not abort the batch: the cursor is only saved at the end,
-  // so a throw here would replay the same page — and fail on the same row — on
-  // every webhook, stalling the whole Item. Failures are logged and skipped.
-  let failedCount = 0;
-  function logFailure(kind: string, plaidTransactionId: string, e: unknown) {
-    failedCount++;
-    console.error(
-      `[plaid sync] ${kind} failed for item ${item.plaid_item_id}, transaction ${plaidTransactionId}`,
-      e,
-    );
+  // One bad row must not stop the rest of the batch from being written, but it
+  // also must not be skipped past: Plaid never resends rows behind a saved
+  // cursor, so advancing it would silently drop (or leave stale) the failed
+  // transactions. Failures are collected, the cursor is held back below, and the
+  // sync throws once everything else is done so the batch is retried and the
+  // failure is surfaced (webhook 500 / manual sync error) instead of swallowed.
+  const failures: { kind: string; plaidTransactionId: string; error: unknown }[] = [];
+
+  async function writeAll(kind: string, txns: Transaction[]): Promise<number> {
+    let written = 0;
+    for (const txn of txns) {
+      try {
+        if (await writeTxn(txn)) written++;
+      } catch (error) {
+        failures.push({ kind, plaidTransactionId: txn.transaction_id, error });
+      }
+    }
+    return written;
   }
 
-  let writtenAddedCount = 0;
-  for (const txn of allAdded) {
-    try {
-      if (await writeTxn(txn)) writtenAddedCount++;
-    } catch (e) {
-      logFailure("added", txn.transaction_id, e);
-    }
-  }
-  let writtenModifiedCount = 0;
-  for (const txn of allModified) {
-    try {
-      if (await writeTxn(txn)) writtenModifiedCount++;
-    } catch (e) {
-      logFailure("modified", txn.transaction_id, e);
-    }
-  }
+  const writtenAddedCount = await writeAll("added", allAdded);
+  const writtenModifiedCount = await writeAll("modified", allModified);
 
   for (const removed of allRemoved) {
     if (!removed.transaction_id) continue;
@@ -445,8 +437,8 @@ export async function syncItem(
       if (row) {
         await deleteTransaction(client, row.id as string);
       }
-    } catch (e) {
-      logFailure("removed", removed.transaction_id, e);
+    } catch (error) {
+      failures.push({ kind: "removed", plaidTransactionId: removed.transaction_id, error });
     }
   }
 
@@ -469,13 +461,30 @@ export async function syncItem(
     await syncBankClearedBalance(client, crestAccountId, balanceCents);
   }
 
-  await client
+  if (failures.length > 0) {
+    for (const f of failures) {
+      console.error(
+        `[plaid sync] ${f.kind} failed for item ${item.plaid_item_id}, transaction ${f.plaidTransactionId}`,
+        f.error,
+      );
+    }
+    // Cursor deliberately not saved: the next sync re-fetches this page.
+    const first = failures[0].error;
+    throw new Error(
+      `${failures.length} transaction(s) failed to sync for item ${item.plaid_item_id}; cursor not advanced: ${
+        first instanceof Error ? first.message : String(first)
+      }`,
+    );
+  }
+
+  const { error: cursorError } = await client
     .from("plaid_items")
     .update({
       transactions_cursor: cursor,
       updated_at: new Date().toISOString(),
     })
     .eq("id", item.id);
+  if (cursorError) throw new Error(cursorError.message);
 
   return {
     addedCount: writtenAddedCount,
@@ -483,6 +492,5 @@ export async function syncItem(
     removedCount: allRemoved.length,
     accountsCreated,
     adoptedCount,
-    failedCount,
   };
 }
