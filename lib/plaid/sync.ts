@@ -36,6 +36,8 @@ type SyncResult = {
   accountsCreated: number;
   /** YNAB-imported rows adopted by a matching Plaid txn instead of duplicated. */
   adoptedCount: number;
+  /** Transactions that threw while being written and were skipped (see logs). */
+  failedCount: number;
 };
 
 /**
@@ -403,24 +405,48 @@ export async function syncItem(
     return true;
   }
 
+  // One bad row must not abort the batch: the cursor is only saved at the end,
+  // so a throw here would replay the same page — and fail on the same row — on
+  // every webhook, stalling the whole Item. Failures are logged and skipped.
+  let failedCount = 0;
+  function logFailure(kind: string, plaidTransactionId: string, e: unknown) {
+    failedCount++;
+    console.error(
+      `[plaid sync] ${kind} failed for item ${item.plaid_item_id}, transaction ${plaidTransactionId}`,
+      e,
+    );
+  }
+
   let writtenAddedCount = 0;
   for (const txn of allAdded) {
-    if (await writeTxn(txn)) writtenAddedCount++;
+    try {
+      if (await writeTxn(txn)) writtenAddedCount++;
+    } catch (e) {
+      logFailure("added", txn.transaction_id, e);
+    }
   }
   let writtenModifiedCount = 0;
   for (const txn of allModified) {
-    if (await writeTxn(txn)) writtenModifiedCount++;
+    try {
+      if (await writeTxn(txn)) writtenModifiedCount++;
+    } catch (e) {
+      logFailure("modified", txn.transaction_id, e);
+    }
   }
 
   for (const removed of allRemoved) {
     if (!removed.transaction_id) continue;
-    const { data: row } = await client
-      .from("transactions")
-      .select("id")
-      .eq("imported_id", removed.transaction_id)
-      .maybeSingle();
-    if (row) {
-      await deleteTransaction(client, row.id as string);
+    try {
+      const { data: row } = await client
+        .from("transactions")
+        .select("id")
+        .eq("imported_id", removed.transaction_id)
+        .maybeSingle();
+      if (row) {
+        await deleteTransaction(client, row.id as string);
+      }
+    } catch (e) {
+      logFailure("removed", removed.transaction_id, e);
     }
   }
 
@@ -457,5 +483,6 @@ export async function syncItem(
     removedCount: allRemoved.length,
     accountsCreated,
     adoptedCount,
+    failedCount,
   };
 }

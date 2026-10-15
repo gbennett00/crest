@@ -75,14 +75,19 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (itemRow) {
-      const result = await syncItem(supabase, itemRow as never);
-      if (result.addedCount > 0) {
-        const planId = (itemRow as { plan_id: string }).plan_id;
-        await sendPushToPlan(supabase, planId, {
-          title: "New transactions",
-          body: `${result.addedCount} new transaction${result.addedCount === 1 ? "" : "s"} to review`,
-          url: "/#pending",
-        });
+      try {
+        const result = await syncItem(supabase, itemRow as never);
+        if (result.addedCount > 0) {
+          const planId = (itemRow as { plan_id: string }).plan_id;
+          await sendPushToPlan(supabase, planId, {
+            title: "New transactions",
+            body: `${result.addedCount} new transaction${result.addedCount === 1 ? "" : "s"} to review`,
+            url: "/#pending",
+          });
+        }
+      } catch (e) {
+        console.error(`[plaid webhook] sync failed for item ${body.item_id}`, e);
+        return NextResponse.json({ error: "Sync failed" }, { status: 500 });
       }
     }
   }

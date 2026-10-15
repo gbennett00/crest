@@ -425,6 +425,70 @@ describe("updateTransaction — conditional split enforcement", () => {
   });
 });
 
+// Each Supabase call is its own DB transaction, so the order matters: clearing
+// the splits of a still-approved row commits an approved row with mismatched
+// splits and trips the deferred split-sum trigger (Plaid pending→posted sync).
+describe("updateTransaction — write order when un-approving with allocation changes", () => {
+  function makeOrderMock(row: TransactionRow) {
+    const calls: string[] = [];
+    const proxy: Record<string, unknown> = new Proxy(
+      {} as Record<string, unknown>,
+      {
+        get(_, prop) {
+          if (prop === "single") return vi.fn().mockResolvedValue({ data: row, error: null });
+          if (prop === "update")
+            return (arg: Record<string, unknown>) => {
+              calls.push(`update:${JSON.stringify(arg)}`);
+              return proxy;
+            };
+          return () => proxy;
+        },
+      },
+    );
+    const client = {
+      from: vi.fn(() => proxy),
+      rpc: vi.fn((name: string) => {
+        calls.push(`rpc:${name}`);
+        return Promise.resolve({ error: null });
+      }),
+    } as unknown as SupabaseClient;
+    return { client, calls };
+  }
+
+  it("un-approves the row before clearing allocations when the amount changes", async () => {
+    const { client, calls } = makeOrderMock(txnRow({ approved_at: APPROVED_AT }));
+
+    await updateTransaction(client, {
+      id: "txn-1",
+      amountCents: -5126,
+      approvedAt: null,
+      allocations: [],
+    });
+
+    const updateIdx = calls.findIndex((c) => c.startsWith("update:"));
+    const rpcIdx = calls.findIndex((c) => c === "rpc:ledger_replace_allocations");
+    expect(updateIdx).toBeGreaterThanOrEqual(0);
+    expect(rpcIdx).toBeGreaterThan(updateIdx);
+    expect(calls[updateIdx]).toContain('"approved_at":null');
+    expect(calls[updateIdx]).toContain('"amount_cents":-5126');
+  });
+
+  it("keeps replacing allocations first when approving", async () => {
+    const { client, calls } = makeOrderMock(txnRow({ approved_at: null }));
+
+    await updateTransaction(client, {
+      id: "txn-1",
+      approvedAt: APPROVED_AT,
+      allocations: ALLOCS_OK,
+    });
+
+    const updateIdx = calls.findIndex((c) => c.startsWith("update:"));
+    const rpcIdx = calls.findIndex((c) => c === "rpc:ledger_replace_allocations");
+    expect(rpcIdx).toBeGreaterThanOrEqual(0);
+    expect(rpcIdx).toBeLessThan(updateIdx);
+  });
+});
+
 // ---------------------------------------------------------------------------
 // deleteTransactionWithCounterpart — transfer-aware delete
 // ---------------------------------------------------------------------------
