@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
+import { usePortalTarget } from "@/components/ui/overlay-container";
 
 type ModalProps = {
   open: boolean;
@@ -22,6 +23,7 @@ type ModalProps = {
  */
 export function Modal({ open, onClose, title, children, className }: ModalProps) {
   const [mounted, setMounted] = React.useState(false);
+  const portalTarget = usePortalTarget();
   React.useEffect(() => setMounted(true), []);
 
   React.useEffect(() => {
@@ -42,7 +44,7 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
     };
   }, [open, onClose]);
 
-  if (!mounted || !open) return null;
+  if (!mounted || !open || !portalTarget) return null;
 
   return createPortal(
     <div
@@ -78,6 +80,6 @@ export function Modal({ open, onClose, title, children, className }: ModalProps)
         {children}
       </div>
     </div>,
-    document.body,
+    portalTarget,
   );
 }

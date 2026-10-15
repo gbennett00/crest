@@ -127,6 +127,12 @@ row, DetailList.
   `bottom-[calc(var(--dock-bottom)+6.25rem)]` (see the bulk actions bar and
   rule prompt banner). Scrolling content gets its bottom padding from
   the shell.
+- A Sheet is a modal Radix Dialog: anything portalled to `document.body` while
+  it is open is inert (no taps, no focus, no scroll). Any overlay that can be
+  opened from inside a Sheet must portal to `usePortalTarget()`
+  (`ui/overlay-container.tsx`), not `document.body`. `CategoryPicker`,
+  `MoneyKeypad` and `Modal` already do. `/dev/gallery` has a "With category
+  picker" sheet to re-check this.
 - The dock's tab label is "Activity" (route is still `/transactions`).
 - The Keypad and the selection action bar should replace the dock when open;
   the Keypad does this by covering it (z-60). Revisit with the Plan PR.

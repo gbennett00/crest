@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Check, ChevronsUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { usePortalTarget } from "@/components/ui/overlay-container";
 import type { CategoryOption } from "./transaction-form";
 
 /**
@@ -38,6 +39,7 @@ export function CategoryPicker({
   const [query, setQuery] = useState("");
   const [mounted, setMounted] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
+  const portalTarget = usePortalTarget();
 
   useEffect(() => setMounted(true), []);
 
@@ -113,6 +115,7 @@ export function CategoryPicker({
 
       {mounted &&
         open &&
+        portalTarget &&
         createPortal(
           <div
             className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
@@ -200,7 +203,7 @@ export function CategoryPicker({
               </div>
             </div>
           </div>,
-          document.body,
+          portalTarget,
         )}
     </>
   );

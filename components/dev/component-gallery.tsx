@@ -9,8 +9,16 @@ import { AvailablePill } from "@/components/ui/available-pill";
 import { Segmented } from "@/components/ui/segmented";
 import { Sheet } from "@/components/ui/sheet";
 import { ReadyToAssignBanner } from "@/components/budget/ready-to-assign-banner";
+import { CategoryPicker } from "@/components/transactions/category-picker";
+import { CurrencyInput } from "@/components/ui/currency-input";
 
 const THEMES = ["light", "dark"] as const;
+
+const FAKE_CATEGORIES = Array.from({ length: 40 }, (_, i) => ({
+  id: `c${i}`,
+  name: `Category ${i + 1}`,
+  groupName: i < 20 ? "Needs" : "Wants",
+}));
 
 /** Re-themes its subtree: the token variables are keyed on these attributes. */
 function ThemePanel({ theme, children }: { theme: (typeof THEMES)[number]; children: React.ReactNode }) {
@@ -43,7 +51,9 @@ function Section({ title, children }: { title: string; children: (theme: (typeof
 export function ComponentGallery() {
   const [direction, setDirection] = useState("out");
   const [range, setRange] = useState("month");
-  const [sheet, setSheet] = useState<"short" | "tall" | "step" | null>(null);
+  const [sheet, setSheet] = useState<"short" | "tall" | "step" | "portals" | null>(null);
+  const [pickedCategory, setPickedCategory] = useState("");
+  const [amountCents, setAmountCents] = useState(0);
   const [step, setStep] = useState(0);
 
   return (
@@ -135,6 +145,7 @@ export function ComponentGallery() {
           <Button variant="secondary" onClick={() => setSheet("short")}>Short form</Button>
           <Button variant="secondary" onClick={() => setSheet("tall")}>Drawer (tall)</Button>
           <Button variant="secondary" onClick={() => { setStep(0); setSheet("step"); }}>Step with back</Button>
+          <Button variant="secondary" onClick={() => setSheet("portals")}>With category picker</Button>
         </div>
       </section>
 
@@ -171,6 +182,24 @@ export function ComponentGallery() {
             </li>
           ))}
         </ul>
+      </Sheet>
+
+      {/* Regression check: hand-rolled portals (category picker, money keypad)
+          opened from inside a Sheet must stay scrollable, typeable and tappable. */}
+      <Sheet
+        open={sheet === "portals"}
+        onOpenChange={(o) => !o && setSheet(null)}
+        title="Portals inside a sheet"
+      >
+        <div className="space-y-4">
+          <CategoryPicker
+            id="gallery-category"
+            categories={FAKE_CATEGORIES}
+            value={pickedCategory}
+            onChange={setPickedCategory}
+          />
+          <CurrencyInput aria-label="Amount" cents={amountCents} onCentsChange={setAmountCents} />
+        </div>
       </Sheet>
 
       <Sheet
