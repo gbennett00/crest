@@ -517,10 +517,8 @@ export async function updateTransaction(
     input.amountCents !== undefined &&
     input.amountCents !== current.amount_cents;
 
-  // Replace allocations BEFORE updating the transaction row so all triggers see
-  // a consistent final state (allocations already match the new amount/approval
-  // by the time approved_at or amount_cents is committed).
-  if (input.allocations !== undefined) {
+  const applyAllocations = async () => {
+    if (input.allocations === undefined) return;
     if (amountIsChanging && input.allocations.length > 0) {
       await updateAmountAndAllocations(
         client,
@@ -531,6 +529,20 @@ export async function updateTransaction(
     } else {
       await replaceAllocations(client, input.id, input.allocations);
     }
+  };
+
+  // Un-approving an approved row while swapping its allocations (e.g. a Plaid
+  // pending→posted amount change clearing the splits) must write the row first:
+  // each call is its own DB transaction, so replacing allocations while the row
+  // is still approved would commit an approved row with mismatched splits and
+  // trip the deferred split-sum trigger. Once approved_at is null the triggers
+  // no longer check the sum. In every other case allocations go first so they
+  // already match the new amount/approval when the row is committed.
+  const unapproveFirst =
+    isUnApproving && current.approved_at !== null && input.allocations !== undefined;
+
+  if (!unapproveFirst) {
+    await applyAllocations();
   }
 
   const patch: Record<string, unknown> = {};
@@ -568,6 +580,10 @@ export async function updateTransaction(
 
   if (updateError) {
     throw toLedgerError(updateError);
+  }
+
+  if (unapproveFirst) {
+    await applyAllocations();
   }
 
   return mapTransactionRow(updated as TransactionRow);

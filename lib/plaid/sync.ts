@@ -403,24 +403,42 @@ export async function syncItem(
     return true;
   }
 
-  let writtenAddedCount = 0;
-  for (const txn of allAdded) {
-    if (await writeTxn(txn)) writtenAddedCount++;
+  // One bad row must not stop the rest of the batch from being written, but it
+  // also must not be skipped past: Plaid never resends rows behind a saved
+  // cursor, so advancing it would silently drop (or leave stale) the failed
+  // transactions. Failures are collected, the cursor is held back below, and the
+  // sync throws once everything else is done so the batch is retried and the
+  // failure is surfaced (webhook 500 / manual sync error) instead of swallowed.
+  const failures: { kind: string; plaidTransactionId: string; error: unknown }[] = [];
+
+  async function writeAll(kind: string, txns: Transaction[]): Promise<number> {
+    let written = 0;
+    for (const txn of txns) {
+      try {
+        if (await writeTxn(txn)) written++;
+      } catch (error) {
+        failures.push({ kind, plaidTransactionId: txn.transaction_id, error });
+      }
+    }
+    return written;
   }
-  let writtenModifiedCount = 0;
-  for (const txn of allModified) {
-    if (await writeTxn(txn)) writtenModifiedCount++;
-  }
+
+  const writtenAddedCount = await writeAll("added", allAdded);
+  const writtenModifiedCount = await writeAll("modified", allModified);
 
   for (const removed of allRemoved) {
     if (!removed.transaction_id) continue;
-    const { data: row } = await client
-      .from("transactions")
-      .select("id")
-      .eq("imported_id", removed.transaction_id)
-      .maybeSingle();
-    if (row) {
-      await deleteTransaction(client, row.id as string);
+    try {
+      const { data: row } = await client
+        .from("transactions")
+        .select("id")
+        .eq("imported_id", removed.transaction_id)
+        .maybeSingle();
+      if (row) {
+        await deleteTransaction(client, row.id as string);
+      }
+    } catch (error) {
+      failures.push({ kind: "removed", plaidTransactionId: removed.transaction_id, error });
     }
   }
 
@@ -443,13 +461,30 @@ export async function syncItem(
     await syncBankClearedBalance(client, crestAccountId, balanceCents);
   }
 
-  await client
+  if (failures.length > 0) {
+    for (const f of failures) {
+      console.error(
+        `[plaid sync] ${f.kind} failed for item ${item.plaid_item_id}, transaction ${f.plaidTransactionId}`,
+        f.error,
+      );
+    }
+    // Cursor deliberately not saved: the next sync re-fetches this page.
+    const first = failures[0].error;
+    throw new Error(
+      `${failures.length} transaction(s) failed to sync for item ${item.plaid_item_id}; cursor not advanced: ${
+        first instanceof Error ? first.message : String(first)
+      }`,
+    );
+  }
+
+  const { error: cursorError } = await client
     .from("plaid_items")
     .update({
       transactions_cursor: cursor,
       updated_at: new Date().toISOString(),
     })
     .eq("id", item.id);
+  if (cursorError) throw new Error(cursorError.message);
 
   return {
     addedCount: writtenAddedCount,
