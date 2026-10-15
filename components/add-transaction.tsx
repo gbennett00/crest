@@ -31,7 +31,7 @@ export function AddTransaction() {
         disabled={!data}
         aria-label="Add transaction"
         className={cn(
-          "fixed right-dock-inset bottom-[calc(1.5rem+env(safe-area-inset-bottom))] z-30 md:right-6",
+          "fixed right-dock-inset bottom-[calc(var(--dock-bottom)+0.5rem)] z-30 md:right-6 md:bottom-6",
           "flex size-14 items-center justify-center rounded-pill bg-brand text-brand-ink shadow-float transition-[filter] hover:brightness-95 disabled:opacity-40",
           "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 focus-visible:ring-offset-background",
         )}

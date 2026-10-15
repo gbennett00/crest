@@ -49,7 +49,7 @@ export function BottomNav() {
       {/* Floating dock: a five-tab capsule, with the round Add button beside it. */}
       <nav
         aria-label="Main"
-        className="fixed bottom-[calc(1.5rem+env(safe-area-inset-bottom))] left-dock-inset right-[76px] z-30 flex h-[72px] gap-0 rounded-ds-xl border bg-surface-raised p-1.5 shadow-float md:hidden"
+        className="fixed bottom-[var(--dock-bottom)] left-dock-inset right-[76px] z-30 flex h-[72px] gap-0 rounded-ds-xl border bg-surface-raised p-1.5 shadow-float md:hidden"
       >
         {NAV_LINKS.map(({ href, label, Icon, exact }) => {
           const active = exact ? pathname === href : pathname.startsWith(href);

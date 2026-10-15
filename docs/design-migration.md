@@ -65,7 +65,7 @@ If you cannot open the artifacts, say so and ask; do not invent a design.
 4. **Radii**: `rounded-ds-sm|md|lg|xl` and `rounded-pill`. Prefixed because
    Tailwind's own `sm`..`xl` are used across unmigrated pages; do not override
    those keys.
-5. **Spacing/shadow**: `h-tap`, `pb-tabbar-clearance`, `h-row-dense`,
+5. **Spacing/shadow**: `h-tap`, `h-row-dense`,
    `h-row-list`, `shadow-float`, `shadow-sheet`. The `space-N` tokens are
    Tailwind's own `1,2,3,4,5,6,8` steps.
 
@@ -82,8 +82,11 @@ If you cannot open the artifacts, say so and ask; do not invent a design.
   the one exception. Negatives use a true minus (`-$46.63`) and never rely on
   colour alone.
 - **One overlay pattern: the Sheet** (tall lists use the drawer form).
-- **Bottom dock**: scrolling screens reserve `pb-tabbar-clearance` (112px).
-  The shell owns this, so pages do not add their own.
+- **Bottom dock**: floats `--dock-bottom` above the bottom edge (about 22px on
+  an iPhone, tucked just above the home indicator; 12px elsewhere). The shell
+  reserves clearance for it, so pages do not add their own. The round Add
+  button is vertically centred on the capsule (a deliberate change from the
+  design's bottom-aligned spec).
 - Tappable targets are at least 44px (`h-tap`/`min-h-tap`).
 - Match this repo's conventions (shadcn-style files in `components/ui`, `cn()`,
   co-located tests). Do not copy preview CSS from the design artifacts.
@@ -121,8 +124,8 @@ row, DetailList.
 - The ds colours are hex vars: no `/50` opacity modifiers. For a hover state
   use `hover:brightness-95` or a different token.
 - Anything fixed to the bottom must clear the dock: use
-  `bottom-[calc(7.5rem+env(safe-area-inset-bottom))]` (see the bulk actions bar
-  and rule prompt banner). Scrolling content gets `pb-tabbar-clearance` from
+  `bottom-[calc(var(--dock-bottom)+6.25rem)]` (see the bulk actions bar and
+  rule prompt banner). Scrolling content gets its bottom padding from
   the shell.
 - The dock's tab label is "Activity" (route is still `/transactions`).
 - The Keypad and the selection action bar should replace the dock when open;
