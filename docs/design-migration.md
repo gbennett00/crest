@@ -65,7 +65,7 @@ If you cannot open the artifacts, say so and ask; do not invent a design.
 4. **Radii**: `rounded-ds-sm|md|lg|xl` and `rounded-pill`. Prefixed because
    Tailwind's own `sm`..`xl` are used across unmigrated pages; do not override
    those keys.
-5. **Spacing/shadow**: `h-tap`, `pb-tabbar-clearance`, `h-row-dense`,
+5. **Spacing/shadow**: `h-tap`, `h-row-dense`,
    `h-row-list`, `shadow-float`, `shadow-sheet`. The `space-N` tokens are
    Tailwind's own `1,2,3,4,5,6,8` steps.
 
@@ -82,11 +82,60 @@ If you cannot open the artifacts, say so and ask; do not invent a design.
   the one exception. Negatives use a true minus (`-$46.63`) and never rely on
   colour alone.
 - **One overlay pattern: the Sheet** (tall lists use the drawer form).
-- **Bottom dock**: scrolling screens reserve `pb-tabbar-clearance` (112px).
-  The shell owns this, so pages do not add their own.
+- **Bottom dock**: floats `--dock-bottom` above the bottom edge (about 22px on
+  an iPhone, tucked just above the home indicator; 12px elsewhere). The shell
+  reserves clearance for it, so pages do not add their own. The round Add
+  button is vertically centred on the capsule (a deliberate change from the
+  design's bottom-aligned spec).
 - Tappable targets are at least 44px (`h-tap`/`min-h-tap`).
 - Match this repo's conventions (shadcn-style files in `components/ui`, `cn()`,
   co-located tests). Do not copy preview CSS from the design artifacts.
+
+## Components built so far
+
+All are tokens-only (no hex, no shadcn colour names) and shown in both themes
+at `/dev/gallery` (dev only, 404s on Vercel production). Look there before
+building anything similar.
+
+- `ui/button.tsx`: restyled in place, props unchanged. `default` is the brand
+  fill (one per screen/sheet), `secondary`/`outline` the bordered one, `quiet`
+  text-only, `destructive` the red tint. Default is 44px, `size="sm"` is 36px
+  with a 44px tap area.
+- `ui/available-pill.tsx` (+ `lib/available-pill.ts` for the state rule):
+  `<AvailablePill cents={...} />`; pass `state="warn"` for underfunded.
+- `ui/segmented.tsx`: 2-4 options as a track, more as scrolling chips.
+- `ui/sheet.tsx`: the one overlay (Radix Dialog). `tall` for the drawer form,
+  `onBack` for a step; never stack sheets. Cancel + primary go in `footer`.
+- `budget/ready-to-assign-banner.tsx` (+ `lib/ready-to-assign.ts`): Plan banner.
+- `add-transaction.tsx` + the dock in `nav.tsx`: the shell. The round Add
+  button lives here and opens the Add sheet; **pages must not render their own
+  Add button** (the old per-page ones were removed). Its account/category
+  options come from the home view cache (`useHomeView`), which the nav warms.
+
+Not built yet (build with the page that needs it): CategoryRow and the Plan
+table, Keypad restyle, TransactionRow, Review drawer, Home's Ready to Assign
+row, DetailList.
+
+## Gotchas
+
+- `globals.css` bumps `.text-xs`/`.text-sm` on mobile. For a size the design
+  specifies exactly (e.g. the 12px tab label), use a type-scale class or
+  `text-[12px]`, not `text-xs`.
+- The ds colours are hex vars: no `/50` opacity modifiers. For a hover state
+  use `hover:brightness-95` or a different token.
+- Anything fixed to the bottom must clear the dock: use
+  `bottom-[calc(var(--dock-bottom)+6.25rem)]` (see the bulk actions bar and
+  rule prompt banner). Scrolling content gets its bottom padding from
+  the shell.
+- A Sheet is a modal Radix Dialog: anything portalled to `document.body` while
+  it is open is inert (no taps, no focus, no scroll). Any overlay that can be
+  opened from inside a Sheet must portal to `usePortalTarget()`
+  (`ui/overlay-container.tsx`), not `document.body`. `CategoryPicker`,
+  `MoneyKeypad` and `Modal` already do. `/dev/gallery` has a "With category
+  picker" sheet to re-check this.
+- The dock's tab label is "Activity" (route is still `/transactions`).
+- The Keypad and the selection action bar should replace the dock when open;
+  the Keypad does this by covering it (z-60). Revisit with the Plan PR.
 
 ## How to do a chunk of work
 
@@ -103,7 +152,7 @@ Order: tokens, shell + primitives (with a dev gallery at `app/dev/gallery`,
 hidden in production), Plan, Home, then the rest in batches.
 
 - [x] Tokens, Inter, type scale, theme attributes
-- [ ] Shell (tab bar dock, Add button, bottom clearance) and primitives
+- [x] Shell (dock, round Add button, bottom clearance) and Button, Pill, Segmented, Sheet, banner, dev gallery
 - [ ] `/budget` (Plan), `/budget/category/[id]`, `/budget/moves`
 - [ ] `/` (Home)
 - [ ] `/transactions`, `/transactions/[id]`

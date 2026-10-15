@@ -3,7 +3,6 @@
 import Link from "next/link";
 import { Money } from "@/components/money";
 import { PendingApprovalList } from "@/components/home/pending-approval-list";
-import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { HomeAssignButton } from "@/components/home/home-assign-button";
 import { PinManager } from "@/components/home/pin-manager";
 import { OverspentSection } from "@/components/home/overspent-section";
@@ -173,9 +172,6 @@ function HomeContent() {
           </p>
         )}
       </div>
-
-      {/* Floating Add Transaction button */}
-      <HomeAddTransaction accounts={accounts} categories={categories} />
     </div>
   );
 }

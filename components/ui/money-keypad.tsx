@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { Delete, Minus, Plus, Equal, CircleX } from "lucide-react";
 import type { AssignmentKey } from "@/lib/currency-input";
 import { cn } from "@/lib/utils";
+import { usePortalTarget } from "@/components/ui/overlay-container";
 
 /** Marks the keypad so outside-tap handlers can tell it apart from the page. */
 export const MONEY_KEYPAD_ATTR = "data-money-keypad";
@@ -88,6 +89,7 @@ export function MoneyKeypad({
 
   const operator = "text-primary";
   const blank = <span aria-hidden />;
+  const portalTarget = usePortalTarget();
   const showSign = operators !== "none";
   const showEquals = operators === "full";
 
@@ -121,6 +123,6 @@ export function MoneyKeypad({
         Done
       </button>
     </div>,
-    document.body,
+    portalTarget ?? document.body,
   );
 }

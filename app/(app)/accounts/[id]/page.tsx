@@ -4,7 +4,6 @@ import { Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { AccountDetailHeader } from "@/components/accounts/account-detail-header";
 import { AccountBalanceSummary } from "@/components/accounts/account-balance-summary";
-import { AccountAddTransaction } from "@/components/accounts/account-add-transaction";
 import { RegisterTransactionList } from "@/components/accounts/register-transaction-list";
 import { useAccountRegister } from "@/lib/queries/accounts";
 import { useHasMounted } from "@/lib/use-has-mounted";
@@ -84,12 +83,6 @@ function RegisterContent() {
           accounts={response.accountOptions}
         />
       )}
-
-      <AccountAddTransaction
-        accountId={id}
-        accounts={response.accountOptions}
-        categories={response.categoryOptions}
-      />
     </div>
   );
 }

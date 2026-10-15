@@ -34,7 +34,6 @@ import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { LoadError } from "@/components/load-error";
-import { HomeAddTransaction } from "@/components/home/home-add-transaction";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type {
   BudgetCategory,
@@ -189,7 +188,7 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
     return <BudgetSkeleton />;
   }
 
-  const { data, accounts, categories } = response;
+  const { data } = response;
 
   const displayGroups = data.groups.filter(
     (g) =>
@@ -351,8 +350,6 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
           )}
         </>
       )}
-
-      <HomeAddTransaction accounts={accounts} categories={categories} />
     </div>
   );
 }

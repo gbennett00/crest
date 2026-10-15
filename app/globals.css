@@ -7,7 +7,8 @@
    selector styles dark mode. The shadcn-named variables are compatibility
    aliases for pages not yet migrated to the new tokens. */
 @layer base {
-  :root {
+  :root,
+  [data-theme="light"] {
     /* Legacy (shadcn) names, valued from the Crest design system. HSL triplets so opacity modifiers keep working. */
     --background: 160 14.3% 95.9%; /* bg */
     --foreground: 163 21.2% 6.5%; /* ink */
@@ -62,6 +63,10 @@
     --shadow-float: 0 8px 24px 0 rgba(13,20,18,0.14);
     --shadow-sheet: 0 -8px 32px 0 rgba(13,20,18,0.16);
     --radius: 0.875rem; /* radius-md; Tailwind lg/md/sm derive from it */
+    /* Gap between the floating dock and the bottom edge: tucked just above the
+       iOS home indicator rather than a full safe-area inset above it. Dock,
+       Add button and every bottom-anchored element position from this. */
+    --dock-bottom: max(0.75rem, calc(env(safe-area-inset-bottom) - 0.75rem));
   }
   .dark,
   [data-theme="dark"] {

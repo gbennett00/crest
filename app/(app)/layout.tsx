@@ -21,14 +21,14 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Suspense fallback={<div className="hidden md:block w-48 border-r" />}>
             <Sidebar />
           </Suspense>
-          <main className="flex-1 min-w-0 overflow-auto overscroll-none pb-[calc(5rem+env(safe-area-inset-bottom))] md:pb-0">
+          <main className="flex-1 min-w-0 overflow-auto overscroll-none pb-[calc(var(--dock-bottom)+5.5rem)] md:pb-0">
             {children}
           </main>
         </div>
 
         <Suspense
           fallback={
-            <nav className="fixed bottom-0 inset-x-0 min-h-16 border-t bg-background md:hidden pb-[env(safe-area-inset-bottom)]" />
+            <nav className="fixed bottom-[var(--dock-bottom)] left-dock-inset right-[76px] z-30 h-[72px] rounded-ds-xl border bg-surface-raised shadow-float md:hidden" />
           }
         >
           <BottomNav />
