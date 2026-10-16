@@ -142,6 +142,10 @@ export function CategoryPicker({
                 <Search size={14} className="text-muted-foreground shrink-0" />
                 <input
                   ref={searchRef}
+                  // Focus on mount, synchronously inside the tap that opened the
+                  // picker — mobile browsers only raise the keyboard for that;
+                  // the delayed focus() in the effect is just a fallback.
+                  autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search categories…"
