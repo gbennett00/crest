@@ -21,7 +21,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
           <Suspense fallback={<div className="hidden md:block w-48 border-r" />}>
             <Sidebar />
           </Suspense>
-          <main className="flex-1 min-w-0 overflow-auto overscroll-none pb-[calc(var(--dock-bottom)+5.5rem)] md:pb-0">
+          <main className="flex-1 min-w-0 overflow-auto overscroll-none pb-[calc(var(--dock-bottom)+5.5rem)] md:pb-24">
             {children}
           </main>
         </div>

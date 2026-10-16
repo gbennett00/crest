@@ -91,7 +91,7 @@ export function MonthPicker({
     <div ref={containerRef} className="relative">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex items-center gap-1 px-2 py-1 rounded font-semibold text-sm hover:bg-accent transition-colors"
+        className="flex h-tap items-center gap-1 rounded-ds-md px-2 text-title transition-colors hover:bg-accent"
         aria-haspopup="dialog"
         aria-expanded={open}
       >

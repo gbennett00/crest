@@ -2,7 +2,12 @@
 
 import * as React from "react";
 import { CurrencyInput } from "@/components/ui/currency-input";
-import { MONEY_KEYPAD_ATTR, MoneyKeypad, useCoarsePointer } from "@/components/ui/money-keypad";
+import {
+  MONEY_KEYPAD_ATTR,
+  MoneyKeypad,
+  useCoarsePointer,
+  type KeypadQuickAction,
+} from "@/components/ui/money-keypad";
 import {
   type AssignmentKey,
   formatCentsInput,
@@ -27,6 +32,8 @@ export interface AssignmentAmountEditorProps {
   /** Shows a "$" before the digits — assign-popup/cover-overspending's rows
    * have one, assigned-input's plain table cell doesn't. */
   showDollarSign?: boolean;
+  /** Chips above the touch keypad. Choosing one first commits the edit. */
+  quickActions?: KeypadQuickAction[];
 }
 
 const flushInputClass =
@@ -62,6 +69,7 @@ export function AssignmentAmountEditor({
   formatCents,
   className,
   showDollarSign = false,
+  quickActions,
 }: AssignmentAmountEditorProps) {
   const [state, setState] = React.useState(() => initialAssignmentEditState(original));
   const useKeypad = useCoarsePointer();
@@ -146,6 +154,13 @@ export function AssignmentAmountEditor({
       onKey={(key) => setState((s) => pressAssignmentKey(s, key))}
       onDone={commit}
       anchorRef={rootRef}
+      quickActions={quickActions?.map((action) => ({
+        ...action,
+        onSelect: () => {
+          commit();
+          action.onSelect();
+        },
+      }))}
     />
   ) : null;
 
