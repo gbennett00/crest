@@ -5,6 +5,7 @@ import { AssignmentAmountEditor } from "@/components/ui/assignment-amount-input"
 import type { KeypadQuickAction } from "@/components/ui/money-keypad";
 import { useFormattedCents } from "@/components/money";
 import { cn } from "@/lib/utils";
+import { amountFontSize } from "@/lib/amount-size";
 
 interface AssignedInputProps {
   value: number;
@@ -59,6 +60,7 @@ export function AssignedInput({
     <button
       type="button"
       onClick={() => setEditing(true)}
+      style={{ fontSize: amountFontSize(formatCents(value), 14) }}
       aria-label={label ? `Assigned for ${label}: ${formatCents(value)}. Edit` : undefined}
       className={cn(
         "num h-tap w-full whitespace-nowrap text-right text-amount-sm",

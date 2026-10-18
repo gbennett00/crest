@@ -146,6 +146,11 @@ drawer, Home's Ready to Assign row, DetailList.
   `bottom-[calc(var(--dock-bottom)+6.25rem)]` (see the bulk actions bar and
   rule prompt banner). Scrolling content gets its bottom padding from
   the shell.
+- Amounts in fixed-width columns (tables, pills, the banner) shrink as they get
+  longer, 1px per character past `$1,500.00`, down to 10px
+  (`lib/amount-size.ts`). Use `<Amount>` (`ui/amount.tsx`) or `AvailablePill`,
+  which do this, instead of a plain formatted string with a fixed text class.
+  Base sizes on Plan: 14px amounts, 13px pills, 24px banner.
 - A Sheet is a modal Radix Dialog: anything portalled to `document.body` while
   it is open is inert (no taps, no focus, no scroll). Any overlay that can be
   opened from inside a Sheet must portal to `usePortalTarget()`

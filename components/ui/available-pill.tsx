@@ -1,8 +1,11 @@
+"use client";
+
 import * as React from "react";
 import { cva } from "class-variance-authority";
 
 import { cn } from "@/lib/utils";
-import { Money } from "@/components/money";
+import { useFormattedCents } from "@/components/money";
+import { amountFontSize } from "@/lib/amount-size";
 import { availablePillState, type PillState } from "@/lib/available-pill";
 
 const pillVariants = cva(
@@ -31,12 +34,19 @@ export interface AvailablePillProps extends React.HTMLAttributes<HTMLSpanElement
  * alone: negatives carry their minus sign (from formatCents) and warnings a
  * leading "!".
  */
-export function AvailablePill({ cents, state, className, ...props }: AvailablePillProps) {
+export function AvailablePill({ cents, state, className, style, ...props }: AvailablePillProps) {
+  const formatCents = useFormattedCents();
   const resolved = state ?? availablePillState(cents);
+  const text = formatCents(cents);
   return (
-    <span className={cn(pillVariants({ state: resolved }), className)} {...props}>
+    <span
+      className={cn(pillVariants({ state: resolved }), className)}
+      // Smaller as the figure gets longer, so it stays inside its column.
+      style={{ fontSize: amountFontSize(text, 13), ...style }}
+      {...props}
+    >
       {resolved === "warn" && <span aria-hidden="true">!</span>}
-      <Money cents={cents} />
+      {text}
     </span>
   );
 }

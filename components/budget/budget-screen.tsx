@@ -5,10 +5,10 @@ import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useFormattedCents } from "@/components/money";
 import { currentBudgetMonth, nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { Amount } from "@/components/ui/amount";
 import { AvailablePill } from "@/components/ui/available-pill";
 import { ReadyToAssignBanner } from "./ready-to-assign-banner";
 import { AssignedInput } from "./assigned-input";
@@ -386,7 +386,6 @@ function GroupHeaderRow({
   available: number;
   onAssignGroup: (cents: number) => void;
 }) {
-  const formatCents = useFormattedCents();
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
@@ -459,22 +458,21 @@ function GroupHeaderRow({
           <AssignedInput value={assigned} onSave={onAssignGroup} label={group.name} />
         </div>
       ) : (
-        <span className="num whitespace-nowrap text-right text-amount-sm">
-          {formatCents(assigned)}
-        </span>
+        <Amount cents={assigned} className="text-right text-amount-sm" />
       )}
 
-      <span className="num hidden whitespace-nowrap text-right text-amount-sm text-ink-muted md:block">
-        {formatCents(activity)}
-      </span>
+      <Amount
+        cents={activity}
+        className="hidden text-right text-amount-sm text-ink-muted md:block"
+      />
       {overspent ? (
         <span className="relative block pr-2.5 text-right" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => setCoverOpen(true)}
-            className="num whitespace-nowrap text-right text-amount-sm text-neg-text hover:underline"
+            className="text-right text-neg-text hover:underline"
           >
-            {formatCents(available)}
+            <Amount cents={available} className="text-amount-sm" />
           </button>
           {coverOpen && (
             <CoverOverspendingPopup
@@ -490,9 +488,7 @@ function GroupHeaderRow({
           )}
         </span>
       ) : (
-        <span className="num whitespace-nowrap pr-2.5 text-right text-amount-sm">
-          {formatCents(available)}
-        </span>
+        <Amount cents={available} className="pr-2.5 text-right text-amount-sm" />
       )}
     </div>
   );
@@ -513,7 +509,6 @@ function CategoryRow({
   month: string;
   onAssign: (cents: number) => void;
 }) {
-  const formatCents = useFormattedCents();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState(false);
@@ -642,9 +637,14 @@ function CategoryRow({
         <span className="text-right text-ink-muted">—</span>
       )}
 
-      <span className="num hidden whitespace-nowrap text-right text-ink-muted md:block">
-        {cat.activityCents !== 0 || isCC ? formatCents(cat.activityCents) : "—"}
-      </span>
+      {cat.activityCents !== 0 || isCC ? (
+        <Amount
+          cents={cat.activityCents}
+          className="hidden text-right text-ink-muted md:block"
+        />
+      ) : (
+        <span className="hidden text-right text-ink-muted md:block">—</span>
+      )}
 
       {isCategoryBudget ? (
         <span className="relative flex justify-end">

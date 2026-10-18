@@ -3,7 +3,7 @@
 import { ChevronRight } from "lucide-react";
 
 import { cn } from "@/lib/utils";
-import { Money } from "@/components/money";
+import { Amount } from "@/components/ui/amount";
 import { readyToAssignState, type ReadyToAssignState } from "@/lib/ready-to-assign";
 
 const STATE_STYLES: Record<ReadyToAssignState, string> = {
@@ -35,17 +35,16 @@ export function ReadyToAssignBanner({
   const state = readyToAssignState(cents);
   const inner = (
     <>
-      <span className="num text-banner-amount whitespace-nowrap">
-        <Money cents={cents} />
-      </span>
-      <span className="flex items-center gap-1.5 whitespace-nowrap text-[15px] font-semibold leading-5">
+      {/* Shrinks as the figure gets longer so it never runs into the label. */}
+      <Amount cents={cents} basePx={24} className="text-banner-amount" />
+      <span className="flex shrink-0 items-center gap-1.5 whitespace-nowrap text-[15px] font-semibold leading-5">
         {STATE_LABELS[state]}
         {state !== "done" && <ChevronRight size={22} strokeWidth={1.75} aria-hidden="true" />}
       </span>
     </>
   );
   const base = cn(
-    "flex h-14 w-full items-center justify-between rounded-ds-lg pl-5 pr-4",
+    "flex h-14 w-full items-center justify-between gap-3 rounded-ds-lg pl-5 pr-4",
     STATE_STYLES[state],
     className,
   );
