@@ -3,11 +3,14 @@
 import { useEffect, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronDown, ChevronLeft, ChevronRight, Info } from "lucide-react";
+import { ArrowLeftRight, ChevronDown, ChevronLeft, ChevronRight, MoreHorizontal } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useFormattedCents } from "@/components/money";
 import { currentBudgetMonth, nextBudgetMonth, previousBudgetMonth } from "@/lib/ledger";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Amount } from "@/components/ui/amount";
+import { AvailablePill } from "@/components/ui/available-pill";
+import { ReadyToAssignBanner } from "./ready-to-assign-banner";
 import { AssignedInput } from "./assigned-input";
 import {
   assignCategory,
@@ -34,7 +37,8 @@ import { MonthPicker } from "./month-picker";
 import { BudgetReorder } from "./budget-reorder";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { LoadError } from "@/components/load-error";
-import { paymentShortfallCents } from "@/lib/budget/compute";
+import { categoryPillState } from "@/lib/budget/category-status";
+import { splitLeadingEmoji } from "@/lib/leading-emoji";
 import type {
   BudgetCategory,
   BudgetData,
@@ -51,11 +55,12 @@ export type { BudgetCategory, BudgetData, BudgetGroup, TargetData };
 // Helpers
 // ---------------------------------------------------------------------------
 
-// Activity is the 3rd column and is hidden on small screens (hidden md:block on
-// each activity cell removes it from the grid entirely there). The last two
-// (Assigned/Available) columns are wide enough for large formatted amounts
-// (e.g. "-$54,249.16") to stay on one line instead of wrapping at the minus sign.
-const COLS = "grid grid-cols-[1fr_84px_92px] md:grid-cols-[1fr_80px_80px_92px]";
+// Columns: emoji, name, Assigned, (Activity, md+ only), Available. The last two
+// are wide enough for large formatted amounts (e.g. "-$54,249.16") to stay on
+// one line. Activity is hidden on small screens (hidden md:block on each
+// activity cell removes it from the grid entirely there).
+const COLS =
+  "grid grid-cols-[26px_minmax(0,1fr)_84px_100px] md:grid-cols-[26px_minmax(0,1fr)_80px_80px_100px] gap-x-1 px-3";
 
 // ---------------------------------------------------------------------------
 // Main component
@@ -196,17 +201,10 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
       g.categories.some((c) => c.role !== "ready_to_assign" && !c.isHidden),
   );
 
-  // RTA is a single global figure (the same on every month, matching YNAB): show
-  // the full banner whenever there's something to act on — money to assign or an
-  // over-assignment — and fall back to a slim, always-present pill at $0, so the
-  // breakdown is reachable anytime including the "all money assigned" state.
-  const showRtaBanner = data.rtaAvailableCents !== 0;
-
   const groupOptions = displayGroups.map((g) => ({ id: g.id, name: g.name }));
 
   return (
-    // pb-20 leaves room below the last row for the floating Add Transaction button.
-    <div className="flex flex-col pb-20">
+    <div className="flex flex-col">
       {assignOpen && (
         <AssignPopup data={data} onClose={() => setAssignOpen(false)} />
       )}
@@ -215,81 +213,74 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
       )}
 
       {/* Month navigation — sticky directly under the global header. */}
-      <StickyHeader className="flex items-center justify-between px-2 h-11 shrink-0">
-        <button
+      <StickyHeader className="flex h-[52px] shrink-0 items-center px-1">
+        <Button
+          variant="ghost"
+          size="icon"
           onClick={() => navigate(previousBudgetMonth(data.month))}
           disabled={data.month <= data.minMonth}
-          className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground disabled:opacity-30 disabled:pointer-events-none"
+          className="rounded-pill text-ink-muted"
           aria-label="Previous month"
         >
-          <ChevronLeft size={18} />
-        </button>
-        <MonthPicker
-          month={data.month}
-          minMonth={data.minMonth}
-          maxMonth={data.maxMonth}
-          onSelect={navigate}
-        />
-        <div className="flex items-center">
-          <button
-            onClick={() => navigate(nextBudgetMonth(data.month))}
-            disabled={data.month >= data.maxMonth}
-            className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground disabled:opacity-30 disabled:pointer-events-none"
-            aria-label="Next month"
-          >
-            <ChevronRight size={18} />
-          </button>
-          <BudgetToolbar
-            groups={groupOptions}
-            data={data}
-            reordering={reordering}
-            onToggleReorder={() => setReordering((r) => !r)}
+          <ChevronLeft size={24} strokeWidth={1.75} />
+        </Button>
+        <div className="flex flex-1 justify-center">
+          <MonthPicker
+            month={data.month}
+            minMonth={data.minMonth}
+            maxMonth={data.maxMonth}
+            onSelect={navigate}
           />
         </div>
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => navigate(nextBudgetMonth(data.month))}
+          disabled={data.month >= data.maxMonth}
+          className="rounded-pill text-ink-muted"
+          aria-label="Next month"
+        >
+          <ChevronRight size={24} strokeWidth={1.75} />
+        </Button>
+        <BudgetToolbar
+          groups={groupOptions}
+          data={data}
+          reordering={reordering}
+          onToggleReorder={() => setReordering((r) => !r)}
+          onShowBreakdown={() => setBreakdownOpen(true)}
+        />
       </StickyHeader>
 
       {reordering ? (
         <BudgetReorder groups={displayGroups} />
       ) : (
         <>
-          {/* Ready to Assign — full banner when there's something to act on,
-              otherwise a slim pill so the breakdown stays reachable (e.g. at
-              $0). In both, the amount opens the assign popup and the info button
-              opens the read-only breakdown. */}
-          {showRtaBanner ? (
-            <RtaBanner
-              cents={data.rtaAvailableCents}
-              onAssign={() => setAssignOpen(true)}
-              onBreakdown={() => setBreakdownOpen(true)}
-            />
-          ) : (
-            <RtaPill
-              cents={data.rtaAvailableCents}
-              onAssign={() => setAssignOpen(true)}
-              onBreakdown={() => setBreakdownOpen(true)}
-            />
-          )}
+          {/* Ready to Assign: opens the assign popup. The breakdown lives in the
+              toolbar menu. */}
+          <ReadyToAssignBanner
+            cents={data.rtaAvailableCents}
+            onPress={() => setAssignOpen(true)}
+            className="mx-3 mb-3 mt-1 w-auto"
+          />
 
           {/* Column headers */}
           <div
-            className={cn(
-              COLS,
-              "px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground border-b",
-            )}
+            className={cn(COLS, "h-8 items-center text-overline uppercase text-ink-muted")}
           >
-            <span>Category</span>
+            <span className="col-span-2">Category</span>
             <span className="text-right">Assigned</span>
-            <span className="hidden md:block text-right">Activity</span>
-            <span className="text-right">Available</span>
+            <span className="hidden text-right md:block">Activity</span>
+            <span className="pr-2.5 text-right">Available</span>
           </div>
 
-          {/* Groups */}
+          {/* Groups: edge to edge, no gaps or cards. */}
           {displayGroups.length === 0 ? (
-            <p className="text-center text-muted-foreground text-sm py-16">
-              No categories yet. Use the + button to add one.
+            <p className="py-16 text-center text-ink-muted">
+              No categories yet. Use the ⋯ menu to add one.
             </p>
           ) : (
-            displayGroups.map((group) => {
+            <div className="bg-surface">
+            {displayGroups.map((group) => {
               const isExpanded = !collapsed.has(group.id);
               const visibleCats = group.categories.filter(
                 (c) => c.role !== "ready_to_assign" && !c.isHidden,
@@ -328,9 +319,10 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                   />
 
                   {isExpanded &&
-                    visibleCats.map((cat) => (
+                    visibleCats.map((cat, index) => (
                       <CategoryRow
                         key={cat.id}
+                        isFirst={index === 0}
                         data={data}
                         cat={cat}
                         group={group}
@@ -346,7 +338,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                     ))}
                 </div>
               );
-            })
+            })}
+            </div>
           )}
         </>
       )}
@@ -393,7 +386,6 @@ function GroupHeaderRow({
   available: number;
   onAssignGroup: (cents: number) => void;
 }) {
-  const formatCents = useFormattedCents();
   const [renaming, setRenaming] = useState(false);
   const [targetOpen, setTargetOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
@@ -419,13 +411,17 @@ function GroupHeaderRow({
       className={cn(
         COLS,
         LONG_PRESS_ROW_CLASS,
-        "px-4 py-2 border-b bg-primary/5 hover:bg-primary/10 dark:bg-primary/15 dark:hover:bg-primary/25 text-sm font-medium items-center cursor-pointer transition-colors",
+        "h-12 cursor-pointer items-center bg-surface-sunken transition-colors",
       )}
     >
-      <div className="flex items-center gap-1.5 min-w-0">
-        <span className="shrink-0 text-muted-foreground">
-          {isExpanded ? <ChevronDown size={14} /> : <ChevronRight size={14} />}
-        </span>
+      <span className="flex justify-center text-ink-muted">
+        {isExpanded ? (
+          <ChevronDown size={20} strokeWidth={1.75} />
+        ) : (
+          <ChevronRight size={20} strokeWidth={1.75} />
+        )}
+      </span>
+      <div className="flex min-w-0 items-center gap-1.5 text-headline">
         <InlineName
           id={group.id}
           name={group.name}
@@ -459,23 +455,24 @@ function GroupHeaderRow({
 
       {isGroupBudget ? (
         <div onClick={(e) => e.stopPropagation()}>
-          <AssignedInput value={assigned} onSave={onAssignGroup} />
+          <AssignedInput value={assigned} onSave={onAssignGroup} label={group.name} />
         </div>
       ) : (
-        <span className="text-right whitespace-nowrap">{formatCents(assigned)}</span>
+        <Amount cents={assigned} className="text-right text-amount-sm" />
       )}
 
-      <span className="hidden md:block text-right text-muted-foreground whitespace-nowrap">
-        {formatCents(activity)}
-      </span>
+      <Amount
+        cents={activity}
+        className="hidden text-right text-amount-sm text-ink-muted md:block"
+      />
       {overspent ? (
-        <span className="relative block text-right" onClick={(e) => e.stopPropagation()}>
+        <span className="relative block pr-2.5 text-right" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             onClick={() => setCoverOpen(true)}
-            className="text-right font-medium tabular-nums whitespace-nowrap text-destructive hover:underline"
+            className="text-right text-neg-text hover:underline"
           >
-            {formatCents(available)}
+            <Amount cents={available} className="text-amount-sm" />
           </button>
           {coverOpen && (
             <CoverOverspendingPopup
@@ -491,7 +488,7 @@ function GroupHeaderRow({
           )}
         </span>
       ) : (
-        <AvailableCell cents={available} />
+        <Amount cents={available} className="pr-2.5 text-right text-amount-sm" />
       )}
     </div>
   );
@@ -503,14 +500,15 @@ function CategoryRow({
   group,
   month,
   onAssign,
+  isFirst,
 }: {
+  isFirst: boolean;
   data: BudgetData;
   cat: BudgetCategory;
   group: BudgetGroup;
   month: string;
   onAssign: (cents: number) => void;
 }) {
-  const formatCents = useFormattedCents();
   const router = useRouter();
   const queryClient = useQueryClient();
   const [renaming, setRenaming] = useState(false);
@@ -518,11 +516,12 @@ function CategoryRow({
   const [ccOpen, setCcOpen] = useState(false);
   const [coverOpen, setCoverOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
+  const [editing, setEditing] = useState(false);
 
   const isCategoryBudget = group.budgetMode === "category";
   const isCC = cat.cardRegisterBalanceCents !== null;
-  const underfunded =
-    isCC && paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents) > 0;
+  const { emoji, label } = splitLeadingEmoji(cat.name);
+  const pillState = categoryPillState(cat, month);
   const overspent = isCategoryBudget && cat.availableCents < 0;
   // The Sinking Fund's target is derived from every sinking target (see
   // deriveSinkingFundTarget), so it isn't editable here.
@@ -571,13 +570,20 @@ function CategoryRow({
       className={cn(
         COLS,
         LONG_PRESS_ROW_CLASS,
-        "px-4 pl-8 py-2 border-b text-sm items-center cursor-pointer hover:bg-accent/40 transition-colors",
+        "min-h-row-dense cursor-pointer items-center py-1 transition-colors",
+        !isFirst && "border-t",
+        // Editing is shown by the row tint, not by a box around the value.
+        editing ? "bg-brand-subtle" : "hover:bg-surface-sunken",
       )}
     >
-      <span className="flex items-center gap-1 min-w-0">
+      <span aria-hidden="true" className="text-center text-xl leading-6">
+        {emoji}
+      </span>
+      <span className="flex min-w-0 items-center gap-1 pl-1 text-row-label">
         <InlineName
           id={cat.id}
           name={cat.name}
+          displayName={label}
           type="category"
           editing={renaming}
           onDone={() => setRenaming(false)}
@@ -608,41 +614,51 @@ function CategoryRow({
 
       {isCategoryBudget ? (
         <div onClick={(e) => e.stopPropagation()}>
-          <AssignedInput value={cat.assignedCents} onSave={onAssign} />
+          <AssignedInput
+            value={cat.assignedCents}
+            onSave={onAssign}
+            label={label}
+            onEditingChange={setEditing}
+            quickActions={[
+              {
+                label: "Move money",
+                icon: <ArrowLeftRight />,
+                onSelect: () => setMoveOpen(true),
+              },
+              {
+                label: "Details",
+                icon: <MoreHorizontal />,
+                onSelect: () => router.push(`/budget/category/${cat.id}?month=${month}`),
+              },
+            ]}
+          />
         </div>
       ) : (
-        <span className="text-right text-muted-foreground text-xs">—</span>
+        <span className="text-right text-ink-muted">—</span>
       )}
 
-      <span className="hidden md:block text-right text-muted-foreground whitespace-nowrap">
-        {isCC ? (
-          <span
-            className={cn(
-              "tabular-nums",
-              underfunded && "text-amber-600 dark:text-amber-400",
-            )}
-          >
-            {formatCents(cat.activityCents)}
-          </span>
-        ) : cat.activityCents !== 0 ? (
-          formatCents(cat.activityCents)
-        ) : (
-          <span className="text-xs">—</span>
-        )}
-      </span>
+      {cat.activityCents !== 0 || isCC ? (
+        <Amount
+          cents={cat.activityCents}
+          className="hidden text-right text-ink-muted md:block"
+        />
+      ) : (
+        <span className="hidden text-right text-ink-muted md:block">—</span>
+      )}
 
       {isCategoryBudget ? (
-        <span className="relative block text-right">
+        <span className="relative flex justify-end">
           {overspent ? (
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); setCoverOpen(true); }}
-              className="text-right font-medium tabular-nums whitespace-nowrap text-destructive hover:underline"
+              aria-label={`${label} is overspent. Cover overspending`}
+              className="rounded-pill"
             >
-              {formatCents(cat.availableCents)}
+              <AvailablePill cents={cat.availableCents} state={pillState} />
             </button>
           ) : (
-            <AvailableCell cents={cat.availableCents} />
+            <AvailablePill cents={cat.availableCents} state={pillState} />
           )}
           {isCC && (
             <span onClick={(e) => e.stopPropagation()}>
@@ -671,7 +687,7 @@ function CategoryRow({
           )}
         </span>
       ) : (
-        <span className="text-right text-muted-foreground text-xs">—</span>
+        <span className="text-right text-ink-muted">—</span>
       )}
     </div>
   );
@@ -682,12 +698,16 @@ function CategoryRow({
 function InlineName({
   id,
   name,
+  displayName,
   type,
   editing,
   onDone,
 }: {
   id: string;
   name: string;
+  /** What to show when not editing (e.g. the name without its leading emoji).
+   * Renaming always edits the full `name`. */
+  displayName?: string;
   type: "category" | "group";
   editing: boolean;
   onDone: () => void;
@@ -696,7 +716,7 @@ function InlineName({
   const queryClient = useQueryClient();
 
   if (!editing) {
-    return <span className="truncate min-w-0">{name}</span>;
+    return <span className="min-w-0 truncate">{displayName ?? name}</span>;
   }
 
   function commit(value: string) {
@@ -733,120 +753,5 @@ function InlineName({
       }}
       className="h-6 md:text-sm py-0 px-1.5"
     />
-  );
-}
-
-// ---------------------------------------------------------------------------
-// Sub-components
-// ---------------------------------------------------------------------------
-
-function RtaBanner({
-  cents,
-  onAssign,
-  onBreakdown,
-}: {
-  cents: number;
-  onAssign: () => void;
-  onBreakdown: () => void;
-}) {
-  const formatCents = useFormattedCents();
-  const overAssigned = cents < 0;
-  return (
-    <div
-      className={cn(
-        "mx-4 mt-4 mb-3 rounded-lg px-4 py-3 flex items-center justify-between",
-        overAssigned
-          ? "bg-destructive/10 border border-destructive/30"
-          : "bg-primary/10 border border-primary/30",
-      )}
-    >
-      <button
-        className="text-left flex-1 min-w-0 cursor-pointer hover:opacity-90 transition-opacity"
-        onClick={onAssign}
-      >
-        <p className="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-          Ready to Assign
-        </p>
-        <p
-          className={cn(
-            "text-2xl font-bold tabular-nums whitespace-nowrap mt-0.5",
-            overAssigned ? "text-destructive" : "text-primary",
-          )}
-        >
-          {formatCents(cents)}
-        </p>
-      </button>
-      <div className="flex items-center gap-2 shrink-0 pl-3">
-        {overAssigned && (
-          <span className="text-xs font-semibold text-destructive">Over-assigned</span>
-        )}
-        <button
-          onClick={onBreakdown}
-          aria-label="Ready to Assign breakdown"
-          className={cn(
-            "p-1.5 rounded-full hover:bg-foreground/5 transition-colors",
-            overAssigned ? "text-destructive" : "text-primary",
-          )}
-        >
-          <Info size={18} />
-        </button>
-      </div>
-    </div>
-  );
-}
-
-// Compact, always-present stand-in for the RTA banner when there's nothing to
-// act on (notably the "all money assigned" $0 state). Keeps the breakdown one
-// tap away. Same interaction split as the banner: label/amount opens the assign
-// popup, the info button opens the breakdown.
-function RtaPill({
-  cents,
-  onAssign,
-  onBreakdown,
-}: {
-  cents: number;
-  onAssign: () => void;
-  onBreakdown: () => void;
-}) {
-  const formatCents = useFormattedCents();
-  const allAssigned = cents === 0;
-  return (
-    <div className="mx-4 mt-3 mb-2 flex items-center justify-between gap-2 rounded-md border bg-muted/40 px-3 py-1.5">
-      <button
-        onClick={onAssign}
-        className="flex items-center gap-1.5 min-w-0 flex-1 text-left hover:opacity-80 transition-opacity"
-      >
-        {allAssigned && <Check size={14} className="text-primary shrink-0" />}
-        <span className="text-xs font-medium text-muted-foreground truncate">
-          {allAssigned ? "All money assigned" : "Ready to Assign"}
-        </span>
-        <span className="text-xs font-semibold tabular-nums">{formatCents(cents)}</span>
-      </button>
-      <button
-        onClick={onBreakdown}
-        aria-label="Ready to Assign breakdown"
-        className="p-1 rounded-full text-muted-foreground hover:bg-foreground/5 hover:text-foreground transition-colors shrink-0"
-      >
-        <Info size={15} />
-      </button>
-    </div>
-  );
-}
-
-function AvailableCell({ cents }: { cents: number }) {
-  const formatCents = useFormattedCents();
-  return (
-    <span
-      className={cn(
-        "text-right font-medium tabular-nums whitespace-nowrap",
-        cents < 0
-          ? "text-destructive"
-          : cents === 0
-            ? "text-muted-foreground"
-            : "text-foreground",
-      )}
-    >
-      {formatCents(cents)}
-    </span>
   );
 }

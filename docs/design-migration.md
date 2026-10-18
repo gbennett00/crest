@@ -112,9 +112,28 @@ building anything similar.
   Add button** (the old per-page ones were removed). Its account/category
   options come from the home view cache (`useHomeView`), which the nav warms.
 
-Not built yet (build with the page that needs it): CategoryRow and the Plan
-table, Keypad restyle, TransactionRow, Review drawer, Home's Ready to Assign
-row, DetailList.
+- Plan (`budget/budget-screen.tsx`): edge-to-edge groups on `bg-surface`, a
+  sunken group-header band, rows of emoji | name | Assigned | (Activity, md+) |
+  Available. Columns are `26px 1fr 84px 100px`: Available is 100px (the spec's
+  92px clips `$1,500.00` pills) and `AvailablePill` uses 10px side padding.
+  - The leading emoji in a category name gets its own column
+    (`lib/leading-emoji.ts`); renaming still edits the full name.
+  - Pill state comes from `lib/budget/category-status.ts`: overspent, else
+    "needs attention" (a card's payment category short of its debt, or a
+    category whose target still asks for money this month), else zero, else
+    funded.
+  - Assigned is plain text. While editing, the row tints `brand-subtle` and the
+    value is `brand-text` with a caret (`AssignedInput`).
+  - The Ready to Assign breakdown moved from the banner's info button to the
+    toolbar menu. At $0 the banner is the static "All assigned" state.
+  - `MoneyKeypad` is restyled in place and takes optional `quickActions`
+    chips. Plan passes Move money and Details. There is no Auto-assign (no such
+    feature exists yet).
+  - Tapping a category row still opens its detail page (existing behavior);
+    the design only makes Assigned tappable.
+
+Not built yet (build with the page that needs it): TransactionRow, Review
+drawer, Home's Ready to Assign row, DetailList.
 
 ## Gotchas
 
@@ -127,6 +146,11 @@ row, DetailList.
   `bottom-[calc(var(--dock-bottom)+6.25rem)]` (see the bulk actions bar and
   rule prompt banner). Scrolling content gets its bottom padding from
   the shell.
+- Amounts in fixed-width columns (tables, pills, the banner) shrink as they get
+  longer, 1px per character past `$1,500.00`, down to 10px
+  (`lib/amount-size.ts`). Use `<Amount>` (`ui/amount.tsx`) or `AvailablePill`,
+  which do this, instead of a plain formatted string with a fixed text class.
+  Base sizes on Plan: 14px amounts, 13px pills, 24px banner.
 - A Sheet is a modal Radix Dialog: anything portalled to `document.body` while
   it is open is inert (no taps, no focus, no scroll). Any overlay that can be
   opened from inside a Sheet must portal to `usePortalTarget()`
@@ -153,7 +177,8 @@ hidden in production), Plan, Home, then the rest in batches.
 
 - [x] Tokens, Inter, type scale, theme attributes
 - [x] Shell (dock, round Add button, bottom clearance) and Button, Pill, Segmented, Sheet, banner, dev gallery
-- [ ] `/budget` (Plan), `/budget/category/[id]`, `/budget/moves`
+- [x] `/budget` (Plan): table, banner, keypad. Still old: its popups (Assign, Move money, Cover overspending, Target, RTA breakdown, Add category/group) move to Sheets in the sheets batch
+- [ ] `/budget/category/[id]`, `/budget/moves`
 - [ ] `/` (Home)
 - [ ] `/transactions`, `/transactions/[id]`
 - [ ] `/accounts`, `/accounts/[id]`
