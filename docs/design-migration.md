@@ -132,8 +132,25 @@ building anything similar.
   - Tapping a category row still opens its detail page (existing behavior);
     the design only makes Assigned tappable.
 
-Not built yet (build with the page that needs it): TransactionRow, Review
-drawer, Home's Ready to Assign row, DetailList.
+- Home (`app/(app)/page.tsx`): "things to do" card with value-first rows
+  (badge or pill, label, small button), an Overspent card and a Pinned card.
+  `ui/count-badge.tsx` is the small count; `ui/transaction-row.tsx` is the
+  shared transaction list item (status dot, or a checkbox in selection mode).
+  `ui/checkbox.tsx` is restyled (24px, brand fill, indeterminate).
+- Review drawer (`home/review-drawer.tsx`, rules in `lib/review.ts`): a tall
+  Sheet replacing the old inline Needs Approval list. Checkboxes are always
+  visible. With nothing selected Approve acts on every row ("Approve all 10").
+  If every row already has a category it approves immediately and shows an Undo
+  toast; otherwise the drawer swaps in place to a category step. It stays open
+  on what is left and closes when empty. Undo is `bulkUnapproveTransactions`,
+  which also removes categories that approval had assigned.
+  - There is no "Recent" category chips row (no recent-usage data exists yet).
+  - Tapping a row toggles it; opening a transaction is "Open" in the ⋯ menu
+    (with one row selected), next to Delete. Split is not offered.
+  - `Sheet` has an `overlay` slot for things that must stay tappable while the
+    dialog is open, such as the Undo toast.
+
+Not built yet (build with the page that needs it): DetailList.
 
 ## Gotchas
 
@@ -179,7 +196,7 @@ hidden in production), Plan, Home, then the rest in batches.
 - [x] Shell (dock, round Add button, bottom clearance) and Button, Pill, Segmented, Sheet, banner, dev gallery
 - [x] `/budget` (Plan): table, banner, keypad. Still old: its popups (Assign, Move money, Cover overspending, Target, RTA breakdown, Add category/group) move to Sheets in the sheets batch
 - [ ] `/budget/category/[id]`, `/budget/moves`
-- [ ] `/` (Home)
+- [x] `/` (Home): cards, Review drawer. Still old: the Assign popup and the Pin to Home manager (sheets batch)
 - [ ] `/transactions`, `/transactions/[id]`
 - [ ] `/accounts`, `/accounts/[id]`
 - [ ] `/reports`, `/reports/spending`

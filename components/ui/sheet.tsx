@@ -20,6 +20,10 @@ type SheetProps = {
   tall?: boolean;
   /** Extra classes for the body (the scrolling region). */
   className?: string;
+  /** Rendered inside the dialog above the content (e.g. an Undo toast). It must
+   * live here, not outside, or the modal dialog makes it untappable. Position
+   * it with `absolute`. */
+  overlay?: React.ReactNode;
 };
 
 /**
@@ -38,6 +42,7 @@ export function Sheet({
   footer,
   tall,
   className,
+  overlay,
 }: SheetProps) {
   // Node inside the dialog content that overlays opened from within the sheet
   // portal into (see overlay-container.tsx).
@@ -95,6 +100,7 @@ export function Sheet({
               {footer}
             </div>
           )}
+          {overlay}
           <div ref={setOverlayContainer} />
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

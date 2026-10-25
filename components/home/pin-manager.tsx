@@ -2,7 +2,8 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Pin, X } from "lucide-react";
+import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { cn } from "@/lib/utils";
 import { togglePin } from "@/app/(app)/budget/actions";
@@ -88,13 +89,9 @@ export function PinManager({ data }: { data: BudgetData }) {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-      >
-        <Pin size={12} />
+      <Button variant="quiet" onClick={() => setOpen(true)}>
         Manage
-      </button>
+      </Button>
 
       {open && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center">

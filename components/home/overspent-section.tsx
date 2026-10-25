@@ -1,7 +1,8 @@
 "use client";
 
 import { useState } from "react";
-import { Money } from "@/components/money";
+import { AvailablePill } from "@/components/ui/available-pill";
+import { splitLeadingEmoji } from "@/lib/leading-emoji";
 import { CoverOverspendingPopup, type CoverTarget } from "@/components/budget/cover-overspending-popup";
 import type { BudgetData, BudgetViewItem } from "@/lib/budget/types";
 
@@ -30,24 +31,34 @@ export function OverspentSection({
 
   return (
     <>
-      <div className="divide-y">
-        {items.map((item) => (
-          <div key={item.id} className="flex items-center justify-between px-4 py-2.5">
-            <div>
-              <p className="text-sm font-medium">{item.name}</p>
-              <p className="text-xs text-muted-foreground">
-                {item.isGroup ? "Group budget" : item.groupName}
-              </p>
-            </div>
-            <button
-              type="button"
-              onClick={() => setTarget(item)}
-              className="text-sm font-semibold tabular-nums text-destructive hover:underline"
+      <div>
+        {items.map((item) => {
+          const { emoji, label } = splitLeadingEmoji(item.name);
+          return (
+            <div
+              key={item.id}
+              className="flex min-h-row-list items-center gap-3 border-t px-4 py-2 first:border-t-0"
             >
-              <Money cents={item.availableCents} />
-            </button>
-          </div>
-        ))}
+              <span aria-hidden="true" className="w-7 shrink-0 text-center text-[22px] leading-6">
+                {emoji}
+              </span>
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-body">{label}</p>
+                <p className="truncate text-caption text-ink-muted">
+                  {item.isGroup ? "Group budget" : item.groupName}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setTarget(item)}
+                aria-label={`${label} is overspent. Cover overspending`}
+                className="rounded-pill"
+              >
+                <AvailablePill cents={item.availableCents} state="neg" />
+              </button>
+            </div>
+          );
+        })}
       </div>
       {coverTarget && (
         <CoverOverspendingPopup data={data} target={coverTarget} onClose={() => setTarget(null)} />

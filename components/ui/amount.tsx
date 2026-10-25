@@ -13,15 +13,18 @@ import { useFormattedCents } from "@/components/money";
 export function Amount({
   cents,
   basePx = 14,
+  sign,
   className,
 }: {
   cents: number;
+  /** Prefix positive figures with "+" (inflows in a transaction list). */
+  sign?: boolean;
   /** Size in px for figures up to "$1,500.00". */
   basePx?: number;
   className?: string;
 }) {
   const formatCents = useFormattedCents();
-  const text = formatCents(cents);
+  const text = sign && cents > 0 ? `+${formatCents(cents)}` : formatCents(cents);
   return (
     <span
       className={cn("num whitespace-nowrap", className)}

@@ -376,6 +376,49 @@ export async function bulkApproveTransactions(
 }
 
 /**
+ * Undo a bulk approval: put the transactions back to pending. `clearCategoryIds`
+ * are the ones that were uncategorized before the approval gave them a category,
+ * so their allocations are removed again; the rest keep the category they had.
+ * Lines that are not currently approved, or that are reconciled (locked), are
+ * skipped.
+ */
+export async function bulkUnapproveTransactions(
+  txnIds: string[],
+  clearCategoryIds: string[],
+): Promise<BulkResult> {
+  if (txnIds.length === 0) return { updated: 0, skipped: 0 };
+
+  const supabase = await createClient();
+  const clear = new Set(clearCategoryIds);
+
+  try {
+    const rows = await loadBulkTxns(supabase, txnIds);
+    let updated = 0;
+    let skipped = 0;
+
+    for (const row of rows) {
+      if (!row.approved_at || row.reconciled_at) {
+        skipped++;
+        continue;
+      }
+
+      await updateTransaction(supabase, {
+        id: row.id,
+        approvedAt: null,
+        ...(clear.has(row.id) ? { allocations: [] } : {}),
+      });
+      updated++;
+    }
+
+    revalidateAll();
+    return { updated, skipped };
+  } catch (e) {
+    if (e instanceof LedgerError) return { updated: 0, skipped: 0, error: e.message };
+    return { updated: 0, skipped: 0, error: "Failed to undo approval" };
+  }
+}
+
+/**
  * Assign a single category (full amount) to a batch of transactions. Approval
  * state is left as-is: an already-approved line stays approved with the new
  * single split; a pending line stays pending but becomes categorized.
