@@ -18,3 +18,10 @@ export function formatDate(value: string | number | Date | null | undefined): st
     year: "numeric",
   }).format(date);
 }
+
+/** "Oct 4" from a plain "YYYY-MM-DD" date, without shifting it by time zone. */
+export function formatMonthDay(dateStr: string): string {
+  const [y, m, d] = dateStr.split("-").map(Number);
+  if (!y || !m || !d) return "";
+  return new Date(y, m - 1, d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}

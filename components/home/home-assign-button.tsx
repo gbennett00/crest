@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Button } from "@/components/ui/button";
 import { AssignPopup } from "@/components/budget/assign-popup";
 import type { BudgetData } from "@/components/budget/budget-screen";
 
@@ -9,12 +10,9 @@ export function HomeAssignButton({ data }: { data: BudgetData }) {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="text-xs font-semibold bg-primary text-primary-foreground px-3 py-1 rounded-full shrink-0"
-      >
+      <Button size="sm" onClick={() => setOpen(true)}>
         Assign
-      </button>
+      </Button>
       {open && <AssignPopup data={data} onClose={() => setOpen(false)} />}
     </>
   );

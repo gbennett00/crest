@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { formatCents, formatDate } from "./format";
+import { formatCents, formatDate, formatMonthDay } from "./format";
 
 describe("formatCents", () => {
   it("formats positive, zero, and negative cents as USD", () => {
@@ -19,5 +19,17 @@ describe("formatDate", () => {
     expect(formatDate(undefined)).toBe("");
     expect(formatDate("")).toBe("");
     expect(formatDate("not-a-date")).toBe("");
+  });
+});
+
+describe("formatMonthDay", () => {
+  it("formats a plain date without shifting it across time zones", () => {
+    expect(formatMonthDay("2026-10-04")).toBe("Oct 4");
+    expect(formatMonthDay("2026-01-01")).toBe("Jan 1");
+  });
+
+  it("returns an empty string for a malformed date", () => {
+    expect(formatMonthDay("")).toBe("");
+    expect(formatMonthDay("nope")).toBe("");
   });
 });
