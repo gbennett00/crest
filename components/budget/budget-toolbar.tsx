@@ -9,6 +9,7 @@ import {
   ArrowUpDown,
   Check,
   FolderPlus,
+  Info,
   ListPlus,
   MoreHorizontal,
   NotebookPen,
@@ -39,6 +40,7 @@ export function BudgetToolbar({
   data,
   reordering,
   onToggleReorder,
+  onShowBreakdown,
 }: {
   groups: GroupOption[];
   // Full budget view, needed by the Spending Plan wizard's review step
@@ -46,6 +48,8 @@ export function BudgetToolbar({
   data: BudgetData;
   reordering: boolean;
   onToggleReorder: () => void;
+  /** Opens the read-only Ready to Assign breakdown. */
+  onShowBreakdown: () => void;
 }) {
   const [modal, setModal] = useState<null | "category" | "group" | "spending-plan">(null);
   const router = useRouter();
@@ -54,23 +58,27 @@ export function BudgetToolbar({
     <>
       {reordering ? (
         // While reordering, a direct check button finishes — no dropdown needed.
-        <button
+        <Button
+          variant="quiet"
+          size="icon"
           onClick={onToggleReorder}
-          className="p-2 rounded text-primary hover:bg-accent transition-colors"
+          className="rounded-pill"
           aria-label="Done reordering"
           title="Done reordering"
         >
-          <Check size={18} />
-        </button>
+          <Check size={24} strokeWidth={1.75} />
+        </Button>
       ) : (
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <button
-              className="p-2 rounded hover:bg-accent transition-colors text-muted-foreground"
+            <Button
+              variant="ghost"
+              size="icon"
+              className="rounded-pill text-ink-muted"
               aria-label="Plan options"
             >
-              <MoreHorizontal size={18} />
-            </button>
+              <MoreHorizontal size={24} strokeWidth={2.4} />
+            </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-60">
             <DropdownMenuItem
@@ -84,6 +92,9 @@ export function BudgetToolbar({
               <FolderPlus size={14} /> Add group
             </DropdownMenuItem>
             <DropdownMenuSeparator />
+            <DropdownMenuItem onSelect={onShowBreakdown}>
+              <Info size={14} /> Ready to Assign breakdown
+            </DropdownMenuItem>
             <DropdownMenuItem onSelect={() => setModal("spending-plan")}>
               <NotebookPen size={14} /> Spending plan
             </DropdownMenuItem>

@@ -2,18 +2,40 @@
 
 import { useState } from "react";
 import { AssignmentAmountEditor } from "@/components/ui/assignment-amount-input";
+import type { KeypadQuickAction } from "@/components/ui/money-keypad";
 import { useFormattedCents } from "@/components/money";
 import { cn } from "@/lib/utils";
+import { amountFontSize } from "@/lib/amount-size";
 
 interface AssignedInputProps {
   value: number;
   onSave: (cents: number) => void;
+  /** Accessible name of what is being assigned, e.g. "Dating". */
+  label?: string;
+  /** Lets the row tint itself while its value is being edited. */
+  onEditingChange?: (editing: boolean) => void;
+  /** Chips shown above the touch keypad while editing. */
+  quickActions?: KeypadQuickAction[];
   className?: string;
 }
 
-export function AssignedInput({ value, onSave, className }: AssignedInputProps) {
+// Assigned is plain text, not a box: the only editing affordance is the row
+// tint, a brand-coloured value and a caret (see the design system's Keypad).
+export function AssignedInput({
+  value,
+  onSave,
+  label,
+  onEditingChange,
+  quickActions,
+  className,
+}: AssignedInputProps) {
   const formatCents = useFormattedCents();
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditingState] = useState(false);
+
+  function setEditing(next: boolean) {
+    setEditingState(next);
+    onEditingChange?.(next);
+  }
 
   if (editing) {
     return (
@@ -25,17 +47,24 @@ export function AssignedInput({ value, onSave, className }: AssignedInputProps) 
         }}
         onCancel={() => setEditing(false)}
         formatCents={formatCents}
-        className={cn("h-7 text-right md:text-sm py-0 px-1.5", className)}
+        quickActions={quickActions}
+        className={cn(
+          "min-h-tap border-transparent bg-transparent px-0 py-0 text-amount-sm text-brand-text",
+          className,
+        )}
       />
     );
   }
 
   return (
     <button
+      type="button"
       onClick={() => setEditing(true)}
+      style={{ fontSize: amountFontSize(formatCents(value), 14) }}
+      aria-label={label ? `Assigned for ${label}: ${formatCents(value)}. Edit` : undefined}
       className={cn(
-        "w-full text-right text-sm rounded px-1 py-0.5 transition-colors hover:bg-accent",
-        value === 0 && "text-muted-foreground",
+        "num h-tap w-full whitespace-nowrap text-right text-amount-sm",
+        value === 0 ? "text-ink-muted" : "text-ink",
         className,
       )}
     >
