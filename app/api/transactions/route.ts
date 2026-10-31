@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { loadCategoryOptions } from "@/lib/budget";
+import { createServerTimer } from "@/lib/server-timing";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
 export type AllTransactionsRow = {
@@ -70,6 +71,7 @@ export async function GET(request: NextRequest) {
   const amountMinRaw = params.get("amountMin") || "";
   const amountMaxRaw = params.get("amountMax") || "";
 
+  const timer = createServerTimer("/api/transactions");
   const supabase = await createClient();
 
   let query = supabase
@@ -102,9 +104,11 @@ export async function GET(request: NextRequest) {
   }
 
   const [txnsRes, categoryOptions, accountsRes] = await Promise.all([
-    query,
-    loadCategoryOptions(supabase),
-    supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
+    timer.time("txns", () => query),
+    timer.time("categories", () => loadCategoryOptions(supabase)),
+    timer.time("accounts", () =>
+      supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
+    ),
   ]);
 
   if (txnsRes.error) {
@@ -161,5 +165,6 @@ export async function GET(request: NextRequest) {
   );
 
   const response: AllTransactionsResponse = { txns, hasMore, accountOptions, categoryOptions };
-  return NextResponse.json(response);
+  timer.log({ rows: txns.length });
+  return NextResponse.json(response, { headers: { "Server-Timing": timer.header() } });
 }

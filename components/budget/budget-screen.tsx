@@ -19,6 +19,7 @@ import {
   renameGroup,
 } from "@/app/(app)/budget/actions";
 import { useBudgetView, prefetchBudgetView } from "@/lib/queries/budget";
+import { useScreenTiming } from "@/lib/use-perf";
 import {
   prefetchAllTransactions,
   monthToDateRange,
@@ -106,7 +107,8 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
     return () => window.removeEventListener("popstate", onPopState);
   }, []);
 
-  const { data: response, error, refetch } = useBudgetView(month);
+  const { data: response, error, refetch, isFetching } = useBudgetView(month);
+  useScreenTiming("budget", { hasData: hasMounted && !!response, isFetching });
 
   // Warm the query cache for the neighbouring months so stepping to the
   // previous/next month (and coming back) renders from cache instead of a
