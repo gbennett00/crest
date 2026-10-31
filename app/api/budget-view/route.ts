@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { currentBudgetMonth } from "@/lib/ledger";
 import { getBudgetView, loadCategoryOptions } from "@/lib/budget";
+import { createServerTimer } from "@/lib/server-timing";
 import type { AccountOption } from "@/components/transactions/transaction-form";
 
 const BUDGET_MONTH_RE = /^\d{4}-\d{2}-01$/;
@@ -14,12 +15,15 @@ export async function GET(request: NextRequest) {
   const rawMonth = request.nextUrl.searchParams.get("month") ?? undefined;
   const month = BUDGET_MONTH_RE.test(rawMonth ?? "") ? rawMonth! : currentBudgetMonth();
 
+  const timer = createServerTimer("/api/budget-view");
   const supabase = await createClient();
   try {
     const [data, accountsRes, categories] = await Promise.all([
-      getBudgetView(month),
-      supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
-      loadCategoryOptions(supabase),
+      timer.time("budget", () => getBudgetView(month)),
+      timer.time("accounts", () =>
+        supabase.from("accounts").select("id, name").eq("is_active", true).order("name"),
+      ),
+      timer.time("categories", () => loadCategoryOptions(supabase)),
     ]);
 
     const accounts: AccountOption[] = (accountsRes.data ?? []).map((a) => ({
@@ -27,7 +31,11 @@ export async function GET(request: NextRequest) {
       name: a.name as string,
     }));
 
-    return NextResponse.json({ data, accounts, categories });
+    timer.log({ month });
+    return NextResponse.json(
+      { data, accounts, categories },
+      { headers: { "Server-Timing": timer.header() } },
+    );
   } catch (err) {
     console.error(err);
     return NextResponse.json(

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getActivePlanId } from "@/lib/plan/active-plan";
 import { buildRulePrompt, type RulePrompt } from "@/lib/category-rules";
+import { createServerTimer } from "@/lib/server-timing";
 import {
   createTransaction,
   createTransfer,
@@ -40,6 +41,19 @@ function revalidateAll() {
  *   recreated as a proper two-sided transfer.
  */
 export async function saveTransaction(formData: FormData) {
+  // Phase 0 timing (docs/instant-feel-plan.md): logged when CREST_TIMING=1.
+  const timer = createServerTimer("saveTransaction");
+  try {
+    return await timer.time("save", () => saveTransactionUntimed(formData));
+  } finally {
+    timer.log({
+      edit: !!formData.get("txnId"),
+      direction: (formData.get("direction") as string) || "outflow",
+    });
+  }
+}
+
+async function saveTransactionUntimed(formData: FormData) {
   const txnId = (formData.get("txnId") as string) || null;
   const direction = (formData.get("direction") as string) || "outflow";
   const accountId = formData.get("accountId") as string;
@@ -336,42 +350,48 @@ export async function bulkApproveTransactions(
 
   const supabase = await createClient();
   const now = new Date().toISOString();
+  // Phase 0 timing (docs/instant-feel-plan.md): logged when CREST_TIMING=1.
+  const timer = createServerTimer("bulkApproveTransactions");
+  let updated = 0;
+  let skipped = 0;
 
   try {
-    const rows = await loadBulkTxns(supabase, txnIds);
-    let updated = 0;
-    let skipped = 0;
+    const rows = await timer.time("load", () => loadBulkTxns(supabase, txnIds));
 
-    for (const row of rows) {
-      if (row.transfer_account_id && row.approved_at) {
-        skipped++;
-        continue;
+    await timer.time("updates", async () => {
+      for (const row of rows) {
+        if (row.transfer_account_id && row.approved_at) {
+          skipped++;
+          continue;
+        }
+
+        let allocations: Allocation[];
+        if (allocationsCoverAmount(row)) {
+          allocations = existingAllocations(row);
+        } else if (categoryId) {
+          allocations = [{ categoryId, amountCents: row.amount_cents }];
+        } else {
+          // Uncategorized and no fallback category to apply — can't approve.
+          skipped++;
+          continue;
+        }
+
+        await updateTransaction(supabase, {
+          id: row.id,
+          approvedAt: now,
+          allocations,
+        });
+        updated++;
       }
-
-      let allocations: Allocation[];
-      if (allocationsCoverAmount(row)) {
-        allocations = existingAllocations(row);
-      } else if (categoryId) {
-        allocations = [{ categoryId, amountCents: row.amount_cents }];
-      } else {
-        // Uncategorized and no fallback category to apply — can't approve.
-        skipped++;
-        continue;
-      }
-
-      await updateTransaction(supabase, {
-        id: row.id,
-        approvedAt: now,
-        allocations,
-      });
-      updated++;
-    }
+    });
 
     revalidateAll();
     return { updated, skipped };
   } catch (e) {
     if (e instanceof LedgerError) return { updated: 0, skipped: 0, error: e.message };
     return { updated: 0, skipped: 0, error: "Failed to approve transactions" };
+  } finally {
+    timer.log({ requested: txnIds.length, updated, skipped });
   }
 }
 

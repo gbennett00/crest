@@ -48,6 +48,63 @@ Land this first (small, mergeable on its own) so every later phase can be proven
   run in `next dev`), throttled to Fast 4G: time to first meaningful content on `/` and `/budget`.
 - Record baseline numbers in the PR description.
 
+### What's instrumented
+
+**Client** (`lib/perf.ts`, `lib/use-perf.ts`). Entries go into a localStorage ring buffer (last
+300 entries, durations only), so they can be collected on a phone without devtools. Read them at
+**`/dev/perf`**, which shows median/p90/max per flow and step and has Copy JSON and Clear buttons.
+Unlike the other `/dev` pages it is available in production, because the baseline has to come from
+the real deployment. In development each entry is also logged to the console as `[perf]`.
+
+| Flow | Steps (ms from the tap) | Where |
+| --- | --- | --- |
+| `bulk-approve`, `bulk-categorize`, `bulk-move`, `bulk-delete` | `action` (server action returned), `refetch` (ledger refetch landed), `painted` (next frame after that, i.e. rows gone) | `bulk-actions-bar.tsx` |
+| `txn-save`, `transfer-approve` | `action`, `refetch` | `transaction-form.tsx` |
+| `first-content` | step is the screen (`home`, `budget`); ms from navigation start to the first render with real data. Only recorded when that screen is the URL the document loaded (cold launch or reload) | `useScreenTiming` |
+| `stale-shown` | step is the screen; how long the screen showed cached data while the refetch triggered by mounting it was in flight | `useScreenTiming` |
+
+`txn-save` meta has `pending: true` when the saved transaction was unapproved, i.e. an approval
+from the edit page.
+
+**Server** (`lib/server-timing.ts`). `/api/home`, `/api/budget-view` and `/api/transactions` send a
+`Server-Timing` header with one span per parallel load plus `total` (devtools, Network, Timing).
+`bulkApproveTransactions` (spans `load`, `updates`) and `saveTransaction` log one `[timing]` line
+per call. Logging is off unless `CREST_TIMING=1` is set (Vercel env var for the baseline window).
+
+### Collecting the baseline
+
+1. Set `CREST_TIMING=1` on the Vercel deployment.
+2. On the phone (installed PWA), open `/dev/perf` and Clear.
+3. Use the app normally for a few days: cold-launch it, approve from Home (bulk and from the edit
+   page), switch between Budget and Home.
+4. Copy JSON from `/dev/perf` and pull the `[timing]` lines from Vercel runtime logs.
+5. Record medians and p90s in the Phase 1 and Phase 2 PRs as the "before" numbers.
+
+### First local run (local Supabase, `next dev`, 40 pending transactions)
+
+Local numbers have no network latency to Supabase, so they understate production. They are useful
+for the split between steps, not the absolute times.
+
+- Bulk approve of 3 rows: action ~190-290 ms on the client, of which the server action's own work
+  was ~110-150 ms (`updates` ~35-45 ms per row, sequential). The rest of `action` is the
+  `revalidatePath` re-render and transport. `refetch` lands ~220-260 ms after `action`.
+- Edit-page save of a pending transaction: action ~180-350 ms, refetch ~220-320 ms after.
+- `/api/home` warm: ~110-220 ms total; `budget` and `pending` are the slowest spans.
+
+### Findings from instrumenting
+
+- **`/api/home` refetches after every ledger write, on every screen.** `components/add-transaction.tsx`
+  (the global Add button) calls `useHomeView()`, which keeps `home-view` an active query, so
+  `invalidateAllLedgerQueries` always refetches the heaviest endpoint. Phase 2 should either stop
+  that component observing the whole home view (it only needs accounts/categories) or have
+  mutations invalidate more narrowly.
+- **The edit-page approve flow refetches Home before navigating to it.** Because of the above,
+  `/api/home` refetches while the edit page is still showing, so by the time Home renders, the
+  approved row is usually already gone. The wait is spent on the edit page instead: action, then
+  `router.push` plus `router.refresh()` (an extra RSC round-trip). Phase 1's optimistic update
+  should cover this path too, and Phase 2 should drop the `router.refresh()` if nothing
+  server-rendered needs it.
+
 ## 3. Phase 1: Optimistic mutations (client)
 
 1. **Helper in `lib/queries/`** implementing the standard sequence: cancel in-flight queries under

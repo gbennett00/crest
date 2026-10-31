@@ -11,6 +11,7 @@ import { loadBudgetView } from "./load-budget-view";
 import { loadCategoryOptions } from "./category-options";
 import { selectOverspent, selectPinned } from "./selectors";
 import { throwOnQueryErrors } from "./query-errors";
+import type { ServerTimer } from "@/lib/server-timing";
 
 // A transaction awaiting approval, shaped for the home "Needs Approval" list.
 export type PendingTransaction = {
@@ -37,29 +38,35 @@ export type HomeData = {
 };
 
 /** Page-facing entry point: builds the entire home view. */
-export async function getHomeData(): Promise<HomeData> {
-  return loadHomeData(await createClient());
+export async function getHomeData(timer?: ServerTimer): Promise<HomeData> {
+  return loadHomeData(await createClient(), timer);
 }
 
-export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
+/** `timer`, when given, records each of the parallel loads as its own span. */
+export async function loadHomeData(
+  client: SupabaseClient,
+  timer?: ServerTimer,
+): Promise<HomeData> {
   const month = currentBudgetMonth();
+  const timed = <T>(name: string, fn: () => PromiseLike<T>) =>
+    timer ? timer.time(name, fn) : fn();
 
   const [budgetData, pendingRes, accountsRes, categories] = await Promise.all([
-    loadBudgetView(client, month),
-    client
-      .from("transactions")
-      .select(
-        "id, payee, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(categories(name))",
-      )
-      .is("approved_at", null)
-      .order("txn_date", { ascending: false })
-      .limit(25),
-    client
-      .from("accounts")
-      .select("id, name, on_budget")
-      .eq("is_active", true)
-      .order("name"),
-    loadCategoryOptions(client),
+    timed("budget", () => loadBudgetView(client, month)),
+    timed("pending", () =>
+      client
+        .from("transactions")
+        .select(
+          "id, payee, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(categories(name))",
+        )
+        .is("approved_at", null)
+        .order("txn_date", { ascending: false })
+        .limit(25),
+    ),
+    timed("accounts", () =>
+      client.from("accounts").select("id, name, on_budget").eq("is_active", true).order("name"),
+    ),
+    timed("categories", () => loadCategoryOptions(client)),
   ]);
   throwOnQueryErrors({ "pending transactions": pendingRes, accounts: accountsRes });
 

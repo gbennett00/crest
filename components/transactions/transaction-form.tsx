@@ -27,6 +27,7 @@ import {
 } from "@/app/(app)/transactions/actions";
 import { CategoryPicker } from "./category-picker";
 import { SuggestedTag } from "./suggested-tag";
+import { startFlow } from "@/lib/perf";
 import { ChevronLeft, Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
@@ -253,25 +254,46 @@ export function TransactionForm({
   // everything. This is a separate cache Next's Server Action revalidation
   // doesn't reach.
   function invalidateLedgerCaches() {
-    invalidateAllLedgerQueries(queryClient);
+    return invalidateAllLedgerQueries(queryClient);
+  }
+
+  // Phase 0 timing (docs/instant-feel-plan.md): tap → server action returned
+  // → the ledger refetch it triggers has landed.
+  function timeSave(flowName: string) {
+    const flow = startFlow(flowName, {
+      edit: isEdit,
+      pending: isEdit && !txn!.isApproved,
+    });
+    return {
+      actionDone() {
+        flow.step("action");
+      },
+      trackRefetch(refetch: Promise<unknown>) {
+        refetch.then(() => flow.step("refetch"));
+      },
+    };
   }
 
   function doSave(formData: FormData) {
+    const timing = timeSave("txn-save");
     startTransition(async () => {
       const result = await saveTransaction(formData);
       if (result?.error) {
         setError(result.error);
-      } else if (isEdit) {
+        return;
+      }
+      timing.actionDone();
+      if (isEdit) {
         if ("rulePrompt" in result && result.rulePrompt) offerRulePrompt(result.rulePrompt);
-        invalidateLedgerCaches();
+        timing.trackRefetch(invalidateLedgerCaches());
         router.push(backHref ?? "/accounts");
         router.refresh();
       } else if (onSuccess) {
-        invalidateLedgerCaches();
+        timing.trackRefetch(invalidateLedgerCaches());
         onSuccess();
         resetAfterCreate();
       } else {
-        invalidateLedgerCaches();
+        timing.trackRefetch(invalidateLedgerCaches());
         setOpen(false);
         resetAfterCreate();
       }
@@ -284,12 +306,14 @@ export function TransactionForm({
   // transfer linkage itself is untouched.
   function doApproveTransferLeg() {
     if (!transferApproveCategoryId) return;
+    const timing = timeSave("transfer-approve");
     startTransition(async () => {
       const result = await approveTransferLeg(txn!.id, transferApproveCategoryId);
       if (result?.error) {
         setError(result.error);
       } else {
-        invalidateLedgerCaches();
+        timing.actionDone();
+        timing.trackRefetch(invalidateLedgerCaches());
         router.push(backHref ?? "/accounts");
         router.refresh();
       }
