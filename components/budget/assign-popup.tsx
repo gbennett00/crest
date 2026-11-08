@@ -10,7 +10,7 @@ import { useFormattedCents } from "@/components/money";
 import { AssignmentAmountEditor } from "@/components/ui/assignment-amount-input";
 import { bulkAssign } from "@/app/(app)/budget/actions";
 import { buildBudgetEntries, type BudgetEntry, type EntryKey } from "@/lib/budget/entries";
-import { targetNeedCents } from "@/lib/budget/compute";
+import { isTargetSnoozed, targetNeedCents } from "@/lib/budget/compute";
 import type { BudgetData } from "./budget-screen";
 
 const MONTH_NAMES = [
@@ -178,6 +178,7 @@ export function AssignPopup({
                     entry={entry}
                     draft={draft}
                     draftAvailable={draftAvailable}
+                    month={data.month}
                     onChange={(v) => setDraft(entry.key, v)}
                   />
                 );
@@ -212,11 +213,13 @@ function EntryRow({
   entry,
   draft,
   draftAvailable,
+  month,
   onChange,
 }: {
   entry: Entry;
   draft: number;
   draftAvailable: number;
+  month: string;
   onChange: (cents: number) => void;
 }) {
   const formatCents = useFormattedCents();
@@ -229,6 +232,7 @@ function EntryRow({
         {entry.target && (
           <p className="text-xs text-muted-foreground">
             Target: {formatCents(entry.target.amountCents)}
+            {isTargetSnoozed(entry.target, month) && " (snoozed)"}
           </p>
         )}
       </div>

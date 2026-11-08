@@ -17,6 +17,7 @@ import {
   assignGroup,
   renameCategory,
   renameGroup,
+  setTargetSnoozed,
 } from "@/app/(app)/budget/actions";
 import { useBudgetView, prefetchBudgetView } from "@/lib/queries/budget";
 import {
@@ -38,6 +39,7 @@ import { BudgetReorder } from "./budget-reorder";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { LoadError } from "@/components/load-error";
 import { categoryPillState } from "@/lib/budget/category-status";
+import { isTargetSnoozed } from "@/lib/budget/compute";
 import { splitLeadingEmoji } from "@/lib/leading-emoji";
 import type {
   BudgetCategory,
@@ -391,11 +393,26 @@ function GroupHeaderRow({
   const [coverOpen, setCoverOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const router = useRouter();
+  const queryClient = useQueryClient();
+  const [, startTransition] = useTransition();
   const isGroupBudget = group.budgetMode === "group";
   const overspent = isGroupBudget && available < 0;
+  // Sinking targets ask for nothing themselves (the Sinking Fund does), so
+  // there's nothing to snooze.
+  const snoozed = !!group.target && isTargetSnoozed(group.target, data.month);
   const rowMenu = useRowMenu({
     onRename: () => setRenaming(true),
     onEditTarget: isGroupBudget ? () => setTargetOpen(true) : undefined,
+    onToggleSnooze:
+      isGroupBudget && group.target && group.target.type !== "sinking"
+        ? () => {
+            startTransition(async () => {
+              await setTargetSnoozed(group.id, "group", snoozed ? null : data.month);
+              invalidateAllLedgerQueries(queryClient);
+            });
+          }
+        : undefined,
+    snoozed,
     onMoveMoney: isGroupBudget ? () => setMoveOpen(true) : undefined,
     onViewMoves: isGroupBudget
       ? () => router.push(`/budget/moves?group=${group.id}&month=${data.month}`)
@@ -526,6 +543,11 @@ function CategoryRow({
   // The Sinking Fund's target is derived from every sinking target (see
   // deriveSinkingFundTarget), so it isn't editable here.
   const canEditTarget = isCategoryBudget && cat.role !== "sinking_fund";
+  // Snoozable unless the target is a sinking one (those ask for nothing; the
+  // Sinking Fund does, and it can be snoozed itself).
+  const canSnooze = isCategoryBudget && !!cat.target && cat.target.type !== "sinking";
+  const snoozed = !!cat.target && isTargetSnoozed(cat.target, month);
+  const [, startTransition] = useTransition();
 
   function handleRowClick() {
     if (renaming) return;
@@ -547,6 +569,15 @@ function CategoryRow({
   const rowMenu = useRowMenu({
     onRename: () => setRenaming(true),
     onEditTarget: canEditTarget ? () => setTargetOpen(true) : undefined,
+    onToggleSnooze: canSnooze
+      ? () => {
+          startTransition(async () => {
+            await setTargetSnoozed(cat.id, "category", snoozed ? null : month);
+            invalidateAllLedgerQueries(queryClient);
+          });
+        }
+      : undefined,
+    snoozed,
     onMoveMoney: isCategoryBudget ? () => setMoveOpen(true) : undefined,
     onViewMoves: isCategoryBudget
       ? () => router.push(`/budget/moves?category=${cat.id}&month=${month}`)
