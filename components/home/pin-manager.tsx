@@ -2,8 +2,9 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { Pin, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Sheet } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 import { togglePin } from "@/app/(app)/budget/actions";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
@@ -88,79 +89,54 @@ export function PinManager({ data }: { data: BudgetData }) {
 
   return (
     <>
-      <button
-        onClick={() => setOpen(true)}
-        className="flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-      >
-        <Pin size={12} />
+      <Button variant="quiet" size="sm" onClick={() => setOpen(true)}>
         Manage
-      </button>
+      </Button>
 
-      {open && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-end sm:items-center justify-center">
-          <div className="bg-background w-full sm:max-w-lg sm:rounded-2xl flex flex-col max-h-[92dvh] sm:max-h-[85dvh] shadow-2xl">
-            <div className="flex items-center justify-between px-5 py-4 border-b shrink-0">
-              <div>
-                <h2 className="font-semibold text-base">Pin to Home</h2>
-                <p className="text-xs text-muted-foreground mt-0.5">
-                  Pinned categories show up on your Home screen.
-                </p>
-              </div>
-              <button
-                onClick={close}
-                className="text-muted-foreground hover:text-foreground transition-colors"
+      <Sheet
+        open={open}
+        onOpenChange={setOpen}
+        title="Pin to Home"
+        subtitle="Pinned categories show up on your Home screen."
+        tall
+        className="px-0 pb-0"
+        footer={
+          <Button className="flex-1" onClick={close}>
+            Done
+          </Button>
+        }
+      >
+        {grouped.map(({ groupName, entries: groupEntries }) => (
+          <div key={groupName}>
+            <div className="border-y bg-surface-sunken px-5 py-2">
+              <p className="text-overline uppercase text-ink-muted">{groupName}</p>
+            </div>
+            {groupEntries.map((entry) => (
+              <label
+                key={entry.key}
+                className="flex min-h-[52px] cursor-pointer items-center gap-3 border-b px-5 py-2 transition-colors hover:bg-surface"
               >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="overflow-y-auto flex-1 min-h-0">
-              {grouped.map(({ groupName, entries: groupEntries }) => (
-                <div key={groupName}>
-                  <div className="px-5 py-2 bg-muted/30 border-b">
-                    <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide">
-                      {groupName}
-                    </p>
-                  </div>
-                  {groupEntries.map((entry) => (
-                    <label
-                      key={entry.key}
-                      className="flex items-center gap-3 px-5 py-3 border-b cursor-pointer hover:bg-muted/30 transition-colors"
-                    >
-                      <Checkbox
-                        checked={!!pinned[entry.key]}
-                        onCheckedChange={() => toggle(entry)}
-                      />
-                      <span
-                        className={cn(
-                          "text-sm",
-                          pinned[entry.key] ? "font-medium" : "",
-                        )}
-                      >
-                        {entry.name}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              ))}
-              {entries.length === 0 && (
-                <p className="text-center text-sm text-muted-foreground py-16">
-                  No categories yet.
-                </p>
-              )}
-            </div>
-
-            <div className="px-5 py-4 border-t bg-background shrink-0">
-              <button
-                onClick={close}
-                className="w-full bg-primary text-primary-foreground rounded-md py-2 text-sm font-semibold hover:opacity-90 transition-opacity"
-              >
-                Done
-              </button>
-            </div>
+                <Checkbox
+                  checked={!!pinned[entry.key]}
+                  onCheckedChange={() => toggle(entry)}
+                  className="h-6 w-6 rounded-ds-sm border-2 border-border-strong data-[state=checked]:border-brand data-[state=checked]:bg-brand data-[state=checked]:text-brand-ink"
+                />
+                <span
+                  className={cn(
+                    "truncate text-body text-ink",
+                    pinned[entry.key] && "font-semibold",
+                  )}
+                >
+                  {entry.name}
+                </span>
+              </label>
+            ))}
           </div>
-        </div>
-      )}
+        ))}
+        {entries.length === 0 && (
+          <p className="py-16 text-center text-body text-ink-muted">No categories yet.</p>
+        )}
+      </Sheet>
     </>
   );
 }

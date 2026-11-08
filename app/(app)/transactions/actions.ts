@@ -327,10 +327,20 @@ function allocationsCoverAmount(row: BulkTxnRow): boolean {
  * tracking-account transfer — see ledger_create_transfer) is not skipped: it
  * needs a category exactly like a normal uncategorized line. An uncategorized
  * line is skipped when no fallback category is supplied.
+ *
+ * `replace` widens which lines take `categoryId` instead of what they carry:
+ * - "none" (default): only lines without full allocations.
+ * - "unsplit": also lines with a single category (e.g. a suggestion), so one
+ *   chosen category lands on the whole batch. Real splits are kept.
+ * - "all": every line, splits included (the one-row approve drawer, where the
+ *   user picked this category for this transaction).
  */
+export type ApproveReplace = "none" | "unsplit" | "all";
+
 export async function bulkApproveTransactions(
   txnIds: string[],
   categoryId: string | null,
+  { replace = "none" }: { replace?: ApproveReplace } = {},
 ): Promise<BulkResult> {
   if (txnIds.length === 0) return { updated: 0, skipped: 0 };
 
@@ -348,8 +358,15 @@ export async function bulkApproveTransactions(
         continue;
       }
 
+      const allocCount = (row.transaction_allocations ?? []).length;
+      const overwrite =
+        categoryId !== null &&
+        (replace === "all" || (replace === "unsplit" && allocCount <= 1));
+
       let allocations: Allocation[];
-      if (allocationsCoverAmount(row)) {
+      if (overwrite) {
+        allocations = [{ categoryId, amountCents: row.amount_cents }];
+      } else if (allocationsCoverAmount(row)) {
         allocations = existingAllocations(row);
       } else if (categoryId) {
         allocations = [{ categoryId, amountCents: row.amount_cents }];

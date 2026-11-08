@@ -132,10 +132,32 @@ building anything similar.
   - Tapping a category row still opens its detail page (existing behavior);
     the design only makes Assigned tappable.
 
-Not built yet (build with the page that needs it): TransactionRow, Review
-drawer, Home's Ready to Assign row, DetailList.
+- Home (`app/(app)/page.tsx`, `components/home/*`): cards on `bg` (`HomeCard`,
+  `CountBadge`, `HomeCategoryRow` in `home/home-card.tsx`). The to-do card's
+  rows are value first (count badge / `AvailablePill`, label, compact
+  secondary button). Overspent and Pinned rows use `AvailablePill`; Pin to
+  Home is a tall `Sheet`.
+  - `ui/transaction-row.tsx`: the design system TransactionRow (status dot or
+    24px checkbox, payee over meta, signed amount over category). A suggested
+    category gets a small sparkle icon instead of a text tag, so the name has
+    room.
+  - Approve drawer (`home/approve-sheet.tsx`) replaces the design's Review
+    drawer: tapping a row opens a short sheet of suggested categories, a search
+    field and a link to the full editor. It uses the Sheet's `confirm` header
+    (X left, round check right) and `subtitle`.
+  - `BulkActionsBar` is restyled on tokens for every page. On Home it shows
+    only Approve (plus Move/Delete in the menu); when it asks for a category
+    the bar's own Approve button commits, so there is one primary button.
+  - Still old: the Assign and Cover overspending popups Home opens are shared
+    with Plan and move to Sheets in the sheets batch.
+
+Not built yet (build with the page that needs it): DetailList.
 
 ## Gotchas
+
+- `cn()` (`lib/utils.ts`) registers the type scale with tailwind-merge. Add any
+  new `fontSize` key there too, or `cn("text-<new> text-ink")` silently drops
+  the size (it reads both as colours).
 
 - `globals.css` bumps `.text-xs`/`.text-sm` on mobile. For a size the design
   specifies exactly (e.g. the 12px tab label), use a type-scale class or
@@ -179,7 +201,7 @@ hidden in production), Plan, Home, then the rest in batches.
 - [x] Shell (dock, round Add button, bottom clearance) and Button, Pill, Segmented, Sheet, banner, dev gallery
 - [x] `/budget` (Plan): table, banner, keypad. Still old: its popups (Assign, Move money, Cover overspending, Target, RTA breakdown, Add category/group) move to Sheets in the sheets batch
 - [ ] `/budget/category/[id]`, `/budget/moves`
-- [ ] `/` (Home)
+- [x] `/` (Home): cards, TransactionRow, approve drawer, single bulk Approve. Still old: the shared Assign / Cover overspending popups (sheets batch)
 - [ ] `/transactions`, `/transactions/[id]`
 - [ ] `/accounts`, `/accounts/[id]`
 - [ ] `/reports`, `/reports/spending`

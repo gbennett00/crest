@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { Money } from "@/components/money";
+import { Button } from "@/components/ui/button";
+import { AvailablePill } from "@/components/ui/available-pill";
 import { PendingApprovalList } from "@/components/home/pending-approval-list";
 import { HomeAssignButton } from "@/components/home/home-assign-button";
 import { PinManager } from "@/components/home/pin-manager";
 import { OverspentSection } from "@/components/home/overspent-section";
-import { cn } from "@/lib/utils";
+import { CountBadge, HomeCard, HomeCategoryRow } from "@/components/home/home-card";
 import { useHomeView } from "@/lib/queries/home";
 import { useHasMounted } from "@/lib/use-has-mounted";
 import { LoadError } from "@/components/load-error";
@@ -36,195 +37,103 @@ function HomeContent() {
   const { budgetData, overspent, pinned, pending, accounts, categories } = response!;
   const rtaAvailableCents = budgetData.rtaAvailableCents;
 
-  const hasItems = pending.length > 0 || overspent.length > 0 || rtaAvailableCents !== 0;
-  const showRtaRow = rtaAvailableCents !== 0;
   const showPendingRow = pending.length > 0;
+  const showRtaRow = rtaAvailableCents !== 0;
+  const hasItems = showPendingRow || overspent.length > 0 || showRtaRow;
+  const todoCount = (showPendingRow ? 1 : 0) + (showRtaRow ? 1 : 0) + (overspent.length > 0 ? 1 : 0);
 
   return (
-    <div className="p-4 space-y-5">
-      {/* Page title */}
-      <h1 className="text-2xl font-bold tracking-tight">Your Plan</h1>
+    <div className="space-y-6 p-4 text-ink">
+      <h1 className="text-title-lg">Home</h1>
 
-      {/* Action card */}
-      <div className="rounded-xl border bg-card shadow-sm overflow-hidden">
-        <div className="px-4 pt-4 pb-2">
-          <p className="text-base font-semibold">
-            {hasItems ? "A few things to do" : "Lookin’ good!"}
-          </p>
-          <p className="text-xs text-muted-foreground mt-0.5">
-            {hasItems ? "Take care of these when you get a chance" : "You’re all caught up"}
-          </p>
-        </div>
-
-        {/* Row 1: Pending transactions — only shown when there are some */}
-        {showPendingRow && (
-          <div className="flex items-center gap-3 px-4 py-2.5 border-t">
-            <span className="text-xs font-bold w-6 h-6 rounded-full flex items-center justify-center shrink-0 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400">
-              {pending.length}
-            </span>
-            <span className="flex-1 text-sm">New transactions</span>
-            <Link
-              href="#pending"
-              className="text-xs font-semibold bg-primary text-primary-foreground px-3 py-1 rounded-full shrink-0"
-            >
-              Review
-            </Link>
-          </div>
-        )}
-
-        {/* Row 2: Ready to Assign — hidden when exactly $0 */}
-        {showRtaRow && (
-          <div className="flex items-center gap-3 px-4 py-2.5 border-t">
-            <span
-              className={cn(
-                "text-xs font-bold px-2 h-6 rounded-full flex items-center shrink-0 tabular-nums",
-                rtaAvailableCents > 0
-                  ? "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400"
-                  : "bg-destructive/10 text-destructive",
-              )}
-            >
-              <Money cents={rtaAvailableCents} />
-            </span>
-            <span className="flex-1 text-sm">
-              {rtaAvailableCents < 0 ? "Over assigned" : "Ready to assign"}
-            </span>
-            {rtaAvailableCents < 0 ? (
-              <Link
-                href="/budget"
-                className="text-xs font-semibold bg-destructive text-destructive-foreground px-3 py-1 rounded-full shrink-0"
-              >
-                Fix
-              </Link>
-            ) : (
-              <HomeAssignButton data={budgetData} />
-            )}
-          </div>
-        )}
-      </div>
-
-      {/* Overspent */}
-      {overspent.length > 0 && (
-        <Section title="Overspent" count={overspent.length} accent="red">
-          <OverspentSection data={budgetData} items={overspent} />
-        </Section>
-      )}
-
-      {/* Pending approval */}
-      {pending.length > 0 && (
-        <Section
-          id="pending"
-          title="Needs Approval"
-          count={pending.length}
-          accent="amber"
-        >
-          <PendingApprovalList
-            pending={pending}
-            categories={categories}
-            accounts={accounts}
-          />
-        </Section>
-      )}
-
-      {/* Pinned categories — always shown so the pin manager is reachable */}
-      <div className="border rounded-xl overflow-hidden bg-card">
-        <div className="flex items-center justify-between px-4 py-2.5 border-b bg-muted/20">
-          <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold">Pinned</h2>
-            {pinned.length > 0 && (
-              <span className="text-xs font-medium px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">
-                {pinned.length}
-              </span>
-            )}
-          </div>
-          <PinManager data={budgetData} />
-        </div>
-        {pinned.length > 0 ? (
-          <div className="divide-y">
-            {pinned.map((item) => (
-              <div
-                key={item.id}
-                className="flex items-center justify-between px-4 py-2.5"
-              >
-                <div>
-                  <p className="text-sm font-medium">{item.name}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {item.isGroup ? "Group budget" : item.groupName}
-                  </p>
-                </div>
-                <span
-                  className={cn(
-                    "text-xs font-semibold tabular-nums px-2.5 py-1 rounded-full",
-                    item.availableCents < 0
-                      ? "bg-destructive/10 text-destructive"
-                      : item.availableCents === 0
-                        ? "bg-muted text-muted-foreground"
-                        : "bg-green-100 text-green-700 dark:bg-green-900/40 dark:text-green-400",
-                  )}
-                >
-                  <Money cents={item.availableCents} />
-                </span>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <p className="px-4 py-6 text-center text-xs text-muted-foreground">
-            No pinned categories yet. Tap “Manage” to add some.
-          </p>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function Section({
-  id,
-  title,
-  count,
-  accent,
-  children,
-}: {
-  id?: string;
-  title: string;
-  count?: number;
-  accent?: "amber" | "red";
-  children: React.ReactNode;
-}) {
-  return (
-    <div id={id} className="border rounded-xl overflow-hidden bg-card">
-      <div
-        className={cn(
-          "flex items-center gap-2 px-4 py-2.5 border-b",
-          accent === "amber" && "bg-amber-50 dark:bg-amber-950/20",
-          accent === "red" && "bg-destructive/5",
-        )}
+      {/* To-do card: value first in every row. */}
+      <HomeCard
+        title={
+          !hasItems ? "You’re all caught up" : todoCount === 1 ? "Just one thing to do" : "A few things to do"
+        }
+        subtitle={hasItems ? "Take care of these when you get a chance" : "Nothing needs you right now"}
       >
-        <h2 className="text-sm font-semibold">{title}</h2>
-        {count !== undefined && (
-          <span
-            className={cn(
-              "text-xs font-medium px-1.5 py-0.5 rounded-full",
-              accent === "amber" &&
-                "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-400",
-              accent === "red" && "bg-destructive/10 text-destructive",
-              !accent && "bg-muted text-muted-foreground",
+        {(showPendingRow || showRtaRow) && (
+          <ul className="divide-y">
+            {showPendingRow && (
+              <li className="flex min-h-row-list items-center gap-3 px-4 py-2.5">
+                <CountBadge tone="warn" count={pending.length} />
+                <span className="flex-1 text-body text-ink">
+                  New {pending.length === 1 ? "transaction" : "transactions"}
+                </span>
+                <Button asChild variant="secondary" size="sm" className="shrink-0">
+                  <a href="#pending">Review</a>
+                </Button>
+              </li>
             )}
-          >
-            {count}
-          </span>
+            {showRtaRow && (
+              <li className="flex min-h-row-list items-center gap-3 px-4 py-2.5">
+                <AvailablePill cents={rtaAvailableCents} />
+                <span className="min-w-0 flex-1 truncate text-body text-ink">
+                  {rtaAvailableCents < 0 ? "Over assigned" : "Ready to assign"}
+                </span>
+                {rtaAvailableCents < 0 ? (
+                  <Button asChild variant="destructive" size="sm" className="shrink-0">
+                    <Link href="/budget">Fix</Link>
+                  </Button>
+                ) : (
+                  <HomeAssignButton data={budgetData} />
+                )}
+              </li>
+            )}
+          </ul>
         )}
-      </div>
-      {children}
+      </HomeCard>
+
+      {overspent.length > 0 && (
+        <HomeCard
+          title="Overspent"
+          badge={<CountBadge tone="neg" count={overspent.length} />}
+          subtitle="Tap an amount to cover it"
+        >
+          <OverspentSection data={budgetData} items={overspent} />
+        </HomeCard>
+      )}
+
+      {pending.length > 0 && (
+        <PendingApprovalList pending={pending} categories={categories} accounts={accounts} />
+      )}
+
+      {/* Pinned — always shown so the pin manager is reachable. */}
+      <HomeCard
+        title="Pinned"
+        badge={pinned.length > 0 ? <CountBadge count={pinned.length} /> : undefined}
+        action={<PinManager data={budgetData} />}
+      >
+        {pinned.length > 0 ? (
+          <ul className="divide-y">
+            {pinned.map((item) => (
+              <li key={item.id}>
+                <HomeCategoryRow
+                  name={item.name}
+                  groupName={item.isGroup ? "Group budget" : item.groupName}
+                  trailing={<AvailablePill cents={item.availableCents} className="shrink-0" />}
+                />
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="px-4 py-6 text-center text-caption text-ink-muted">
+            No pinned categories yet. Tap Manage to add some.
+          </p>
+        )}
+      </HomeCard>
     </div>
   );
 }
 
 function HomeSkeleton() {
   return (
-    <div className="p-4 animate-pulse space-y-5">
-      <div className="h-8 bg-muted rounded w-1/3" />
-      <div className="h-28 bg-muted rounded-xl" />
+    <div className="animate-pulse space-y-6 p-4" aria-busy="true" aria-label="Loading">
+      <div className="h-9 w-1/3 rounded-ds-sm bg-surface-sunken" />
+      <div className="h-36 rounded-ds-lg bg-surface-sunken" />
       {[1, 2].map((i) => (
-        <div key={i} className="h-24 bg-muted rounded-xl" />
+        <div key={i} className="h-28 rounded-ds-lg bg-surface-sunken" />
       ))}
     </div>
   );

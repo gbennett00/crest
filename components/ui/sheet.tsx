@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
-import { ChevronLeft, X } from "lucide-react";
+import { Check, ChevronLeft, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { OverlayContainerContext } from "@/components/ui/overlay-container";
@@ -11,6 +11,14 @@ type SheetProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: React.ReactNode;
+  /** A caption line under the title. */
+  subtitle?: React.ReactNode;
+  /**
+   * Confirm-style header: Cancel (X) moves to the left, the title centres and
+   * a round check button on the right runs `onConfirm`. For short pick-then-
+   * confirm sheets with no footer (the approve drawer).
+   */
+  confirm?: { label: string; onConfirm: () => void; disabled?: boolean };
   /** Replaces the close-only header with a back chevron (a step inside a sheet). */
   onBack?: () => void;
   children: React.ReactNode;
@@ -33,6 +41,8 @@ export function Sheet({
   open,
   onOpenChange,
   title,
+  subtitle,
+  confirm,
   onBack,
   children,
   footer,
@@ -64,27 +74,52 @@ export function Sheet({
             aria-hidden="true"
             className="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-pill bg-border-strong"
           />
-          <div className="flex shrink-0 items-center justify-between gap-2 py-2 pl-5 pr-4">
-            {onBack && (
+          {confirm ? (
+            <div className="flex shrink-0 items-center gap-2 px-3 py-2">
+              <DialogPrimitive.Close
+                aria-label="Cancel"
+                className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
+              >
+                <X size={24} strokeWidth={1.75} />
+              </DialogPrimitive.Close>
+              <div className="min-w-0 flex-1 text-center">
+                <DialogPrimitive.Title className="truncate text-headline">{title}</DialogPrimitive.Title>
+                {subtitle && <p className="truncate text-caption text-ink-muted">{subtitle}</p>}
+              </div>
               <button
                 type="button"
-                onClick={onBack}
-                aria-label="Back"
-                className="-ml-3 flex h-tap w-tap shrink-0 items-center justify-center text-ink-muted hover:text-ink"
+                aria-label={confirm.label}
+                disabled={confirm.disabled}
+                onClick={confirm.onConfirm}
+                className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill bg-brand text-brand-ink transition-opacity hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-40"
               >
-                <ChevronLeft size={24} strokeWidth={1.75} />
+                <Check size={24} strokeWidth={2.25} />
               </button>
-            )}
-            <DialogPrimitive.Title className="min-w-0 flex-1 truncate text-title">
-              {title}
-            </DialogPrimitive.Title>
-            <DialogPrimitive.Close
-              aria-label="Close"
-              className="flex h-tap w-tap shrink-0 items-center justify-center text-ink-muted hover:text-ink"
-            >
-              <X size={24} strokeWidth={1.75} />
-            </DialogPrimitive.Close>
-          </div>
+            </div>
+          ) : (
+            <div className="flex shrink-0 items-center justify-between gap-2 py-2 pl-5 pr-4">
+              {onBack && (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label="Back"
+                  className="-ml-3 flex h-tap w-tap shrink-0 items-center justify-center text-ink-muted hover:text-ink"
+                >
+                  <ChevronLeft size={24} strokeWidth={1.75} />
+                </button>
+              )}
+              <div className="min-w-0 flex-1">
+                <DialogPrimitive.Title className="truncate text-title">{title}</DialogPrimitive.Title>
+                {subtitle && <p className="truncate text-caption text-ink-muted">{subtitle}</p>}
+              </div>
+              <DialogPrimitive.Close
+                aria-label="Close"
+                className="flex h-tap w-tap shrink-0 items-center justify-center text-ink-muted hover:text-ink"
+              >
+                <X size={24} strokeWidth={1.75} />
+              </DialogPrimitive.Close>
+            </div>
+          )}
           <OverlayContainerContext.Provider value={overlayContainer}>
             <div className={cn("min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-2", className)}>
               {children}

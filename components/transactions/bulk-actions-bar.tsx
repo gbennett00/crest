@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import {
@@ -71,6 +71,14 @@ interface BulkActionsBarProps {
    * asking for a category. Omit when unknown: Approve then always asks.
    */
   uncategorizedCount?: number;
+  /**
+   * Home's single-Approve flow: when some rows need a category, the one
+   * chosen is applied to every selected row (suggestions included; real
+   * splits keep theirs) instead of only the uncategorized ones.
+   */
+  approveAppliesToAll?: boolean;
+  /** Category to prefill when Approve asks for one (e.g. every suggestion agrees). */
+  approvePrefillCategoryId?: string | null;
   categories: CategoryOption[];
   accounts: AccountOption[];
   /** Actions shown as inline buttons on the bar. */
@@ -84,7 +92,14 @@ interface BulkActionsBarProps {
 }
 
 /** Explains what bulk-approving with a chosen category will do. */
-function approvePrompt(count: number, uncategorized: number | undefined): string {
+function approvePrompt(
+  count: number,
+  uncategorized: number | undefined,
+  appliesToAll: boolean,
+): string {
+  if (appliesToAll) {
+    return `This category will be applied to ${count === 1 ? "this transaction" : `all ${count} transactions`}.`;
+  }
   if (uncategorized === undefined) {
     return `Approve ${count}. Uncategorized transactions get this category; ones already categorized keep theirs.`;
   }
@@ -103,6 +118,8 @@ export function BulkActionsBar({
   selectedTotalCents,
   lockedCount = 0,
   uncategorizedCount,
+  approveAppliesToAll = false,
+  approvePrefillCategoryId = null,
   categories,
   accounts,
   primary,
@@ -123,6 +140,11 @@ export function BulkActionsBar({
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const queryClient = useQueryClient();
+
+  // Keep the Approve picker's prefill in step with the selection while open.
+  useEffect(() => {
+    if (mode === "approve") setCategory(approvePrefillCategoryId ?? "");
+  }, [mode, approvePrefillCategoryId]);
 
   if (selectedIds.length === 0) return null;
 
@@ -161,9 +183,23 @@ export function BulkActionsBar({
   // so do it in one tap — each row keeps the category it has.
   const approveAsIs = uncategorizedCount === 0;
 
+  function approveWithCategory() {
+    if (!category) return;
+    run(() =>
+      bulkApproveTransactions(selectedIds, category, {
+        replace: approveAppliesToAll ? "unsplit" : "none",
+      }),
+    );
+  }
+
   function openAction(action: BulkAction, toggle: boolean) {
     if (action === "approve" && approveAsIs) {
       run(() => bulkApproveTransactions(selectedIds, null));
+      return;
+    }
+    // Approve's panel is open: the bar's Approve button is the one that commits.
+    if (action === "approve" && mode === "approve") {
+      approveWithCategory();
       return;
     }
     setMode(toggle && mode === action ? null : action);
@@ -184,17 +220,20 @@ export function BulkActionsBar({
       <button
         key={action}
         type="button"
-        disabled={isPending || blocked}
+        disabled={
+          isPending || blocked || (action === "approve" && active && !approveAsIs && !category)
+        }
         title={blocked ? lockHint : undefined}
         onClick={() => openAction(action, true)}
         className={cn(
-          "inline-flex items-center gap-1 rounded-md px-2.5 py-1.5 text-xs font-medium transition-colors disabled:opacity-50",
-          active
-            ? "bg-primary text-primary-foreground"
-            : "bg-muted text-foreground hover:bg-muted/70",
+          "inline-flex h-9 items-center gap-1.5 rounded-ds-md px-3 text-[15px] font-semibold leading-5 transition-colors disabled:opacity-40",
+          active || action === "approve"
+            ? "bg-brand text-brand-ink hover:brightness-95"
+            : "border border-border-strong bg-surface-raised text-ink hover:bg-surface-sunken",
         )}
       >
-        <Icon size={14} /> {label}
+        <Icon size={18} /> {label}
+        {action === "approve" && count > 1 ? ` ${count}` : ""}
       </button>
     );
   }
@@ -202,55 +241,39 @@ export function BulkActionsBar({
   return (
     <>
       <div className="fixed inset-x-0 bottom-[calc(var(--dock-bottom)+6.25rem)] md:bottom-4 z-40 flex justify-center px-3 pointer-events-none">
-        <div className="pointer-events-auto w-full max-w-md rounded-xl border bg-popover shadow-2xl overflow-hidden">
+        <div className="pointer-events-auto w-full max-w-md overflow-hidden rounded-ds-lg border bg-surface-raised text-ink shadow-float">
           {/* Picker row (approve / categorize / move) */}
           {pickerMode && (
             <div className="flex flex-col gap-2 px-3 pt-3">
-              {pickerMode === "approve" && approveAsIs && (
-                // The selection became all-categorized while the panel was open.
-                <div className="flex items-center gap-2">
-                  <p className="flex-1 text-xs text-muted-foreground">
-                    Approve {count} with {count === 1 ? "its" : "their"} current{" "}
-                    {count === 1 ? "category" : "categories"}.
-                  </p>
-                  <Button
-                    size="sm"
-                    className="h-8 text-xs shrink-0"
-                    disabled={isPending}
-                    onClick={() => run(() => bulkApproveTransactions(selectedIds, null))}
-                  >
-                    {isPending ? "…" : "Approve"}
-                  </Button>
-                </div>
-              )}
-
-              {pickerMode === "approve" && !approveAsIs && (
+              {pickerMode === "approve" && (
                 <>
-                  <p className="text-xs text-muted-foreground">
-                    {approvePrompt(count, uncategorizedCount)}
-                  </p>
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-start gap-2">
+                    <p className="flex-1 pt-1.5 text-caption text-ink-muted">
+                      {approveAsIs
+                        ? // The selection became all-categorized while the panel was open.
+                          `Approve ${count} with ${count === 1 ? "its" : "their"} current ${count === 1 ? "category" : "categories"}.`
+                        : approvePrompt(count, uncategorizedCount, approveAppliesToAll)}
+                    </p>
+                    <button
+                      type="button"
+                      aria-label="Close approve options"
+                      disabled={isPending}
+                      onClick={reset}
+                      className="-mr-1 -mt-1 flex h-9 w-9 shrink-0 items-center justify-center rounded-ds-md text-ink-muted hover:bg-surface-sunken hover:text-ink disabled:opacity-40"
+                    >
+                      <X size={18} />
+                    </button>
+                  </div>
+                  {!approveAsIs && (
                     <CategoryPicker
                       value={category}
                       onChange={setCategory}
                       categories={categories}
                       placeholder="Choose a category…"
                       disabled={isPending}
-                      className="flex-1 min-w-0"
+                      className="h-12 w-full rounded-ds-md border-border-strong bg-surface-sunken text-body text-ink"
                     />
-                    <Button
-                      size="sm"
-                      className="h-8 text-xs shrink-0"
-                      disabled={isPending || !category}
-                      onClick={() =>
-                        run(() =>
-                          bulkApproveTransactions(selectedIds, category),
-                        )
-                      }
-                    >
-                      {isPending ? "…" : "Approve"}
-                    </Button>
-                  </div>
+                  )}
                 </>
               )}
 
@@ -265,7 +288,7 @@ export function BulkActionsBar({
                   />
                   <Button
                     size="sm"
-                    className="h-8 text-xs shrink-0"
+                    className="shrink-0"
                     disabled={isPending || !category}
                     onClick={() =>
                       run(() =>
@@ -282,7 +305,7 @@ export function BulkActionsBar({
                 <div className="flex flex-col gap-1.5">
                   <div className="flex items-center gap-2">
                     {moveTargets.length === 0 ? (
-                      <p className="flex-1 text-xs text-muted-foreground">
+                      <p className="flex-1 text-caption text-ink-muted">
                         No other account to move to.
                       </p>
                     ) : (
@@ -304,7 +327,7 @@ export function BulkActionsBar({
                         </select>
                         <Button
                           size="sm"
-                          className="h-8 text-xs shrink-0"
+                          className="shrink-0"
                           disabled={isPending || !account}
                           onClick={() =>
                             run(() => bulkMoveTransactions(selectedIds, account))
@@ -316,7 +339,7 @@ export function BulkActionsBar({
                     )}
                   </div>
                   {lockedCount > 0 && (
-                    <p className="text-xs text-muted-foreground">
+                    <p className="text-caption text-ink-muted">
                       {lockedCount} reconciled{" "}
                       {lockedCount === 1 ? "line is" : "lines are"} locked and
                       won’t be moved.
@@ -325,7 +348,7 @@ export function BulkActionsBar({
                 </div>
               )}
 
-              {error && <p className="text-xs text-destructive">{error}</p>}
+              {error && <p className="text-caption text-neg-text">{error}</p>}
             </div>
           )}
 
@@ -334,14 +357,14 @@ export function BulkActionsBar({
             <div className="flex flex-col shrink-0 leading-tight">
               <span
                 className={cn(
-                  "text-sm font-semibold tabular-nums",
-                  selectedTotalCents < 0 && "text-destructive",
-                  selectedTotalCents > 0 && "text-green-600 dark:text-green-400",
+                  "num text-amount",
+                  selectedTotalCents < 0 && "text-neg-text",
+                  selectedTotalCents > 0 && "text-pos-text",
                 )}
               >
                 <Money cents={selectedTotalCents} sign />
               </span>
-              <span className="text-[11px] text-muted-foreground">
+              <span className="text-caption text-ink-muted">
                 {count} selected
               </span>
             </div>
@@ -355,9 +378,9 @@ export function BulkActionsBar({
                       type="button"
                       aria-label="More actions"
                       disabled={isPending}
-                      className="inline-flex items-center gap-1 rounded-md px-2 py-1.5 text-xs font-medium bg-muted text-foreground hover:bg-muted/70 transition-colors disabled:opacity-50"
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-ds-md text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink disabled:opacity-40"
                     >
-                      <MoreHorizontal size={16} />
+                      <MoreHorizontal size={20} />
                     </button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end" side="top">
@@ -391,9 +414,9 @@ export function BulkActionsBar({
                   reset();
                   onClearSelection();
                 }}
-                className="ml-0.5 p-1.5 rounded-md text-muted-foreground hover:text-foreground hover:bg-muted transition-colors disabled:opacity-50"
+                className="ml-0.5 flex h-9 w-9 items-center justify-center rounded-ds-md text-ink-muted transition-colors hover:bg-surface-sunken hover:text-ink disabled:opacity-40"
               >
-                <X size={16} />
+                <X size={20} />
               </button>
             </div>
           </div>
@@ -420,13 +443,13 @@ export function BulkActionsBar({
             </AlertDialogDescription>
           </AlertDialogHeader>
           {lockedCount > 0 && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-ink-muted">
               {lockedCount} reconciled{" "}
               {lockedCount === 1 ? "line is" : "lines are"} locked and will be
               kept.
             </p>
           )}
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          {error && <p className="text-caption text-neg-text">{error}</p>}
           <AlertDialogFooter>
             <AlertDialogCancel disabled={isPending}>Cancel</AlertDialogCancel>
             <AlertDialogAction

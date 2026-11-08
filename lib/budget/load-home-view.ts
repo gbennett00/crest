@@ -11,6 +11,12 @@ import { loadBudgetView } from "./load-budget-view";
 import { loadCategoryOptions } from "./category-options";
 import { selectOverspent, selectPinned } from "./selectors";
 import { throwOnQueryErrors } from "./query-errors";
+import {
+  rankPayeeCategories,
+  suggestionWindowStart,
+  suggestionsFor,
+  type PayeeHistoryRow,
+} from "./approval";
 
 // A transaction awaiting approval, shaped for the home "Needs Approval" list.
 export type PendingTransaction = {
@@ -23,6 +29,13 @@ export type PendingTransaction = {
   categoryLabel: string | null;
   /** The category was filled in automatically (rule or payee history). */
   suggested: boolean;
+  /** The single category it carries; null when uncategorized or split. */
+  categoryId: string | null;
+  /**
+   * Quick picks for the approve drawer, best first: its current category,
+   * then the payee's most used categories over the last 90 days (max 4).
+   */
+  suggestedCategoryIds: string[];
 };
 
 // Everything the home screen renders. Built from the shared budget view plus a
@@ -49,7 +62,7 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
     client
       .from("transactions")
       .select(
-        "id, payee, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(categories(name))",
+        "id, payee, payee_key, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(category_id, categories(name))",
       )
       .is("approved_at", null)
       .order("txn_date", { ascending: false })
@@ -63,18 +76,29 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
   ]);
   throwOnQueryErrors({ "pending transactions": pendingRes, accounts: accountsRes });
 
-  const pending: PendingTransaction[] = (
-    (pendingRes.data ?? []) as unknown as Array<{
-      id: string;
-      payee: string | null;
-      amount_cents: number;
-      txn_date: string;
-      category_source: string | null;
-      accounts: { name: string } | null;
-      transaction_allocations: { categories: { name: string } | null }[] | null;
-    }>
-  ).map((t) => {
+  type RawPending = {
+    id: string;
+    payee: string | null;
+    payee_key: string | null;
+    amount_cents: number;
+    txn_date: string;
+    category_source: string | null;
+    accounts: { name: string } | null;
+    transaction_allocations:
+      | { category_id: string; categories: { name: string } | null }[]
+      | null;
+  };
+  const rawPending = (pendingRes.data ?? []) as unknown as RawPending[];
+
+  const ranked = await loadPayeeRankings(
+    client,
+    rawPending.map((t) => t.payee_key),
+    new Set(categories.map((c) => c.id)),
+  );
+
+  const pending: PendingTransaction[] = rawPending.map((t) => {
     const allocs = t.transaction_allocations ?? [];
+    const categoryId = allocs.length === 1 ? allocs[0].category_id : null;
     return {
       id: t.id,
       payee: t.payee || "—",
@@ -88,6 +112,11 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
             ? (allocs[0].categories?.name ?? "Unknown")
             : `Split (${allocs.length})`,
       suggested: t.category_source !== null && allocs.length > 0,
+      categoryId,
+      suggestedCategoryIds: suggestionsFor(
+        categoryId,
+        t.payee_key ? ranked.get(t.payee_key) : undefined,
+      ),
     };
   });
 
@@ -103,4 +132,41 @@ export async function loadHomeData(client: SupabaseClient): Promise<HomeData> {
     accounts,
     categories,
   };
+}
+
+/**
+ * Each pending payee's categories from its approved, non-transfer history in
+ * the suggestion window, most used first. One query for every payee shown.
+ */
+async function loadPayeeRankings(
+  client: SupabaseClient,
+  payeeKeys: (string | null)[],
+  validCategoryIds: ReadonlySet<string>,
+): Promise<Map<string, string[]>> {
+  const keys = [...new Set(payeeKeys.filter((k): k is string => !!k))];
+  if (keys.length === 0) return new Map();
+
+  const res = await client
+    .from("transactions")
+    .select("payee_key, txn_date, transaction_allocations(category_id)")
+    .in("payee_key", keys)
+    .not("approved_at", "is", null)
+    .is("transfer_account_id", null)
+    .gte("txn_date", suggestionWindowStart(new Date()))
+    .order("txn_date", { ascending: false })
+    .limit(2000);
+  throwOnQueryErrors({ "payee history": res });
+
+  const history: PayeeHistoryRow[] = (
+    (res.data ?? []) as unknown as {
+      payee_key: string;
+      txn_date: string;
+      transaction_allocations: { category_id: string }[] | null;
+    }[]
+  ).map((r) => ({
+    payeeKey: r.payee_key,
+    txnDate: r.txn_date,
+    categoryIds: (r.transaction_allocations ?? []).map((a) => a.category_id),
+  }));
+  return rankPayeeCategories(history, validCategoryIds);
 }
