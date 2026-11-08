@@ -731,22 +731,25 @@ export function withDerivedSinkingFundTarget(
 /**
  * Returns the targets with each owner's `snoozed_month` copied onto its
  * target, including the derived Sinking Fund target (which has no row of its
- * own). Run after `withDerivedSinkingFundTarget`.
+ * own). Run after `withDerivedSinkingFundTarget`. Targets whose owner isn't in
+ * `groups` pass through unchanged.
  */
 export function withSnoozedMonths(
   groups: RawGroup[],
   catTargets: Record<string, TargetData>,
   grpTargets: Record<string, TargetData>,
 ): { catTargets: Record<string, TargetData>; grpTargets: Record<string, TargetData> } {
-  const snoozedCats: Record<string, TargetData> = {};
-  const snoozedGrps: Record<string, TargetData> = {};
+  const snoozed = new Map<string, string | null>();
   for (const g of groups) {
-    const grp = grpTargets[g.id];
-    if (grp) snoozedGrps[g.id] = { ...grp, snoozedMonth: g.snoozed_month ?? null };
-    for (const c of g.categories ?? []) {
-      const cat = catTargets[c.id];
-      if (cat) snoozedCats[c.id] = { ...cat, snoozedMonth: c.snoozed_month ?? null };
-    }
+    snoozed.set(`g:${g.id}`, g.snoozed_month ?? null);
+    for (const c of g.categories ?? []) snoozed.set(`c:${c.id}`, c.snoozed_month ?? null);
   }
-  return { catTargets: snoozedCats, grpTargets: snoozedGrps };
+  const apply = (targets: Record<string, TargetData>, prefix: "c" | "g") =>
+    Object.fromEntries(
+      Object.entries(targets).map(([id, t]) => [
+        id,
+        snoozed.has(`${prefix}:${id}`) ? { ...t, snoozedMonth: snoozed.get(`${prefix}:${id}`) } : t,
+      ]),
+    );
+  return { catTargets: apply(catTargets, "c"), grpTargets: apply(grpTargets, "g") };
 }

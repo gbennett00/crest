@@ -282,6 +282,11 @@ export async function deleteTarget(
   entityId: string,
   entityType: "category" | "group",
 ) {
+  // A snooze belongs to the target; clear it first so a failure here leaves
+  // the target intact rather than half-deleted.
+  const cleared = await setTargetSnoozed(entityId, entityType, null);
+  if ("error" in cleared) return cleared;
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("targets")
@@ -289,11 +294,6 @@ export async function deleteTarget(
     .eq(entityType === "category" ? "category_id" : "group_id", entityId);
 
   if (error) return { error: error.message };
-
-  // A snooze belongs to the target; don't let it outlive it.
-  const cleared = await setTargetSnoozed(entityId, entityType, null);
-  if ("error" in cleared) return cleared;
-
   revalidatePath("/budget");
   return { success: true };
 }
