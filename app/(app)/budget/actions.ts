@@ -282,6 +282,11 @@ export async function deleteTarget(
   entityId: string,
   entityType: "category" | "group",
 ) {
+  // A snooze belongs to the target; clear it first so a failure here leaves
+  // the target intact rather than half-deleted.
+  const cleared = await setTargetSnoozed(entityId, entityType, null);
+  if ("error" in cleared) return cleared;
+
   const supabase = await createClient();
   const { error } = await supabase
     .from("targets")
@@ -290,6 +295,31 @@ export async function deleteTarget(
 
   if (error) return { error: error.message };
   revalidatePath("/budget");
+  return { success: true };
+}
+
+/**
+ * Snooze the target on a category/group for `month` (a first-of-month date),
+ * or pass null to unsnooze. Only one month is kept: snoozing another month
+ * replaces it, and a past month simply stops applying.
+ */
+export async function setTargetSnoozed(
+  entityId: string,
+  entityType: "category" | "group",
+  month: string | null,
+) {
+  if (month !== null && !/^\d{4}-\d{2}-01$/.test(month))
+    return { error: "Snooze month must be the first day of a month" };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from(entityType === "category" ? "categories" : "category_groups")
+    .update({ snoozed_month: month })
+    .eq("id", entityId);
+
+  if (error) return { error: error.message };
+  revalidatePath("/budget");
+  revalidatePath("/");
   return { success: true };
 }
 

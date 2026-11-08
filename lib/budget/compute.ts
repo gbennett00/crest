@@ -362,6 +362,7 @@ export type RawCategory = {
   is_pinned: boolean;
   is_hidden: boolean;
   sort_index: number;
+  snoozed_month?: string | null;
 };
 
 /** Raw group as returned by the `category_groups` query. */
@@ -371,6 +372,7 @@ export type RawGroup = {
   budget_mode: "category" | "group";
   is_pinned: boolean;
   sort_index: number;
+  snoozed_month?: string | null;
   categories: RawCategory[];
 };
 
@@ -593,6 +595,13 @@ export function deriveSinkingFundTarget(targets: TargetData[]): TargetData | nul
   return { type: "set_aside", amountCents, targetDate: null, repeatIntervalMonths: null };
 }
 
+/** True when `target` is snoozed for `month`: it then asks for nothing from
+ * Assign by Targets and never reads as underfunded. Only the snoozed month
+ * counts, so the snooze expires on its own. Spending Plan costs ignore it. */
+export function isTargetSnoozed(target: TargetData, month: string): boolean {
+  return target.snoozedMonth === month;
+}
+
 /**
  * Cents still needed this month to stay on track for `target`, given a
  * (possibly draft) assigned amount and available balance for the viewed
@@ -610,6 +619,8 @@ export function deriveSinkingFundTarget(targets: TargetData[]): TargetData | nul
  *    on or after `month` first (see `effectiveTargetDate`).
  *  - `sinking`: nothing — the category is funded by hand from the Sinking
  *    Fund, whose own derived target carries the monthly need instead.
+ *
+ * A target snoozed for `month` needs nothing (see `isTargetSnoozed`).
  */
 export function targetNeedCents(
   target: TargetData,
@@ -617,6 +628,7 @@ export function targetNeedCents(
   assignedCents: number,
   availableCents: number,
 ): number {
+  if (isTargetSnoozed(target, month)) return 0;
   if (target.type === "fill_up_to") {
     return Math.max(0, target.amountCents - availableCents);
   }
@@ -714,4 +726,30 @@ export function withDerivedSinkingFundTarget(
   delete rest[sinkingFundId];
   const derived = deriveSinkingFundTarget([...Object.values(rest), ...Object.values(grpTargets)]);
   return derived ? { ...rest, [sinkingFundId]: derived } : rest;
+}
+
+/**
+ * Returns the targets with each owner's `snoozed_month` copied onto its
+ * target, including the derived Sinking Fund target (which has no row of its
+ * own). Run after `withDerivedSinkingFundTarget`. Targets whose owner isn't in
+ * `groups` pass through unchanged.
+ */
+export function withSnoozedMonths(
+  groups: RawGroup[],
+  catTargets: Record<string, TargetData>,
+  grpTargets: Record<string, TargetData>,
+): { catTargets: Record<string, TargetData>; grpTargets: Record<string, TargetData> } {
+  const snoozed = new Map<string, string | null>();
+  for (const g of groups) {
+    snoozed.set(`g:${g.id}`, g.snoozed_month ?? null);
+    for (const c of g.categories ?? []) snoozed.set(`c:${c.id}`, c.snoozed_month ?? null);
+  }
+  const apply = (targets: Record<string, TargetData>, prefix: "c" | "g") =>
+    Object.fromEntries(
+      Object.entries(targets).map(([id, t]) => [
+        id,
+        snoozed.has(`${prefix}:${id}`) ? { ...t, snoozedMonth: snoozed.get(`${prefix}:${id}`) } : t,
+      ]),
+    );
+  return { catTargets: apply(catTargets, "c"), grpTargets: apply(grpTargets, "g") };
 }

@@ -14,6 +14,7 @@ import {
   sinkingMonthlyContributionCents,
   targetMonthlyCostCents,
   targetNeedCents,
+  withSnoozedMonths,
   totalTargetMonthlyCostCents,
   withDerivedSinkingFundTarget,
   type CreditTxn,
@@ -1053,5 +1054,73 @@ describe("withDerivedSinkingFundTarget", () => {
   it("leaves targets untouched when there's no Sinking Fund category", () => {
     const targets = { vacation: sinking(1_200_00, 12) };
     expect(withDerivedSinkingFundTarget([], targets, {})).toBe(targets);
+  });
+});
+
+describe("snoozed targets", () => {
+  const snoozedIn = (target: TargetData, snoozedMonth: string | null): TargetData => ({
+    ...target,
+    snoozedMonth,
+  });
+  const fillUpTo: TargetData = {
+    type: "fill_up_to",
+    amountCents: 50_000,
+    targetDate: null,
+    repeatIntervalMonths: null,
+  };
+  const setAside: TargetData = { ...fillUpTo, type: "set_aside" };
+  const byDate: TargetData = {
+    type: "by_date",
+    amountCents: 120_000,
+    targetDate: "2026-12-01",
+    repeatIntervalMonths: null,
+  };
+
+  it("needs nothing in the snoozed month, for every target type", () => {
+    for (const t of [fillUpTo, setAside, byDate]) {
+      expect(targetNeedCents(snoozedIn(t, MONTH), MONTH, 0, 0)).toBe(0);
+    }
+  });
+
+  it("asks again the month after, with a by_date target's bigger catch-up", () => {
+    const next = "2026-07-01";
+    expect(targetNeedCents(snoozedIn(fillUpTo, MONTH), next, 0, 0)).toBe(50_000);
+    expect(targetNeedCents(snoozedIn(byDate, MONTH), "2026-11-01", 0, 0)).toBe(60_000);
+    expect(targetNeedCents(byDate, "2026-11-01", 0, 0)).toBe(60_000);
+  });
+
+  it("ignores a snooze left over from an earlier month", () => {
+    expect(targetNeedCents(snoozedIn(fillUpTo, "2026-05-01"), MONTH, 0, 0)).toBe(50_000);
+  });
+
+  it("does not change the Spending Plan's monthly cost", () => {
+    expect(targetMonthlyCostCents(snoozedIn(setAside, MONTH), MONTH)).toBe(50_000);
+  });
+
+  it("is wired from the owning category or group, including the derived Sinking Fund", () => {
+    const groups: RawGroup[] = [
+      {
+        id: "g-fund",
+        name: "Sinking Funds",
+        budget_mode: "category",
+        is_pinned: false,
+        sort_index: 0,
+        snoozed_month: MONTH,
+        categories: [
+          { id: "fund", name: "Sinking Fund", role: "sinking_fund", is_pinned: false, is_hidden: false, sort_index: 0, snoozed_month: MONTH },
+          { id: "vacation", name: "Vacation", role: null, is_pinned: false, is_hidden: false, sort_index: 1 },
+        ],
+      },
+    ];
+    const derived = withDerivedSinkingFundTarget(
+      groups,
+      { vacation: sinking(1_200_00, 12) },
+      { "g-fund": setAside },
+    );
+    const { catTargets, grpTargets } = withSnoozedMonths(groups, derived, { "g-fund": setAside });
+    expect(catTargets.fund?.snoozedMonth).toBe(MONTH);
+    expect(targetNeedCents(catTargets.fund!, MONTH, 0, 0)).toBe(0);
+    expect(catTargets.vacation?.snoozedMonth).toBeNull();
+    expect(grpTargets["g-fund"]?.snoozedMonth).toBe(MONTH);
   });
 });

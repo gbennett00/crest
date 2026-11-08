@@ -42,6 +42,17 @@ describe("categoryPillState", () => {
     expect(categoryPillState(cat(), MONTH)).toBe("zero");
   });
 
+  it("is pos, not warn, when the underfunded target is snoozed this month", () => {
+    const snoozed = { ...fillUpTo(10_700), snoozedMonth: MONTH };
+    expect(categoryPillState(cat({ availableCents: 900, target: snoozed }), MONTH)).toBe("pos");
+    expect(categoryPillState(cat({ target: snoozed }), MONTH)).toBe("zero");
+  });
+
+  it("is warn again once the snoozed month has passed", () => {
+    const stale = { ...fillUpTo(10_700), snoozedMonth: "2026-09-01" };
+    expect(categoryPillState(cat({ availableCents: 900, target: stale }), MONTH)).toBe("warn");
+  });
+
   it("is warn when funded but short of its target", () => {
     expect(categoryPillState(cat({ availableCents: 900, target: fillUpTo(10_700) }), MONTH)).toBe("warn");
   });
