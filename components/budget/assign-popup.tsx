@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { runAssignment } from "@/lib/queries/budget";
 import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -36,8 +36,6 @@ export function AssignPopup({
 }) {
   const formatCents = useFormattedCents();
   const queryClient = useQueryClient();
-  const [, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   const entries = useMemo(() => buildEntries(data), [data]);
 
@@ -82,7 +80,9 @@ export function AssignPopup({
   }
 
   function handleSave() {
-    setError(null);
+    // Only the rows the user changed. Rewriting the others would also persist
+    // any assignment still in flight that the screen shows optimistically,
+    // even if that write then fails.
     const assignments = entries
       .filter((e) => (drafts[e.key] ?? e.originalAssigned) !== e.originalAssigned)
       .map((e) => ({
@@ -91,24 +91,18 @@ export function AssignPopup({
         amountCents: drafts[e.key] ?? e.originalAssigned,
       }));
 
-    // Always save all assignments (even unchanged) to be safe
-    const allAssignments = entries.map((e) => ({
-      type: e.type,
-      id: e.id,
-      amountCents: drafts[e.key] ?? e.originalAssigned,
-    }));
-
-    startTransition(async () => {
-      const result = await bulkAssign(allAssignments, data.month);
-      if (result?.success) {
-        invalidateAllLedgerQueries(queryClient);
-        onClose();
-      } else {
-        setError("Failed to save assignments.");
-      }
-    });
-
-    void assignments; // suppress lint warning
+    if (assignments.length > 0) {
+      runAssignment(queryClient, {
+        month: data.month,
+        targets: assignments.map(({ type, id, amountCents }) => ({
+          unit: { type, id },
+          assignedCents: amountCents,
+        })),
+        action: () => bulkAssign(assignments, data.month),
+        title: "Couldn’t save the assignments.",
+      });
+    }
+    onClose();
   }
 
   // Group entries by group name for display
@@ -194,7 +188,6 @@ export function AssignPopup({
 
         {/* Sticky footer */}
         <div className="px-5 py-4 border-t bg-background shrink-0 space-y-2">
-          {error && <p className="text-xs text-destructive text-center">{error}</p>}
           <div className="flex gap-3">
             <Button variant="outline" className="flex-1" onClick={onClose}>
               Cancel

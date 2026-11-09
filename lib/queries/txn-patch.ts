@@ -244,3 +244,8 @@ export function patchLedgerData(key: QueryKey, data: unknown, patch: TxnPatch): 
 export function patchLedgerDataAll(key: QueryKey, data: unknown, patches: TxnPatch[]): unknown {
   return patches.reduce((d, patch) => patchLedgerData(key, d, patch), data);
 }
+
+/** A patch for runOptimistic that applies `patches` to every cached query. */
+export function transactionPatch(patches: TxnPatch[]) {
+  return (key: QueryKey, data: unknown) => patchLedgerDataAll(key, data, patches);
+}

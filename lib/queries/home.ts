@@ -15,6 +15,9 @@ async function fetchHomeView(): Promise<HomeData> {
 
 const homeViewQuery = defineQuery("home-view", fetchHomeView);
 
+/** The name in home-view's query key, for patches that target it. */
+export const homeViewQueryName = homeViewQuery.name;
+
 export function useHomeView() {
   return homeViewQuery.useResource([]);
 }

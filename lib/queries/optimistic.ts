@@ -3,13 +3,15 @@
 import type { QueryClient, QueryKey } from "@tanstack/react-query";
 import { afterNextPaint, type startFlow } from "@/lib/perf";
 import { invalidateAllLedgerQueries, LEDGER_ROOT } from "./define-query";
-import { patchLedgerDataAll, type TxnPatch } from "./txn-patch";
 import { showSaveError } from "./save-error-store";
 
-// Optimistic transaction writes: every cached list the transaction appears in
-// is patched the moment the user saves, and the server action runs behind it.
+// Optimistic writes: every cached query the write shows up in is patched the
+// moment the user saves, and the server action runs behind it. Patches come
+// from lib/queries/txn-patch.ts (transactions) and lib/budget/assign-patch.ts
+// (assignments). A patch must be safe to apply again to data that already
+// includes the write.
 //
-// While an action is in flight its patches stay registered here, and the
+// While an action is in flight its patch stays registered here, and the
 // layer installed by installOptimisticLayer re-applies them to any fetch
 // result that lands in the meantime (a mount refetch on the screen the user
 // navigated to, another save's refetch). Otherwise such a fetch, answered
@@ -17,12 +19,15 @@ import { showSaveError } from "./save-error-store";
 //
 // Module-level because the app has exactly one QueryClient (lib/query-client.tsx).
 
-const inFlight = new Map<number, TxnPatch[]>();
+/** Returns `data` with a pending write applied, or `data` itself if untouched. */
+export type LedgerPatch = (key: QueryKey, data: unknown) => unknown;
+
+const inFlight = new Map<number, LedgerPatch>();
 let nextId = 0;
 
 function applyInFlight(key: QueryKey, data: unknown): unknown {
   let next = data;
-  for (const patches of inFlight.values()) next = patchLedgerDataAll(key, next, patches);
+  for (const patch of inFlight.values()) next = patch(key, next);
   return next;
 }
 
@@ -44,7 +49,7 @@ export function installOptimisticLayer(queryClient: QueryClient) {
 type Flow = ReturnType<typeof startFlow>;
 
 /**
- * Patches the cache with `patches`, then runs `action`. On failure (it
+ * Patches the cache with `patch`, then runs `action`. On failure (it
  * throws, or `errorOf` returns a message) the patched queries are restored,
  * the error is shown in the global save-error banner, and the ledger is
  * refetched. Either way the ledger is refetched afterwards so derived numbers
@@ -55,14 +60,14 @@ type Flow = ReturnType<typeof startFlow>;
 export function runOptimistic<R>(
   queryClient: QueryClient,
   {
-    patches,
+    patch,
     action,
     errorOf,
     onSuccess,
     failure,
     flow,
   }: {
-    patches: TxnPatch[];
+    patch: LedgerPatch;
     action: () => Promise<R>;
     /** The failure message for a result, or null when it succeeded. */
     errorOf: (result: R) => string | null | undefined;
@@ -76,11 +81,11 @@ export function runOptimistic<R>(
   const id = nextId++;
   const filters = { queryKey: LEDGER_ROOT };
 
-  inFlight.set(id, patches);
+  inFlight.set(id, patch);
   // What each patched query held before, to put back if the write fails.
   const snapshot: [QueryKey, unknown][] = [];
   for (const [key, data] of queryClient.getQueriesData(filters)) {
-    const patched = patchLedgerDataAll(key, data, patches);
+    const patched = patch(key, data);
     if (patched === data) continue;
     snapshot.push([key, data]);
     // Only the queries being patched: cancelling another query's first load

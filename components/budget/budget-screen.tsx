@@ -18,7 +18,12 @@ import {
   renameCategory,
   renameGroup,
 } from "@/app/(app)/budget/actions";
-import { useBudgetView, prefetchBudgetView, useSnoozeTarget } from "@/lib/queries/budget";
+import {
+  prefetchBudgetView,
+  runAssignment,
+  useBudgetView,
+  useSnoozeTarget,
+} from "@/lib/queries/budget";
 import { useScreenTiming } from "@/lib/use-perf";
 import {
   prefetchAllTransactions,
@@ -73,7 +78,6 @@ const BUDGET_MONTH_RE = /^\d{4}-\d{2}-01$/;
 export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
   const queryClient = useQueryClient();
   const hasMounted = useHasMounted();
-  const [, startTransition] = useTransition();
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const [assignOpen, setAssignOpen] = useState(false);
   const [breakdownOpen, setBreakdownOpen] = useState(false);
@@ -313,10 +317,13 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                     activity={totalActivity}
                     available={totalAvailable}
                     onAssignGroup={(cents) =>
-                      startTransition(async () => {
-                        await assignGroup(group.id, data.month, cents);
-                        // Changes RTA everywhere and later months' available.
-                        invalidateAllLedgerQueries(queryClient);
+                      // Shows at once; the refetch behind it updates RTA
+                      // and later months' available.
+                      runAssignment(queryClient, {
+                        month: data.month,
+                        targets: [{ unit: { type: "group", id: group.id }, assignedCents: cents }],
+                        action: () => assignGroup(group.id, data.month, cents),
+                        title: `Couldn’t assign to ${group.name}.`,
                       })
                     }
                   />
@@ -331,10 +338,11 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
                         group={group}
                         month={data.month}
                         onAssign={(cents) =>
-                          startTransition(async () => {
-                            await assignCategory(cat.id, data.month, cents);
-                            // Changes RTA everywhere and later months' available.
-                            invalidateAllLedgerQueries(queryClient);
+                          runAssignment(queryClient, {
+                            month: data.month,
+                            targets: [{ unit: { type: "category", id: cat.id }, assignedCents: cents }],
+                            action: () => assignCategory(cat.id, data.month, cents),
+                            title: `Couldn’t assign to ${cat.name}.`,
                           })
                         }
                       />

@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { useFormattedCents } from "@/components/money";
 import { assignCategory } from "@/app/(app)/budget/actions";
-import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { runAssignment } from "@/lib/queries/budget";
 import { paymentShortfallCents } from "@/lib/budget/compute";
 import type { BudgetCategory } from "@/lib/budget/types";
 
@@ -68,19 +68,20 @@ export function PaymentCategoryActivity({
   const [openState, setOpenState] = useState(false);
   const open = openProp ?? openState;
   const setOpen = onOpenChange ?? setOpenState;
-  const [isPending, startTransition] = useTransition();
 
   const shortfall = paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents);
   const underfunded = shortfall > 0;
   const breakdown = cat.cardActivityBreakdown;
 
   function handleCover() {
-    startTransition(async () => {
-      await assignCategory(cat.id, month, cat.assignedCents + shortfall);
-      setOpen(false);
-      // Changes RTA everywhere and later months' available.
-      invalidateAllLedgerQueries(queryClient);
+    const assignedCents = cat.assignedCents + shortfall;
+    runAssignment(queryClient, {
+      month,
+      targets: [{ unit: { type: "category", id: cat.id }, assignedCents }],
+      action: () => assignCategory(cat.id, month, assignedCents),
+      title: `Couldn’t assign to ${cat.name}.`,
     });
+    setOpen(false);
   }
 
   return (
@@ -161,10 +162,9 @@ export function PaymentCategoryActivity({
                   type="button"
                   size="sm"
                   className="h-7 w-full text-xs"
-                  disabled={isPending}
                   onClick={handleCover}
                 >
-                  {isPending ? "…" : `Assign ${formatCents(shortfall)} to cover`}
+                  {`Assign ${formatCents(shortfall)} to cover`}
                 </Button>
               </div>
             )}

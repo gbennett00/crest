@@ -45,7 +45,7 @@ import type {
 import { CategoryPicker } from "@/components/transactions/category-picker";
 import { afterNextPaint, startFlow } from "@/lib/perf";
 import { runOptimistic } from "@/lib/queries/optimistic";
-import type { TxnPatch } from "@/lib/queries/txn-patch";
+import { transactionPatch, type TxnPatch } from "@/lib/queries/txn-patch";
 
 export type BulkAction = "approve" | "categorize" | "move" | "delete";
 
@@ -184,7 +184,7 @@ export function BulkActionsBar({
   ) {
     const ids = selectedIds;
     runOptimistic(queryClient, {
-      patches: ids.map(patch),
+      patch: transactionPatch(ids.map(patch)),
       action,
       errorOf: (result) => result.error,
       failure: {

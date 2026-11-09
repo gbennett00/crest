@@ -1,8 +1,9 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { runAssignment } from "@/lib/queries/budget";
+import { targetsForMoves } from "@/lib/budget/assign-patch";
 import { X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -41,8 +42,6 @@ export function CoverOverspendingPopup({
 }) {
   const formatCents = useFormattedCents();
   const queryClient = useQueryClient();
-  const [isPending, startTransition] = useTransition();
-  const [error, setError] = useState<string | null>(null);
 
   const amountNeeded = -target.overspentCents;
   const targetKey: EntryKey = target.type === "category" ? `c:${target.id}` : `g:${target.id}`;
@@ -71,7 +70,6 @@ export function CoverOverspendingPopup({
 
   function handleSave() {
     if (totalCovered <= 0) return;
-    setError(null);
 
     const to = { type: target.type, id: target.id };
     const moves: BudgetMoveInput[] = [];
@@ -91,15 +89,13 @@ export function CoverOverspendingPopup({
       });
     }
 
-    startTransition(async () => {
-      const result = await coverOverspending(moves);
-      if (result?.success) {
-        invalidateAllLedgerQueries(queryClient);
-        onClose();
-      } else {
-        setError("Failed to cover overspending.");
-      }
+    runAssignment(queryClient, {
+      month: data.month,
+      targets: targetsForMoves(data, moves),
+      action: () => coverOverspending(moves),
+      title: "Couldn’t cover the overspending.",
     });
+    onClose();
   }
 
   const grouped: { groupName: string; entries: BudgetEntry[] }[] = [];
@@ -199,13 +195,12 @@ export function CoverOverspendingPopup({
 
         {/* Sticky footer */}
         <div className="px-5 py-4 border-t bg-background shrink-0 space-y-2">
-          {error && <p className="text-xs text-destructive text-center">{error}</p>}
           <div className="flex gap-3">
             <Button variant="outline" className="flex-1" onClick={onClose}>
               Cancel
             </Button>
-            <Button className="flex-1" onClick={handleSave} disabled={totalCovered <= 0 || isPending}>
-              {isPending ? "…" : `Cover ${formatCents(totalCovered)}`}
+            <Button className="flex-1" onClick={handleSave} disabled={totalCovered <= 0}>
+              {`Cover ${formatCents(totalCovered)}`}
             </Button>
           </div>
         </div>
