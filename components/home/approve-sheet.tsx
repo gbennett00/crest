@@ -52,15 +52,18 @@ export function ApproveSheet({
   // split; picking a category replaces it.
   const splitCount = txn.allocationCount > 1 ? txn.allocationCount : 0;
 
-  const suggestions = useMemo(() => {
-    const list = txn.suggestedCategoryIds
-      .map((id) => byId.get(id))
-      .filter((c): c is CategoryOption => !!c);
-    // A category picked from search stays visible once the search is cleared.
-    const picked = selectedId ? byId.get(selectedId) : undefined;
-    if (picked && !list.some((c) => c.id === picked.id)) list.unshift(picked);
-    return list;
-  }, [txn.suggestedCategoryIds, byId, selectedId]);
+  const suggestions = useMemo(
+    () =>
+      txn.suggestedCategoryIds
+        .map((id) => byId.get(id))
+        .filter((c): c is CategoryOption => !!c),
+    [txn.suggestedCategoryIds, byId],
+  );
+  // The last category picked from the full list that isn't a suggestion. It
+  // gets its own section (never shown as suggested) and stays there after
+  // tapping a suggestion, so the user can switch back to it.
+  const [browsedPickId, setBrowsedPickId] = useState<string | null>(null);
+  const picked = browsedPickId ? (byId.get(browsedPickId) ?? null) : null;
 
   function leaveBrowse() {
     setBrowsing(false);
@@ -70,6 +73,7 @@ export function ApproveSheet({
 
   function pick(categoryId: string) {
     setSelectedId(categoryId);
+    if (!suggestions.some((c) => c.id === categoryId)) setBrowsedPickId(categoryId);
     leaveBrowse();
   }
 
@@ -131,19 +135,30 @@ export function ApproveSheet({
         </p>
       )}
 
+      {!browsing && picked && (
+        <>
+          <h3 className="mb-2 mt-2 text-overline uppercase text-ink-muted">From all categories</h3>
+          <CategoryOptions options={[picked]} selectedId={selectedId} onSelect={setSelectedId} />
+        </>
+      )}
+
       {!browsing &&
         (suggestions.length > 0 ? (
           <>
-            <h3 className="mb-2 mt-2 text-overline uppercase text-ink-muted">Suggested</h3>
+            <h3 className={cn("mb-2 text-overline uppercase text-ink-muted", picked ? "mt-4" : "mt-2")}>
+              Suggested
+            </h3>
             <CategoryOptions options={suggestions} selectedId={selectedId} onSelect={setSelectedId} />
             <p className="mt-2 px-0.5 text-caption text-ink-subtle">
               Most used with {txn.payee} in the last 90 days
             </p>
           </>
         ) : (
-          <p className="mt-2 text-caption text-ink-muted">
-            No recent categories for {txn.payee}. Search or browse below.
-          </p>
+          !picked && (
+            <p className="mt-2 text-caption text-ink-muted">
+              No recent categories for {txn.payee}. Search or browse below.
+            </p>
+          )
         ))}
 
       {/* Kept in the same tree position in both modes so focus (and the
