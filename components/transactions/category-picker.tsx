@@ -5,7 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronsUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePortalTarget } from "@/components/ui/overlay-container";
-import { useKeyboardSheetFrame } from "@/components/ui/use-keyboard-frame";
+import { useKeyboardFrame } from "@/components/ui/use-keyboard-frame";
 import type { CategoryOption } from "./transaction-form";
 import { CategoryList } from "./category-list";
 
@@ -43,7 +43,7 @@ export function CategoryPicker({
   const searchRef = useRef<HTMLInputElement>(null);
   const portalTarget = usePortalTarget();
   // Its search field autofocuses: keep the list above the on-screen keyboard.
-  const keyboardFrame = useKeyboardSheetFrame(open, true);
+  const keyboardFrame = useKeyboardFrame(open);
 
   useEffect(() => setMounted(true), []);
 
@@ -113,7 +113,16 @@ export function CategoryPicker({
             <div
               style={
                 keyboardFrame
-                  ? { position: "fixed", left: 0, right: 0, ...keyboardFrame }
+                  ? {
+                      // Fixed to sit on the keyboard; auto margins keep the
+                      // max-width (sm+) panel centred.
+                      position: "fixed",
+                      left: 0,
+                      right: 0,
+                      marginInline: "auto",
+                      ...keyboardFrame,
+                      height: keyboardFrame.maxHeight,
+                    }
                   : undefined
               }
               className="flex h-[85dvh] w-full flex-col overflow-hidden rounded-t-ds-xl border border-b-0 bg-surface-raised text-ink shadow-sheet sm:h-[70vh] sm:max-w-sm sm:rounded-ds-xl sm:border-b">

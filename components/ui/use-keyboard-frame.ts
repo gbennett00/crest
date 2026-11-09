@@ -1,15 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { keyboardSheetFrame, type SheetFrame } from "@/lib/keyboard-frame";
+import { keyboardFrame, sameFrame, type KeyboardFrame } from "@/lib/keyboard-frame";
 
 /**
- * While `active`, tracks the visual viewport and returns the frame a bottom
- * sheet needs to stay above the on-screen keyboard (see lib/keyboard-frame.ts),
+ * While `active`, tracks the visual viewport and returns where a bottom sheet
+ * must sit to stay above the on-screen keyboard (see lib/keyboard-frame.ts),
  * or null when no keyboard is open or the browser has no visualViewport.
+ * The returned object only changes when the frame does, so viewport scroll
+ * events don't re-render the sheet every frame.
  */
-export function useKeyboardSheetFrame(active: boolean, tall: boolean): SheetFrame | null {
-  const [frame, setFrame] = useState<SheetFrame | null>(null);
+export function useKeyboardFrame(active: boolean): KeyboardFrame | null {
+  const [frame, setFrame] = useState<KeyboardFrame | null>(null);
 
   useEffect(() => {
     const vv = typeof window !== "undefined" ? window.visualViewport : null;
@@ -20,18 +22,15 @@ export function useKeyboardSheetFrame(active: boolean, tall: boolean): SheetFram
     let raf = 0;
     const update = () => {
       cancelAnimationFrame(raf);
-      raf = requestAnimationFrame(() =>
-        setFrame(
-          keyboardSheetFrame(
-            {
-              layoutHeight: document.documentElement.clientHeight,
-              visualHeight: vv.height,
-              visualOffsetTop: vv.offsetTop,
-            },
-            tall,
-          ),
-        ),
-      );
+      raf = requestAnimationFrame(() => {
+        const next = keyboardFrame({
+          layoutHeight: document.documentElement.clientHeight,
+          visualHeight: vv.height,
+          visualOffsetTop: vv.offsetTop,
+          scale: vv.scale,
+        });
+        setFrame((prev) => (sameFrame(prev, next) ? prev : next));
+      });
     };
     update();
     vv.addEventListener("resize", update);
@@ -41,7 +40,7 @@ export function useKeyboardSheetFrame(active: boolean, tall: boolean): SheetFram
       vv.removeEventListener("resize", update);
       vv.removeEventListener("scroll", update);
     };
-  }, [active, tall]);
+  }, [active]);
 
   return frame;
 }

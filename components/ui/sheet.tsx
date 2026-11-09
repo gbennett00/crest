@@ -6,7 +6,7 @@ import { Check, ChevronLeft, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { OverlayContainerContext } from "@/components/ui/overlay-container";
-import { useKeyboardSheetFrame } from "@/components/ui/use-keyboard-frame";
+import { useKeyboardFrame } from "@/components/ui/use-keyboard-frame";
 
 type SheetProps = {
   open: boolean;
@@ -60,7 +60,7 @@ export function Sheet({
   // portal into (see overlay-container.tsx).
   const [overlayContainer, setOverlayContainer] = React.useState<HTMLElement | null>(null);
   // Stay above the on-screen keyboard (iOS lays fixed elements out behind it).
-  const keyboardFrame = useKeyboardSheetFrame(open, !!tall);
+  const keyboardFrame = useKeyboardFrame(open);
 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
@@ -79,7 +79,11 @@ export function Sheet({
             "max-h-[90dvh] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:slide-out-to-bottom data-[state=open]:slide-in-from-bottom duration-200 motion-reduce:animate-none",
             tall && "h-[90dvh]",
           )}
-          style={keyboardFrame ?? undefined}
+          style={
+            keyboardFrame
+              ? { ...keyboardFrame, ...(tall ? { height: keyboardFrame.maxHeight } : {}) }
+              : undefined
+          }
         >
           <div
             aria-hidden="true"

@@ -59,12 +59,11 @@ export function ApproveSheet({
         .filter((c): c is CategoryOption => !!c),
     [txn.suggestedCategoryIds, byId],
   );
-  // A category picked from the full list that isn't a suggestion gets its
-  // own "Selected" section; it is never shown as suggested.
-  const picked =
-    selectedId && !suggestions.some((c) => c.id === selectedId)
-      ? (byId.get(selectedId) ?? null)
-      : null;
+  // The last category picked from the full list that isn't a suggestion. It
+  // gets its own section (never shown as suggested) and stays there after
+  // tapping a suggestion, so the user can switch back to it.
+  const [browsedPickId, setBrowsedPickId] = useState<string | null>(null);
+  const picked = browsedPickId ? (byId.get(browsedPickId) ?? null) : null;
 
   function leaveBrowse() {
     setBrowsing(false);
@@ -74,6 +73,7 @@ export function ApproveSheet({
 
   function pick(categoryId: string) {
     setSelectedId(categoryId);
+    if (!suggestions.some((c) => c.id === categoryId)) setBrowsedPickId(categoryId);
     leaveBrowse();
   }
 
@@ -137,7 +137,7 @@ export function ApproveSheet({
 
       {!browsing && picked && (
         <>
-          <h3 className="mb-2 mt-2 text-overline uppercase text-ink-muted">Selected</h3>
+          <h3 className="mb-2 mt-2 text-overline uppercase text-ink-muted">From all categories</h3>
           <CategoryOptions options={[picked]} selectedId={selectedId} onSelect={setSelectedId} />
         </>
       )}

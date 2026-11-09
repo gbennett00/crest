@@ -17,14 +17,15 @@ export type ViewportMetrics = {
   visualHeight: number;
   /** window.visualViewport.offsetTop: how far it is scrolled down the layout viewport. */
   visualOffsetTop: number;
+  /** window.visualViewport.scale: pinch-zoom, which also shrinks visualHeight. */
+  scale: number;
 };
 
-export type SheetFrame = {
+export type KeyboardFrame = {
   /** CSS `bottom` in px, from the layout viewport's bottom edge. */
   bottom: number;
+  /** The visible height above the keyboard, less a small gap. A tall sheet uses it as its height. */
   maxHeight: number;
-  /** Set for the tall (drawer) form, which fills the visible height. */
-  height?: number;
 };
 
 /** Below this the difference is browser chrome, not a keyboard. */
@@ -32,12 +33,19 @@ const KEYBOARD_MIN_PX = 120;
 /** Visible gap kept above the sheet so it still reads as a sheet. */
 const TOP_GAP_PX = 8;
 
-/** Null when no keyboard is open: the sheet keeps its normal CSS frame. */
-export function keyboardSheetFrame(m: ViewportMetrics, tall: boolean): SheetFrame | null {
+/** Null when no keyboard is open (or the page is pinch-zoomed): keep the normal CSS frame. */
+export function keyboardFrame(m: ViewportMetrics): KeyboardFrame | null {
+  if (Math.abs(m.scale - 1) > 0.01) return null;
   const hidden = m.layoutHeight - m.visualHeight;
   if (hidden < KEYBOARD_MIN_PX) return null;
 
-  const bottom = Math.max(0, m.layoutHeight - (m.visualOffsetTop + m.visualHeight));
-  const maxHeight = Math.max(0, m.visualHeight - TOP_GAP_PX);
-  return tall ? { bottom, maxHeight, height: maxHeight } : { bottom, maxHeight };
+  return {
+    bottom: Math.max(0, Math.round(m.layoutHeight - (m.visualOffsetTop + m.visualHeight))),
+    maxHeight: Math.max(0, Math.round(m.visualHeight - TOP_GAP_PX)),
+  };
+}
+
+export function sameFrame(a: KeyboardFrame | null, b: KeyboardFrame | null): boolean {
+  if (a === null || b === null) return a === b;
+  return a.bottom === b.bottom && a.maxHeight === b.maxHeight;
 }
