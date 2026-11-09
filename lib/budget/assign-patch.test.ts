@@ -104,6 +104,32 @@ describe("withAssignments", () => {
     expect(next.groups[1].groupAvailableCents).toBe(3_000);
   });
 
+  it("leaves Ready to Assign at zero while future assignments are covered by future income", () => {
+    // $100 on hand, $100 already committed to next month: RTA reads 0 with the
+    // future line capped at what's on hand.
+    const ahead = {
+      ...data,
+      rtaAvailableCents: 0,
+      rtaBreakdown: {
+        leftoverFromPriorCents: 0,
+        inflowThisMonthCents: 30_000,
+        assignedThisMonthCents: 20_000,
+        previousMonthCashOverspendCents: 0,
+        assignedFutureCents: 10_000,
+        futureCoveredByFutureIncomeCents: 0,
+        totalCents: 0,
+      },
+    };
+    const next = withAssignments(ahead, MONTH, [{ unit: category("groceries"), assignedCents: 18_000 }]);
+    expect(next.rtaAvailableCents).toBe(0);
+    expect(next.rtaBreakdown).toMatchObject({
+      assignedThisMonthCents: 23_000,
+      assignedFutureCents: 7_000,
+      futureCoveredByFutureIncomeCents: 3_000,
+      totalCents: 0,
+    });
+  });
+
   it("applies several targets", () => {
     const next = withAssignments(data, MONTH, [
       { unit: category("groceries"), assignedCents: 16_000 },

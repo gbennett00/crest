@@ -9,6 +9,7 @@ import { withAssignments, type AssignTarget } from "@/lib/budget/assign-patch";
 import { selectOverspent, selectPinned } from "@/lib/budget/selectors";
 import type { BudgetData } from "@/lib/budget/types";
 import type { HomeData } from "@/lib/budget/load-home-view";
+import { homeViewQueryName } from "./home";
 import { createActionQueue } from "./in-order";
 import { runOptimistic, type LedgerPatch } from "./optimistic";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
@@ -99,7 +100,7 @@ export function assignmentPatch(month: string, targets: AssignTarget[]): LedgerP
       const patched = withAssignments(res.data, month, targets);
       return patched === res.data ? data : { ...res, data: patched };
     }
-    if (key[1] === "home-view") {
+    if (key[1] === homeViewQueryName) {
       const home = data as HomeData;
       const budgetData = withAssignments(home.budgetData, month, targets);
       if (budgetData === home.budgetData) return data;

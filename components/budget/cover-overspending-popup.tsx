@@ -42,7 +42,6 @@ export function CoverOverspendingPopup({
 }) {
   const formatCents = useFormattedCents();
   const queryClient = useQueryClient();
-  const [error, setError] = useState<string | null>(null);
 
   const amountNeeded = -target.overspentCents;
   const targetKey: EntryKey = target.type === "category" ? `c:${target.id}` : `g:${target.id}`;
@@ -71,7 +70,6 @@ export function CoverOverspendingPopup({
 
   function handleSave() {
     if (totalCovered <= 0) return;
-    setError(null);
 
     const to = { type: target.type, id: target.id };
     const moves: BudgetMoveInput[] = [];
@@ -197,7 +195,6 @@ export function CoverOverspendingPopup({
 
         {/* Sticky footer */}
         <div className="px-5 py-4 border-t bg-background shrink-0 space-y-2">
-          {error && <p className="text-xs text-destructive text-center">{error}</p>}
           <div className="flex gap-3">
             <Button variant="outline" className="flex-1" onClick={onClose}>
               Cancel
