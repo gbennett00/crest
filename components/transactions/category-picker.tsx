@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { ChevronsUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePortalTarget } from "@/components/ui/overlay-container";
+import { useKeyboardSheetFrame } from "@/components/ui/use-keyboard-frame";
 import type { CategoryOption } from "./transaction-form";
 import { CategoryList } from "./category-list";
 
@@ -41,6 +42,8 @@ export function CategoryPicker({
   const [mounted, setMounted] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const portalTarget = usePortalTarget();
+  // Its search field autofocuses: keep the list above the on-screen keyboard.
+  const keyboardFrame = useKeyboardSheetFrame(open, true);
 
   useEffect(() => setMounted(true), []);
 
@@ -107,7 +110,13 @@ export function CategoryPicker({
             role="dialog"
             aria-modal="true"
           >
-            <div className="flex h-[85dvh] w-full flex-col overflow-hidden rounded-t-ds-xl border border-b-0 bg-surface-raised text-ink shadow-sheet sm:h-[70vh] sm:max-w-sm sm:rounded-ds-xl sm:border-b">
+            <div
+              style={
+                keyboardFrame
+                  ? { position: "fixed", left: 0, right: 0, ...keyboardFrame }
+                  : undefined
+              }
+              className="flex h-[85dvh] w-full flex-col overflow-hidden rounded-t-ds-xl border border-b-0 bg-surface-raised text-ink shadow-sheet sm:h-[70vh] sm:max-w-sm sm:rounded-ds-xl sm:border-b">
               <div aria-hidden="true" className="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-pill bg-border-strong" />
               <div className="flex shrink-0 items-center justify-between gap-2 py-1 pl-5 pr-3">
                 <h2 className="text-title">Choose category</h2>
