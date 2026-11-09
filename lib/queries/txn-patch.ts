@@ -213,10 +213,18 @@ export function patchLedgerData(key: QueryKey, data: unknown, patch: TxnPatch): 
 
   if (name === "all-transactions") {
     const res = data as AllTransactionsResponse;
-    const txns = patchList(res.txns, patch, () => false, (row) => ({
-      accountId: patch.accountId ?? row.accountId,
-      accountName: patch.accountName ?? row.accountName,
-    }));
+    const txns = patchList(res.txns, patch, () => false, (row) => {
+      const cats = nextCategories(patch, countFromLabel(row.categoryLabel));
+      return {
+        accountId: patch.accountId ?? row.accountId,
+        accountName: patch.accountName ?? row.accountName,
+        categoryIds: !cats
+          ? row.categoryIds
+          : patch.allocations
+            ? patch.allocations.map((a) => a.categoryId)
+            : [cats.categoryId!],
+      };
+    });
     return txns ? { ...res, txns } : data;
   }
 

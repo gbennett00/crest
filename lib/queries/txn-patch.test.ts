@@ -43,6 +43,7 @@ function row(overrides: Partial<AllTransactionsRow> = {}): AllTransactionsRow {
     categoryLabel: "Dining",
     suggested: true,
     needsCategory: false,
+    categoryIds: ["dining"],
     accountId: "checking",
     accountName: "Checking",
     ...overrides,
@@ -202,6 +203,22 @@ describe("transaction lists", () => {
       suggested: false,
       needsCategory: false,
     });
+  });
+
+  it("keeps a row's category ids in step with its categories", () => {
+    const categorize: TxnPatch = { id: "t1", category: { id: "food", name: "Food", replace: "all" } };
+    expect(rowsOf(patchLedgerData(ALL_KEY, allTxns([row()]), categorize))[0].categoryIds).toEqual(["food"]);
+    const split: TxnPatch = {
+      id: "t1",
+      allocations: [
+        { categoryId: "a", name: "A", amountCents: -200 },
+        { categoryId: "b", name: "B", amountCents: -250 },
+      ],
+    };
+    expect(rowsOf(patchLedgerData(ALL_KEY, allTxns([row()]), split))[0].categoryIds).toEqual(["a", "b"]);
+    // "none" keeps an already-categorized row's category, so its ids stay too.
+    const keep: TxnPatch = { id: "t1", category: { id: "food", name: "Food", replace: "none" } };
+    expect(rowsOf(patchLedgerData(ALL_KEY, allTxns([row()]), keep))[0].categoryIds).toEqual(["dining"]);
   });
 
   it("shows an edit's fields and account", () => {

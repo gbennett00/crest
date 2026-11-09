@@ -18,6 +18,8 @@ export type AllTransactionsRow = {
   suggested: boolean;
   /** Pending with no category: approving it needs one. */
   needsCategory: boolean;
+  /** Every category it's allocated to, so a category's list can be drawn from a wider one. */
+  categoryIds: string[];
   accountId: string;
   accountName: string;
 };
@@ -155,6 +157,7 @@ export async function GET(request: NextRequest) {
       categoryLabel,
       suggested: !txn.approved_at && txn.category_source !== null && allocs.length > 0,
       needsCategory: !txn.approved_at && allocs.length === 0,
+      categoryIds: allocs.map((a) => a.category_id),
       accountId: txn.account_id as string,
       accountName: accountData?.name ?? "Unknown",
     };

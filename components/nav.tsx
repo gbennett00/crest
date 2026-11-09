@@ -10,9 +10,17 @@ import { AddTransaction } from "@/components/add-transaction";
 import { currentBudgetMonth } from "@/lib/ledger";
 import { prefetchHomeView } from "@/lib/queries/home";
 import { prefetchBudgetView } from "@/lib/queries/budget";
-import { prefetchAccountsList } from "@/lib/queries/accounts";
-import { prefetchAllTransactions } from "@/lib/queries/transactions";
-import { prefetchReportsDashboard } from "@/lib/queries/reports";
+import { prefetchAccountsList, preloadAccountRegisters } from "@/lib/queries/accounts";
+import {
+  prefetchAllTransactions,
+  preloadMonthTransactions,
+  preloadRecentTransactionDetails,
+} from "@/lib/queries/transactions";
+import { prefetchReportsDashboard, prefetchSpendingReport } from "@/lib/queries/reports";
+import { prefetchRules } from "@/lib/queries/rules";
+import { prefetchMembers } from "@/lib/queries/members";
+import { preloadWhenIdle } from "@/lib/queries/preload";
+import { DEFAULT_PERIOD_KEY } from "@/lib/reports/period";
 
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
@@ -22,12 +30,17 @@ const NAV_LINKS = [
   { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
 
+// Reached from a tab or the user menu rather than the nav itself.
+const SECONDARY_ROUTES = ["/reports/spending", "/rules", "/members"] as const;
+
 // Warm both Next's Router Cache (the route's JS/shell) and the client query
 // cache (the route's actual data — see lib/queries/*) for the top-level tabs
 // on mount, so switching tabs is instant even on the very first tap, not just
 // on a revisit. Both calls are idempotent/deduped against already-fresh
 // cache entries, so calling this from whichever nav is mounted (sidebar on
 // desktop, bottom nav on mobile) is harmless.
+let secondaryPreloadQueued = false;
+
 function useEagerPrefetch() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -38,6 +51,24 @@ function useEagerPrefetch() {
     prefetchAccountsList(queryClient);
     prefetchAllTransactions(queryClient, {});
     prefetchReportsDashboard(queryClient);
+
+    // Both navs mount this hook (one is hidden by CSS); queue once per load.
+    if (secondaryPreloadQueued) return;
+    secondaryPreloadQueued = true;
+
+    // Then, one at a time while the browser is idle, the screens a tab leads
+    // to (lib/queries/preload.ts), most used first: this month's transactions
+    // (every category drill-down on the Plan tab), every account's register,
+    // the Activity tab's first edit pages, and the less used pages.
+    preloadMonthTransactions(queryClient, currentBudgetMonth());
+    preloadAccountRegisters(queryClient);
+    preloadRecentTransactionDetails(queryClient);
+    for (const href of SECONDARY_ROUTES) router.prefetch(href);
+    preloadWhenIdle(
+      () => prefetchSpendingReport(queryClient, DEFAULT_PERIOD_KEY, [], null),
+      () => prefetchRules(queryClient),
+      () => prefetchMembers(queryClient),
+    );
   }, [router, queryClient]);
 }
 

@@ -1,13 +1,16 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Lock, X } from "lucide-react";
 import { Money } from "@/components/money";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionsBar } from "@/components/transactions/bulk-actions-bar";
-import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
+import {
+  prefetchTransactionDetail,
+  preloadTransactionDetails,
+} from "@/lib/queries/transaction-detail";
 import type {
   AccountOption,
   CategoryOption,
@@ -42,6 +45,11 @@ export function AllTransactionsList({
   const queryClient = useQueryClient();
 
   const allIds = transactions.map((t) => t.id);
+  // Join so the effect only reruns when the rows themselves change.
+  const idsKey = allIds.join(",");
+  useEffect(() => {
+    preloadTransactionDetails(queryClient, idsKey ? idsKey.split(",") : []);
+  }, [queryClient, idsKey]);
   const allSelected = allIds.length > 0 && selected.size === allIds.length;
 
   function toggle(id: string) {

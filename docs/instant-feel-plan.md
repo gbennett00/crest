@@ -219,7 +219,14 @@ Highest risk; needs hands-on testing in an installed PWA on a phone.
 - Offline writes are out of scope; show "offline, can't save" instead. (Persisted paused-mutation
   queues need idempotent actions and conflict handling.)
 - Launch-time prefetch of likely next screens (Budget, Transactions) after Home paints; keep the
-  existing hover/focus prefetch.
+  existing hover/focus prefetch. **Done:** the top-level tabs were already prefetched on mount.
+  `lib/queries/preload.ts` now also warms second-level screens one request at a time while the
+  browser is idle (paused in the background, skipped on data-saver): this month's transactions
+  (every Plan category drill-down draws from them via `categoryListFromMonth`), every account's
+  register, the Activity tab's first 10 edit pages, and the spending report, rules and members.
+  The approve drawer starts loading its edit page when it opens. Intent prefetches alone didn't
+  help on phones, where a tap navigates ~100 ms after pointerdown. With 1.5 s API latency, a
+  first tap into a register, drill-down or edit page went from ~2 s to ~300-400 ms.
 - Consistent failure toast with retry for rolled-back optimistic writes.
 - Playwright smoke test: approve makes the row vanish instantly, and reappears when the server is
   forced to fail.
