@@ -1,7 +1,10 @@
 "use client";
 
-import { keepPreviousData, type QueryClient } from "@tanstack/react-query";
-import { defineQuery } from "./define-query";
+import { useTransition } from "react";
+import { keepPreviousData, useQueryClient, type QueryClient } from "@tanstack/react-query";
+import { defineQuery, invalidateAllLedgerQueries, LEDGER_ROOT } from "./define-query";
+import { setTargetSnoozed } from "@/app/(app)/budget/actions";
+import { withTargetSnoozed } from "@/lib/budget/snooze";
 import type { BudgetData } from "@/lib/budget/types";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
@@ -47,4 +50,33 @@ export function invalidateBudgetView(queryClient: QueryClient, month?: string) {
   return month
     ? budgetViewQuery.invalidate(queryClient, month)
     : budgetViewQuery.invalidate(queryClient);
+}
+
+/**
+ * Snoozes (or, with a null month, unsnoozes) a category's/group's target.
+ * The cached budget view of every month is patched immediately so the pill
+ * flips at once; the server write follows, and the cache is restored if it
+ * fails, then refetched either way to pick up the server's numbers.
+ */
+export function useSnoozeTarget() {
+  const queryClient = useQueryClient();
+  const [, startTransition] = useTransition();
+
+  return (entityType: "category" | "group", id: string, month: string | null) => {
+    const filters = { queryKey: [...LEDGER_ROOT, budgetViewQuery.name] };
+    // Stop an in-flight refetch from landing over the optimistic value.
+    void queryClient.cancelQueries(filters);
+    const previous = queryClient.getQueriesData<BudgetViewResponse>(filters);
+    queryClient.setQueriesData<BudgetViewResponse>(filters, (old) =>
+      old && { ...old, data: withTargetSnoozed(old.data, entityType, id, month) },
+    );
+
+    startTransition(async () => {
+      const result = await setTargetSnoozed(id, entityType, month);
+      if ("error" in result) {
+        for (const [key, data] of previous) queryClient.setQueryData(key, data);
+      }
+      invalidateAllLedgerQueries(queryClient);
+    });
+  };
 }

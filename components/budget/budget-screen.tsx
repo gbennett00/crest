@@ -17,9 +17,8 @@ import {
   assignGroup,
   renameCategory,
   renameGroup,
-  setTargetSnoozed,
 } from "@/app/(app)/budget/actions";
-import { useBudgetView, prefetchBudgetView } from "@/lib/queries/budget";
+import { useBudgetView, prefetchBudgetView, useSnoozeTarget } from "@/lib/queries/budget";
 import { useScreenTiming } from "@/lib/use-perf";
 import {
   prefetchAllTransactions,
@@ -395,8 +394,7 @@ function GroupHeaderRow({
   const [coverOpen, setCoverOpen] = useState(false);
   const [moveOpen, setMoveOpen] = useState(false);
   const router = useRouter();
-  const queryClient = useQueryClient();
-  const [, startTransition] = useTransition();
+  const snoozeTarget = useSnoozeTarget();
   const isGroupBudget = group.budgetMode === "group";
   const overspent = isGroupBudget && available < 0;
   // Sinking targets ask for nothing themselves (the Sinking Fund does), so
@@ -407,12 +405,7 @@ function GroupHeaderRow({
     onEditTarget: isGroupBudget ? () => setTargetOpen(true) : undefined,
     onToggleSnooze:
       isGroupBudget && group.target && group.target.type !== "sinking"
-        ? () => {
-            startTransition(async () => {
-              await setTargetSnoozed(group.id, "group", snoozed ? null : data.month);
-              invalidateAllLedgerQueries(queryClient);
-            });
-          }
+        ? () => snoozeTarget("group", group.id, snoozed ? null : data.month)
         : undefined,
     snoozed,
     onMoveMoney: isGroupBudget ? () => setMoveOpen(true) : undefined,
@@ -549,7 +542,7 @@ function CategoryRow({
   // Sinking Fund does, and it can be snoozed itself).
   const canSnooze = isCategoryBudget && !!cat.target && cat.target.type !== "sinking";
   const snoozed = !!cat.target && isTargetSnoozed(cat.target, month);
-  const [, startTransition] = useTransition();
+  const snoozeTarget = useSnoozeTarget();
 
   function handleRowClick() {
     if (renaming) return;
@@ -572,12 +565,7 @@ function CategoryRow({
     onRename: () => setRenaming(true),
     onEditTarget: canEditTarget ? () => setTargetOpen(true) : undefined,
     onToggleSnooze: canSnooze
-      ? () => {
-          startTransition(async () => {
-            await setTargetSnoozed(cat.id, "category", snoozed ? null : month);
-            invalidateAllLedgerQueries(queryClient);
-          });
-        }
+      ? () => snoozeTarget("category", cat.id, snoozed ? null : month)
       : undefined,
     snoozed,
     onMoveMoney: isCategoryBudget ? () => setMoveOpen(true) : undefined,
