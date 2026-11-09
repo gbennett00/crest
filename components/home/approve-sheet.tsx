@@ -3,18 +3,17 @@
 import { useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { Check, ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight, Search, X } from "lucide-react";
 
 import { Sheet } from "@/components/ui/sheet";
 import { useFormattedCents } from "@/components/money";
 import { cn } from "@/lib/utils";
-import { splitLeadingEmoji } from "@/lib/leading-emoji";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
 import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
 import { bulkApproveTransactions } from "@/app/(app)/transactions/actions";
 import type { PendingTransaction } from "@/lib/budget";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
-import { CategoryList } from "@/components/transactions/category-list";
+import { CategoryList, CategoryRow } from "@/components/transactions/category-list";
 import { formatShortDate } from "./format";
 
 /**
@@ -37,14 +36,21 @@ export function ApproveSheet({
 }) {
   const queryClient = useQueryClient();
   const formatCents = useFormattedCents();
-  const [selectedId, setSelectedId] = useState<string | null>(txn.categoryId);
+  const byId = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  // Start on the row's current category only if it can still be shown and
+  // picked (a suggestion into a since-hidden category can't).
+  const [selectedId, setSelectedId] = useState<string | null>(
+    txn.categoryId && byId.has(txn.categoryId) ? txn.categoryId : null,
+  );
   const [query, setQuery] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
   const [error, setError] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
 
-  const byId = useMemo(() => new Map(categories.map((c) => [c.id, c])), [categories]);
+  // Already split across categories: approving with nothing picked keeps the
+  // split; picking a category replaces it.
+  const splitCount = txn.allocationCount > 1 ? txn.allocationCount : 0;
 
   const suggestions = useMemo(() => {
     const list = txn.suggestedCategoryIds
@@ -68,10 +74,12 @@ export function ApproveSheet({
   }
 
   function approve() {
-    if (!selectedId) return;
+    if (!selectedId && splitCount === 0) return;
     setError(null);
     startTransition(async () => {
-      const result = await bulkApproveTransactions([txn.id], selectedId, { replace: "all" });
+      const result = selectedId
+        ? await bulkApproveTransactions([txn.id], selectedId, { replace: "all" })
+        : await bulkApproveTransactions([txn.id], null);
       if (result.error || result.updated === 0) {
         setError(result.error ?? "Couldn’t approve this transaction.");
         return;
@@ -103,11 +111,26 @@ export function ApproveSheet({
       confirm={{
         label: isPending ? "Approving" : "Approve",
         onConfirm: approve,
-        disabled: !selectedId || isPending,
+        disabled: (!selectedId && splitCount === 0) || isPending,
       }}
+      onEscape={
+        browsing
+          ? (e) => {
+              e.preventDefault();
+              leaveBrowse();
+            }
+          : undefined
+      }
       tall={browsing}
       className={browsing ? "flex flex-col overflow-hidden pb-0 pt-1" : "pt-1"}
     >
+      {!browsing && splitCount > 0 && (
+        <p className="mt-2 rounded-ds-md bg-brand-subtle px-3.5 py-2.5 text-caption text-ink">
+          Split across {splitCount} categories. Approve keeps the split, or pick a category to
+          replace it.
+        </p>
+      )}
+
       {!browsing &&
         (suggestions.length > 0 ? (
           <>
@@ -165,6 +188,8 @@ export function ApproveSheet({
         )}
       </div>
 
+      {error && <p className="mt-3 shrink-0 text-caption text-neg-text">{error}</p>}
+
       {browsing ? (
         <div className="-mx-5 min-h-0 flex-1 overflow-y-auto overscroll-contain border-t pb-[max(1rem,env(safe-area-inset-bottom))]">
           <CategoryList
@@ -177,7 +202,6 @@ export function ApproveSheet({
         </div>
       ) : (
         <>
-          {error && <p className="mt-3 text-caption text-neg-text">{error}</p>}
           <div className="mt-2 flex justify-center">
             <Link
               href={editHref}
@@ -206,32 +230,15 @@ function CategoryOptions({
 }) {
   return (
     <ul className="flex flex-col gap-2">
-      {options.map((c) => {
-        const { emoji, label } = splitLeadingEmoji(c.name);
-        const on = c.id === selectedId;
-        return (
-          <li key={c.id}>
-            <button
-              type="button"
-              aria-pressed={on}
-              onClick={() => onSelect(c.id)}
-              className={cn(
-                "flex min-h-[52px] w-full items-center gap-3 rounded-ds-md border px-3.5 text-left text-body font-medium text-ink transition-colors",
-                "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
-                on ? "border-brand-text bg-brand-subtle" : "border-border bg-surface hover:bg-surface-sunken",
-              )}
-            >
-              {emoji && (
-                <span aria-hidden="true" className="w-[26px] shrink-0 text-center text-xl">
-                  {emoji}
-                </span>
-              )}
-              <span className="min-w-0 flex-1 truncate">{label}</span>
-              {on && <Check size={20} strokeWidth={2.25} className="shrink-0 text-brand-text" aria-hidden />}
-            </button>
-          </li>
-        );
-      })}
+      {options.map((c) => (
+        <CategoryRow
+          key={c.id}
+          variant="card"
+          label={c.name}
+          selected={c.id === selectedId}
+          onClick={() => onSelect(c.id)}
+        />
+      ))}
     </ul>
   );
 }

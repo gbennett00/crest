@@ -32,6 +32,8 @@ export type PendingTransaction = {
   suggested: boolean;
   /** The single category it carries; null when uncategorized or split. */
   categoryId: string | null;
+  /** How many category splits it carries (0 uncategorized, 2+ split). */
+  allocationCount: number;
   /**
    * Quick picks for the approve drawer, best first: its current category,
    * then the payee's most used categories over the last 90 days (max 4).
@@ -64,25 +66,6 @@ export async function loadHomeData(
   const timed = <T>(name: string, fn: () => PromiseLike<T>) =>
     timer ? timer.time(name, fn) : fn();
 
-  const [budgetData, pendingRes, accountsRes, categories] = await Promise.all([
-    timed("budget", () => loadBudgetView(client, month)),
-    timed("pending", () =>
-      client
-        .from("transactions")
-        .select(
-          "id, payee, payee_key, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(category_id, categories(name))",
-        )
-        .is("approved_at", null)
-        .order("txn_date", { ascending: false })
-        .limit(25),
-    ),
-    timed("accounts", () =>
-      client.from("accounts").select("id, name, on_budget").eq("is_active", true).order("name"),
-    ),
-    timed("categories", () => loadCategoryOptions(client)),
-  ]);
-  throwOnQueryErrors({ "pending transactions": pendingRes, accounts: accountsRes });
-
   type RawPending = {
     id: string;
     payee: string | null;
@@ -95,15 +78,46 @@ export async function loadHomeData(
       | { category_id: string; categories: { name: string } | null }[]
       | null;
   };
-  const rawPending = (pendingRes.data ?? []) as unknown as RawPending[];
 
-  const ranked = await timed("payee-history", () =>
-    loadPayeeRankings(
-      client,
-      rawPending.map((t) => t.payee_key),
-      new Set(categories.map((c) => c.id)),
+  const pendingLoad = Promise.resolve(
+    timed("pending", () =>
+      client
+        .from("transactions")
+        .select(
+          "id, payee, payee_key, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(category_id, categories(name))",
+        )
+        .is("approved_at", null)
+        .order("txn_date", { ascending: false })
+        .limit(25),
     ),
   );
+  // Payee history needs only the pending rows, so it chains off that query
+  // and runs alongside the (slower) budget view instead of after it.
+  const historyLoad = pendingLoad.then((res) =>
+    res.error
+      ? []
+      : timed("payee-history", () =>
+          loadPayeeHistory(
+            client,
+            ((res.data ?? []) as unknown as RawPending[]).map((t) => t.payee_key),
+          ),
+        ),
+  );
+
+  const [budgetData, pendingRes, accountsRes, categories, history] = await Promise.all([
+    timed("budget", () => loadBudgetView(client, month)),
+    pendingLoad,
+    timed("accounts", () =>
+      client.from("accounts").select("id, name, on_budget").eq("is_active", true).order("name"),
+    ),
+    timed("categories", () => loadCategoryOptions(client)),
+    historyLoad,
+  ]);
+  throwOnQueryErrors({ "pending transactions": pendingRes, accounts: accountsRes });
+
+  const rawPending = (pendingRes.data ?? []) as unknown as RawPending[];
+  const validCategoryIds = new Set(categories.map((c) => c.id));
+  const ranked = rankPayeeCategories(history, validCategoryIds);
 
   const pending: PendingTransaction[] = rawPending.map((t) => {
     const allocs = t.transaction_allocations ?? [];
@@ -122,8 +136,10 @@ export async function loadHomeData(
             : `Split (${allocs.length})`,
       suggested: t.category_source !== null && allocs.length > 0,
       categoryId,
+      allocationCount: allocs.length,
       suggestedCategoryIds: suggestionsFor(
-        categoryId,
+        // A suggestion into a category that is now hidden isn't offered.
+        categoryId && validCategoryIds.has(categoryId) ? categoryId : null,
         t.payee_key ? ranked.get(t.payee_key) : undefined,
       ),
     };
@@ -144,16 +160,17 @@ export async function loadHomeData(
 }
 
 /**
- * Each pending payee's categories from its approved, non-transfer history in
- * the suggestion window, most used first. One query for every payee shown.
+ * Approved, non-transfer history in the suggestion window for every pending
+ * payee shown, newest first, in one query. PostgREST caps a response at
+ * `max_rows` (1000, supabase/config.toml), so the limit is set to match: if a
+ * window holds more, the oldest rows are the ones left out.
  */
-async function loadPayeeRankings(
+async function loadPayeeHistory(
   client: SupabaseClient,
   payeeKeys: (string | null)[],
-  validCategoryIds: ReadonlySet<string>,
-): Promise<Map<string, string[]>> {
+): Promise<PayeeHistoryRow[]> {
   const keys = [...new Set(payeeKeys.filter((k): k is string => !!k))];
-  if (keys.length === 0) return new Map();
+  if (keys.length === 0) return [];
 
   const res = await client
     .from("transactions")
@@ -163,10 +180,10 @@ async function loadPayeeRankings(
     .is("transfer_account_id", null)
     .gte("txn_date", suggestionWindowStart(new Date()))
     .order("txn_date", { ascending: false })
-    .limit(2000);
+    .limit(1000);
   throwOnQueryErrors({ "payee history": res });
 
-  const history: PayeeHistoryRow[] = (
+  return (
     (res.data ?? []) as unknown as {
       payee_key: string;
       txn_date: string;
@@ -177,5 +194,4 @@ async function loadPayeeRankings(
     txnDate: r.txn_date,
     categoryIds: (r.transaction_allocations ?? []).map((a) => a.category_id),
   }));
-  return rankPayeeCategories(history, validCategoryIds);
 }

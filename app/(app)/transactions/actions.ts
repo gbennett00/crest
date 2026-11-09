@@ -357,6 +357,8 @@ export async function bulkApproveTransactions(
   { replace = "none" }: { replace?: ApproveReplace } = {},
 ): Promise<BulkResult> {
   if (txnIds.length === 0) return { updated: 0, skipped: 0 };
+  // An empty string means "no category" too, never a category id.
+  const fallbackCategoryId = categoryId || null;
 
   const supabase = await createClient();
   const now = new Date().toISOString();
@@ -377,16 +379,16 @@ export async function bulkApproveTransactions(
 
         const allocCount = (row.transaction_allocations ?? []).length;
         const overwrite =
-          categoryId !== null &&
+          fallbackCategoryId !== null &&
           (replace === "all" || (replace === "unsplit" && allocCount <= 1));
 
         let allocations: Allocation[];
         if (overwrite) {
-          allocations = [{ categoryId, amountCents: row.amount_cents }];
+          allocations = [{ categoryId: fallbackCategoryId, amountCents: row.amount_cents }];
         } else if (allocationsCoverAmount(row)) {
           allocations = existingAllocations(row);
-        } else if (categoryId) {
-          allocations = [{ categoryId, amountCents: row.amount_cents }];
+        } else if (fallbackCategoryId) {
+          allocations = [{ categoryId: fallbackCategoryId, amountCents: row.amount_cents }];
         } else {
           // Uncategorized and no fallback category to apply — can't approve.
           skipped++;

@@ -42,13 +42,13 @@ export function CategoryList({
   return (
     <div>
       {noneLabel && !searching && (
-        <Row label={noneLabel} muted selected={!value} onClick={() => onSelect("")} />
+        <CategoryRow label={noneLabel} muted selected={!value} onClick={() => onSelect("")} />
       )}
 
       {suggested.length > 0 && (
         <Group title="Suggested">
           {suggested.map((c) => (
-            <Row
+            <CategoryRow
               key={c.id}
               label={c.name}
               selected={c.id === value}
@@ -65,7 +65,7 @@ export function CategoryList({
       {groups.map(([groupName, cats]) => (
         <Group key={groupName} title={groupName}>
           {cats.map((c) => (
-            <Row
+            <CategoryRow
               key={c.id}
               label={c.name}
               query={query}
@@ -90,17 +90,25 @@ function Group({ title, children }: { title: string; children: React.ReactNode }
   );
 }
 
-function Row({
+/**
+ * One category choice: emoji column, name (with the search match
+ * highlighted), a check when selected. `list` is an edge-to-edge row with a
+ * hairline (the grouped list); `card` is a bordered, rounded tile (the
+ * approve drawer's suggestions).
+ */
+export function CategoryRow({
   label,
   query = "",
   selected,
   muted,
+  variant = "list",
   onClick,
 }: {
   label: string;
   query?: string;
   selected: boolean;
   muted?: boolean;
+  variant?: "list" | "card";
   onClick: () => void;
 }) {
   const { emoji, label: text } = splitLeadingEmoji(label);
@@ -112,9 +120,14 @@ function Row({
         onClick={onClick}
         aria-pressed={selected}
         className={cn(
-          "flex min-h-[52px] w-full items-center gap-3 border-b px-4 text-left text-body font-medium transition-colors",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
-          selected ? "bg-brand-subtle" : "hover:bg-surface",
+          "flex min-h-[52px] w-full items-center gap-3 text-left text-body font-medium transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus",
+          variant === "list"
+            ? cn("border-b px-4 focus-visible:ring-inset", selected ? "bg-brand-subtle" : "hover:bg-surface")
+            : cn(
+                "rounded-ds-md border px-3.5",
+                selected ? "border-brand-text bg-brand-subtle" : "border-border bg-surface hover:bg-surface-sunken",
+              ),
           muted ? "text-ink-muted" : "text-ink",
         )}
       >

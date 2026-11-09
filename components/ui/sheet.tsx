@@ -19,6 +19,11 @@ type SheetProps = {
    * confirm sheets with no footer (the approve drawer).
    */
   confirm?: { label: string; onConfirm: () => void; disabled?: boolean };
+  /**
+   * Called on Escape before the sheet closes; call `e.preventDefault()` to
+   * keep it open (e.g. to leave an in-sheet mode instead).
+   */
+  onEscape?: (e: KeyboardEvent) => void;
   /** Replaces the close-only header with a back chevron (a step inside a sheet). */
   onBack?: () => void;
   children: React.ReactNode;
@@ -43,6 +48,7 @@ export function Sheet({
   title,
   subtitle,
   confirm,
+  onEscape,
   onBack,
   children,
   footer,
@@ -63,6 +69,7 @@ export function Sheet({
           // Escape itself; don't also close the sheet underneath it.
           onEscapeKeyDown={(e) => {
             if (overlayContainer?.childElementCount) e.preventDefault();
+            else onEscape?.(e);
           }}
           className={cn(
             "fixed inset-x-0 bottom-0 z-50 mx-auto flex w-full max-w-lg flex-col rounded-t-ds-xl border border-b-0 bg-surface-raised text-ink shadow-sheet",

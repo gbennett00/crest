@@ -133,7 +133,13 @@ export function PendingApprovalList({
         selectedTotalCents={selectedTotalCents}
         uncategorizedCount={plan.kind === "as-is" ? 0 : visibleSelected.filter((t) => t.categoryLabel === null).length}
         approveAppliesToAll
-        approvePrefillCategoryId={plan.kind === "choose" ? plan.prefillCategoryId : null}
+        approvePrefillCategoryId={
+          // Only prefill a category the picker can show (not a hidden one).
+          plan.kind === "choose" && categories.some((c) => c.id === plan.prefillCategoryId)
+            ? plan.prefillCategoryId
+            : null
+        }
+        approveSplitCount={visibleSelected.filter((t) => t.allocationCount > 1).length}
         categories={categories}
         accounts={accounts}
         primary={["approve"]}

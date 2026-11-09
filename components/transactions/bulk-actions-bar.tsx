@@ -80,6 +80,8 @@ interface BulkActionsBarProps {
   approveAppliesToAll?: boolean;
   /** Category to prefill when Approve asks for one (e.g. every suggestion agrees). */
   approvePrefillCategoryId?: string | null;
+  /** With `approveAppliesToAll`: selected rows that are real splits (they keep them). */
+  approveSplitCount?: number;
   categories: CategoryOption[];
   accounts: AccountOption[];
   /** Actions shown as inline buttons on the bar. */
@@ -97,8 +99,16 @@ function approvePrompt(
   count: number,
   uncategorized: number | undefined,
   appliesToAll: boolean,
+  splitCount: number,
 ): string {
   if (appliesToAll) {
+    if (splitCount > 0) {
+      const applied = count - splitCount;
+      return (
+        `This category will be applied to ${applied === 1 ? "1 transaction" : `${applied} transactions`}. ` +
+        `${splitCount === 1 ? "The split one keeps its" : `The ${splitCount} split ones keep their`} splits.`
+      );
+    }
     return `This category will be applied to ${count === 1 ? "this transaction" : `all ${count} transactions`}.`;
   }
   if (uncategorized === undefined) {
@@ -121,6 +131,7 @@ export function BulkActionsBar({
   uncategorizedCount,
   approveAppliesToAll = false,
   approvePrefillCategoryId = null,
+  approveSplitCount = 0,
   categories,
   accounts,
   primary,
@@ -133,6 +144,9 @@ export function BulkActionsBar({
   // No default category: pre-selecting the first option (Ready to Assign) made
   // a bulk action look like it would send everything there.
   const [category, setCategory] = useState("");
+  // Set once the user picks in the Approve panel; from then on the prefill
+  // never overwrites their choice.
+  const [categoryTouched, setCategoryTouched] = useState(false);
   const moveTargets = useMemo(
     () => accounts.filter((a) => a.id !== currentAccountId),
     [accounts, currentAccountId],
@@ -142,16 +156,18 @@ export function BulkActionsBar({
   const [isPending, startTransition] = useTransition();
   const queryClient = useQueryClient();
 
-  // Keep the Approve picker's prefill in step with the selection while open.
+  // Keep the Approve picker's prefill in step with the selection while open,
+  // until the user picks a category themselves.
   useEffect(() => {
-    if (mode === "approve") setCategory(approvePrefillCategoryId ?? "");
-  }, [mode, approvePrefillCategoryId]);
+    if (mode === "approve" && !categoryTouched) setCategory(approvePrefillCategoryId ?? "");
+  }, [mode, approvePrefillCategoryId, categoryTouched]);
 
   if (selectedIds.length === 0) return null;
 
   function reset() {
     setMode(null);
     setError(null);
+    setCategoryTouched(false);
   }
 
   function run(kind: BulkAction, action: () => Promise<BulkResult>) {
@@ -262,7 +278,7 @@ export function BulkActionsBar({
                       {approveAsIs
                         ? // The selection became all-categorized while the panel was open.
                           `Approve ${count} with ${count === 1 ? "its" : "their"} current ${count === 1 ? "category" : "categories"}.`
-                        : approvePrompt(count, uncategorizedCount, approveAppliesToAll)}
+                        : approvePrompt(count, uncategorizedCount, approveAppliesToAll, approveSplitCount)}
                     </p>
                     <button
                       type="button"
@@ -277,7 +293,10 @@ export function BulkActionsBar({
                   {!approveAsIs && (
                     <CategoryPicker
                       value={category}
-                      onChange={setCategory}
+                      onChange={(id) => {
+                        setCategory(id);
+                        setCategoryTouched(true);
+                      }}
                       categories={categories}
                       placeholder="Choose a category…"
                       disabled={isPending}

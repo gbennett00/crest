@@ -286,6 +286,15 @@ describe("bulkApproveTransactions — replace", () => {
     ]);
   });
 
+  it("treats an empty-string category as none, keeping existing categories", async () => {
+    mockRows = [suggested("a", "cat-1"), row({ id: "b" })];
+    const res = await bulkApproveTransactions(["a", "b"], "", { replace: "all" });
+    expect(res).toEqual({ updated: 1, skipped: 1 });
+    expect(updateTransaction.mock.calls[0][1].allocations).toEqual([
+      { categoryId: "cat-1", amountCents: -5000 },
+    ]);
+  });
+
   it("still skips an already-approved transfer leg", async () => {
     mockRows = [row({ id: "t", transfer_account_id: "acct-2", approved_at: "2026-01-01T00:00:00Z" })];
     const res = await bulkApproveTransactions(["t"], "cat-9", { replace: "all" });
