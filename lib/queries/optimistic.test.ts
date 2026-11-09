@@ -31,8 +31,10 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-// Lets the runner's background work (action, then refetch) proceed.
-const flush = () => new Promise((r) => setTimeout(r, 0));
+// Lets the runner's background work (action, cancel, refetch) proceed.
+const flush = async () => {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0));
+};
 
 const cleanups: (() => void)[] = [];
 
@@ -142,5 +144,81 @@ describe("runOptimistic", () => {
     action.resolve({});
     await flush();
     expect(pendingIds(qc)).toEqual(["t2"]);
+  });
+
+  it("doesn't stall an unrelated query's first load", async () => {
+    const { qc } = setup(["t1"]);
+    const load = deferred<string>();
+    const other = new QueryObserver(qc, { queryKey: ["ledger", "budget-view", "2026-11-01"], queryFn: () => load.promise });
+    cleanups.push(other.subscribe(() => {}));
+    expect(other.getCurrentResult().fetchStatus).toBe("fetching");
+
+    const action = deferred<{ error?: string }>();
+    runOptimistic(qc, {
+      patches: [{ id: "t1", approved: true }],
+      action: () => action.promise,
+      errorOf: (r) => r.error,
+    });
+    await flush();
+    expect(other.getCurrentResult().fetchStatus).toBe("fetching");
+    load.resolve("loaded");
+    await flush();
+    expect(other.getCurrentResult().data).toBe("loaded");
+
+    // Patches are module-level: let this write finish so it can't leak.
+    action.resolve({});
+    await flush();
+  });
+
+  it("doesn't undo a newer write that succeeded when an older one fails", async () => {
+    const { qc, server } = setup(["t1", "t2"]);
+    const older = deferred<{ error?: string }>();
+    const newer = deferred<{ error?: string }>();
+
+    runOptimistic(qc, {
+      patches: [{ id: "t1", approved: true }],
+      action: () => older.promise,
+      errorOf: (r) => r.error,
+    });
+    runOptimistic(qc, {
+      patches: [{ id: "t2", approved: true }],
+      action: () => newer.promise,
+      errorOf: (r) => r.error,
+    });
+    expect(pendingIds(qc)).toEqual([]);
+
+    server.pending = ["t1"];
+    newer.resolve({});
+    await flush();
+
+    // Record every state the list passes through once the older write fails.
+    const seen: (string[] | undefined)[] = [];
+    cleanups.push(qc.getQueryCache().subscribe(() => seen.push(pendingIds(qc))));
+    older.resolve({ error: "Nope" });
+    await flush();
+
+    expect(seen.some((ids) => ids?.includes("t2"))).toBe(false);
+    expect(pendingIds(qc)).toEqual(["t1"]);
+  });
+
+  it("cancels an inactive prefetch that started before the write committed", async () => {
+    const { qc } = setup(["t1"]);
+    const registerKey = ["ledger", "account-register", "checking", undefined, undefined];
+    const stale = deferred<unknown>();
+    const action = deferred<{ error?: string }>();
+
+    runOptimistic(qc, {
+      patches: [{ id: "t1", deleted: true }],
+      action: () => action.promise,
+      errorOf: (r) => r.error,
+    });
+    // A hover prefetch starts mid-write, answered from before the delete.
+    void qc.prefetchQuery({ queryKey: registerKey, queryFn: () => stale.promise });
+
+    action.resolve({});
+    await flush();
+    stale.resolve({ txns: [{ id: "t1" }] });
+    await flush();
+    expect(qc.getQueryData(registerKey)).toBeUndefined();
   });
 });

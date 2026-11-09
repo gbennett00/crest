@@ -76,8 +76,6 @@ export function runOptimistic<R>(
   const id = nextId++;
   const filters = { queryKey: LEDGER_ROOT };
 
-  // An in-flight fetch could land over the patch with pre-write data.
-  void queryClient.cancelQueries(filters);
   inFlight.set(id, patches);
   // What each patched query held before, to put back if the write fails.
   const snapshot: [QueryKey, unknown][] = [];
@@ -85,6 +83,11 @@ export function runOptimistic<R>(
     const patched = patchLedgerDataAll(key, data, patches);
     if (patched === data) continue;
     snapshot.push([key, data]);
+    // Only the queries being patched: cancelling another query's first load
+    // would leave it on its skeleton until the write finishes. (A patched
+    // query's cancel restores the patch, since setQueryData resets what
+    // cancelling reverts to.)
+    void queryClient.cancelQueries({ queryKey: key, exact: true });
     queryClient.setQueryData(key, patched);
   }
   if (flow) void afterNextPaint().then(() => flow.step("optimistic"));
@@ -100,12 +103,23 @@ export function runOptimistic<R>(
       message = "Something went wrong.";
     }
 
+    // A fetch still in flight may have been answered before the write
+    // committed. Once the patch is gone nothing would correct it, and an
+    // inactive query (a hover prefetch) isn't refetched by the invalidation
+    // below, so it would sit there marked fresh. Cancel them; invalidation
+    // refetches the active ones.
+    await queryClient.cancelQueries({ ...filters, fetchStatus: "fetching" });
     inFlight.delete(id);
 
     if (message) {
-      // Put back what this write changed, keeping other writes still in flight.
-      for (const [key, data] of snapshot) {
-        queryClient.setQueryData(key, applyInFlight(key, data));
+      // Put back what this write changed. The snapshot predates any write
+      // started after this one, which may have succeeded since; restoring it
+      // would undo theirs, so in that case leave it to the refetch below.
+      const newerWriteStarted = nextId > id + 1;
+      if (!newerWriteStarted) {
+        for (const [key, data] of snapshot) {
+          queryClient.setQueryData(key, applyInFlight(key, data));
+        }
       }
       showSaveError({ title: failure?.title, message, retryHref: failure?.retryHref });
     } else {

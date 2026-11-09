@@ -134,6 +134,12 @@ describe("home pending list", () => {
     });
   });
 
+  it("drops a row an edit approves with no category (an off-budget line)", () => {
+    const data = home([pending({ categoryId: null, categoryLabel: null, allocationCount: 0 })]);
+    const patch: TxnPatch = { id: "t1", approved: true, allocations: [] };
+    expect(pendingOf(patchLedgerData(HOME_KEY, data, patch))).toHaveLength(0);
+  });
+
   it("labels a split by its count", () => {
     const patch: TxnPatch = {
       id: "t1",

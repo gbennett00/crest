@@ -56,13 +56,15 @@ function nextCategories(patch: TxnPatch, currentCount: number): Categories | nul
 }
 
 /**
- * Approval state after the patch. Approving a pending row that would still
- * have no category is a no-op, matching the server, which skips it (an
- * approved on-budget transaction needs a category).
+ * Approval state after the patch. A bulk or drawer approve of a pending row
+ * that would still have no category is a no-op, matching
+ * bulkApproveTransactions, which skips it. An edit (which sends its full
+ * `allocations`) is taken as-is: the form already applies saveTransaction's
+ * rule, under which an off-budget line is approved with no category.
  */
 function nextApproved(patch: TxnPatch, approved: boolean, finalCount: number): boolean {
   if (patch.approved === undefined) return approved;
-  if (patch.approved && !approved && finalCount === 0) return false;
+  if (patch.approved && !approved && finalCount === 0 && !patch.allocations) return false;
   return patch.approved;
 }
 
