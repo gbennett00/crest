@@ -67,4 +67,12 @@ describe("withTargetSnoozed", () => {
     withTargetSnoozed(withTarget, "category", "a", MONTH);
     expect(withTarget.groups[0].categories[0].target?.snoozedMonth).toBeUndefined();
   });
+
+  it("returns the same object when nothing changes", () => {
+    const snoozed = data([group("g1", [cat("a", { ...target, snoozedMonth: MONTH })])]);
+    expect(withTargetSnoozed(snoozed, "category", "a", MONTH)).toBe(snoozed);
+    const noTarget = data([group("g1", [cat("a", null)])]);
+    expect(withTargetSnoozed(noTarget, "category", "a", MONTH)).toBe(noTarget);
+    expect(withTargetSnoozed(noTarget, "group", "missing", MONTH)).toBe(noTarget);
+  });
 });
