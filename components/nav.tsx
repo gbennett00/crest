@@ -18,7 +18,6 @@ import {
 } from "@/lib/queries/transactions";
 import { prefetchReportsDashboard, prefetchSpendingReport } from "@/lib/queries/reports";
 import { prefetchRules } from "@/lib/queries/rules";
-import { prefetchMembers } from "@/lib/queries/members";
 import { preloadWhenIdle } from "@/lib/queries/preload";
 import { DEFAULT_PERIOD_KEY } from "@/lib/reports/period";
 
@@ -30,7 +29,8 @@ const NAV_LINKS = [
   { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
 
-// Reached from a tab or the user menu rather than the nav itself.
+// Reached from a tab or the user menu rather than the nav itself. (Members'
+// data needs no preload: the user menu loads it on every mount.)
 const SECONDARY_ROUTES = ["/reports/spending", "/rules", "/members"] as const;
 
 // Warm both Next's Router Cache (the route's JS/shell) and the client query
@@ -39,8 +39,6 @@ const SECONDARY_ROUTES = ["/reports/spending", "/rules", "/members"] as const;
 // on a revisit. Both calls are idempotent/deduped against already-fresh
 // cache entries, so calling this from whichever nav is mounted (sidebar on
 // desktop, bottom nav on mobile) is harmless.
-let secondaryPreloadQueued = false;
-
 function useEagerPrefetch() {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -52,22 +50,22 @@ function useEagerPrefetch() {
     prefetchAllTransactions(queryClient, {});
     prefetchReportsDashboard(queryClient);
 
-    // Both navs mount this hook (one is hidden by CSS); queue once per load.
-    if (secondaryPreloadQueued) return;
-    secondaryPreloadQueued = true;
-
     // Then, one at a time while the browser is idle, the screens a tab leads
     // to (lib/queries/preload.ts), most used first: this month's transactions
     // (every category drill-down on the Plan tab), every account's register,
-    // the Activity tab's first edit pages, and the less used pages.
+    // the Activity tab's first edit pages, and the less used pages. Both navs
+    // mount this hook (one is hidden by CSS); each group replaces its own
+    // pending tasks, so the second call doesn't double the queue.
     preloadMonthTransactions(queryClient, currentBudgetMonth());
     preloadAccountRegisters(queryClient);
     preloadRecentTransactionDetails(queryClient);
-    for (const href of SECONDARY_ROUTES) router.prefetch(href);
     preloadWhenIdle(
-      () => prefetchSpendingReport(queryClient, DEFAULT_PERIOD_KEY, [], null),
-      () => prefetchRules(queryClient),
-      () => prefetchMembers(queryClient),
+      [
+        ...SECONDARY_ROUTES.map((href) => () => router.prefetch(href)),
+        () => prefetchSpendingReport(queryClient, DEFAULT_PERIOD_KEY, [], null),
+        () => prefetchRules(queryClient),
+      ],
+      { group: "secondary-screens" },
     );
   }, [router, queryClient]);
 }

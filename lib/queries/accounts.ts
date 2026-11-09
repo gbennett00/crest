@@ -56,17 +56,23 @@ export function useAccountRegister(
 
 /** Queues every open account's register for the idle preloader (lib/queries/preload.ts). */
 export function preloadAccountRegisters(queryClient: QueryClient) {
-  preloadWhenIdle(async () => {
-    await prefetchAccountsList(queryClient);
-    const accounts = queryClient.getQueryData<{ accounts: AccountListRow[] }>(
-      accountsListQuery.key(),
-    )?.accounts;
-    preloadWhenIdle(
-      ...(accounts ?? [])
-        .filter((a) => a.isActive)
-        .map((a) => () => prefetchAccountRegister(queryClient, a.id)),
-    );
-  });
+  preloadWhenIdle(
+    [
+      async () => {
+        await prefetchAccountsList(queryClient);
+        const accounts = queryClient.getQueryData<{ accounts: AccountListRow[] }>(
+          accountsListQuery.key(),
+        )?.accounts;
+        preloadWhenIdle(
+          (accounts ?? [])
+            .filter((a) => a.isActive)
+            .map((a) => () => prefetchAccountRegister(queryClient, a.id)),
+          { group: "account-registers" },
+        );
+      },
+    ],
+    { group: "accounts-list" },
+  );
 }
 
 /** Warms the cache for an account's register before the user clicks into it. */

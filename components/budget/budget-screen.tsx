@@ -116,16 +116,16 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
   const { data: response, error, refetch, isFetching } = useBudgetView(month);
   useScreenTiming("budget", { hasData: hasMounted && !!response, isFetching });
 
+  // Tapping a category opens its transactions for this month; one list of the
+  // whole month covers every category (see categoryListFromMonth).
+  useEffect(() => {
+    preloadMonthTransactions(queryClient, month, true);
+  }, [queryClient, month]);
+
   // Warm the query cache for the neighbouring months so stepping to the
   // previous/next month (and coming back) renders from cache instead of a
   // fresh network round-trip. Bounded by [minMonth, maxMonth] so we never
   // prefetch an out-of-range month.
-  // Tapping a category opens its transactions for this month; one list of the
-  // whole month covers every category (see categoryListFromMonth).
-  useEffect(() => {
-    preloadMonthTransactions(queryClient, month);
-  }, [queryClient, month]);
-
   const prevMonth = response ? previousBudgetMonth(response.data.month) : null;
   const nextMonth = response ? nextBudgetMonth(response.data.month) : null;
   useEffect(() => {

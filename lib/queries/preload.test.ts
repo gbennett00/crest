@@ -16,9 +16,24 @@ function deferred() {
   return { promise, resolve };
 }
 
+type Doc = {
+  visibilityState: string;
+  addEventListener: (type: string, cb: () => void) => void;
+  removeEventListener: () => void;
+};
+
+let doc: Doc;
+let onVisible: (() => void) | undefined;
+
 beforeEach(() => {
+  onVisible = undefined;
+  doc = {
+    visibilityState: "visible",
+    addEventListener: (_type, cb) => (onVisible = cb),
+    removeEventListener: () => {},
+  };
   vi.stubGlobal("window", { requestIdleCallback: (cb: () => void) => setTimeout(cb, 0) });
-  vi.stubGlobal("document", { visibilityState: "visible", addEventListener: () => {}, removeEventListener: () => {} });
+  vi.stubGlobal("document", doc);
   vi.stubGlobal("navigator", {});
 });
 
@@ -31,16 +46,14 @@ describe("preloadWhenIdle", () => {
     const preloadWhenIdle = await loadPreloader();
     const log: string[] = [];
     const first = deferred();
-    preloadWhenIdle(
+    preloadWhenIdle([
       async () => {
         log.push("a start");
         await first.promise;
         log.push("a end");
       },
-      async () => {
-        log.push("b");
-      },
-    );
+      () => log.push("b"),
+    ]);
     await settle();
     expect(log).toEqual(["a start"]);
     first.resolve();
@@ -48,43 +61,71 @@ describe("preloadWhenIdle", () => {
     expect(log).toEqual(["a start", "a end", "b"]);
   });
 
-  it("keeps going after a task fails, and accepts tasks queued later", async () => {
+  it("keeps going after a task rejects or throws, and accepts tasks queued later", async () => {
     const preloadWhenIdle = await loadPreloader();
     const ran: string[] = [];
-    preloadWhenIdle(async () => {
-      throw new Error("offline");
-    });
-    preloadWhenIdle(async () => {
-      ran.push("after failure");
-    });
+    preloadWhenIdle([
+      async () => {
+        throw new Error("offline");
+      },
+      () => {
+        throw new Error("thrown before returning a promise");
+      },
+      () => ran.push("after failures"),
+    ]);
     await settle();
-    preloadWhenIdle(async () => {
-      ran.push("queued later");
-    });
+    preloadWhenIdle([() => ran.push("queued later")]);
     await settle();
-    expect(ran).toEqual(["after failure", "queued later"]);
+    expect(ran).toEqual(["after failures", "queued later"]);
+  });
+
+  it("drops a group's tasks that haven't run when the group is queued again", async () => {
+    const preloadWhenIdle = await loadPreloader();
+    const ran: string[] = [];
+    const blocker = deferred();
+    preloadWhenIdle([() => blocker.promise]);
+    preloadWhenIdle([() => ran.push("old 1"), () => ran.push("old 2")], { group: "rows" });
+    preloadWhenIdle([() => ran.push("other")]);
+    preloadWhenIdle([() => ran.push("new")], { group: "rows" });
+    await settle();
+    blocker.resolve();
+    await settle();
+    expect(ran).toEqual(["other", "new"]);
+  });
+
+  it("runs `first` tasks ahead of what's already queued", async () => {
+    const preloadWhenIdle = await loadPreloader();
+    const ran: string[] = [];
+    const blocker = deferred();
+    preloadWhenIdle([() => blocker.promise, () => ran.push("startup")]);
+    await settle();
+    preloadWhenIdle([() => ran.push("on screen")], { first: true });
+    blocker.resolve();
+    await settle();
+    expect(ran).toEqual(["on screen", "startup"]);
   });
 
   it("does nothing when the device asks to save data", async () => {
     vi.stubGlobal("navigator", { connection: { saveData: true } });
     const preloadWhenIdle = await loadPreloader();
-    const task = vi.fn(async () => {});
-    preloadWhenIdle(task);
+    const task = vi.fn();
+    preloadWhenIdle([task]);
     await settle();
     expect(task).not.toHaveBeenCalled();
   });
 
-  it("waits while the app is in the background", async () => {
-    let onVisible: (() => void) | undefined;
-    const doc = {
-      visibilityState: "hidden",
-      addEventListener: (_: string, cb: () => void) => (onVisible = cb),
-      removeEventListener: () => {},
-    };
-    vi.stubGlobal("document", doc);
+  it("checks visibility after the idle wait, so nothing starts in the background", async () => {
+    // Hidden by the time the idle callback fires.
+    vi.stubGlobal("window", {
+      requestIdleCallback: (cb: () => void) =>
+        setTimeout(() => {
+          doc.visibilityState = "hidden";
+          cb();
+        }, 0),
+    });
     const preloadWhenIdle = await loadPreloader();
-    const task = vi.fn(async () => {});
-    preloadWhenIdle(task);
+    const task = vi.fn();
+    preloadWhenIdle([task]);
     await settle();
     expect(task).not.toHaveBeenCalled();
     doc.visibilityState = "visible";

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { ListChecks, Lock, X } from "lucide-react";
@@ -9,7 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionsBar } from "@/components/transactions/bulk-actions-bar";
 import {
   prefetchTransactionDetail,
-  preloadTransactionDetails,
+  usePreloadTransactionDetails,
 } from "@/lib/queries/transaction-detail";
 import type {
   AccountOption,
@@ -61,11 +61,7 @@ export function RegisterTransactionList({
   // Every row is selectable — reconciled lines included. They just can't be
   // moved or deleted (the bar guards that); categorize/approve still apply.
   const allIds = transactions.map((t) => t.id);
-  // Join so the effect only reruns when the rows themselves change.
-  const idsKey = allIds.join(",");
-  useEffect(() => {
-    preloadTransactionDetails(queryClient, idsKey ? idsKey.split(",") : []);
-  }, [queryClient, idsKey]);
+  usePreloadTransactionDetails(allIds);
   const allSelected = allIds.length > 0 && selected.size === allIds.length;
 
   function toggle(id: string) {

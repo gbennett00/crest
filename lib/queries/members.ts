@@ -22,7 +22,3 @@ export function useMembers() {
 export function invalidateMembers(queryClient: QueryClient) {
   return membersQuery.invalidate(queryClient);
 }
-
-export function prefetchMembers(queryClient: QueryClient) {
-  return membersQuery.prefetch(queryClient);
-}

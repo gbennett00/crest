@@ -72,18 +72,32 @@ export function categoryListFromMonth(
   };
 }
 
-/** Queues a month's full transaction list for the idle preloader (see categoryListFromMonth). */
-export function preloadMonthTransactions(queryClient: QueryClient, month: string) {
-  preloadWhenIdle(() => prefetchAllTransactions(queryClient, monthToDateRange(month)));
+/**
+ * Queues a month's full transaction list for the idle preloader (see
+ * categoryListFromMonth). `first` for the month on screen; a newer month
+ * replaces one still waiting.
+ */
+export function preloadMonthTransactions(queryClient: QueryClient, month: string, first = false) {
+  preloadWhenIdle([() => prefetchAllTransactions(queryClient, monthToDateRange(month))], {
+    group: "month-transactions",
+    first,
+  });
 }
 
 /** Queues the edit pages of the Activity tab's first rows for the idle preloader. */
 export function preloadRecentTransactionDetails(queryClient: QueryClient) {
-  preloadWhenIdle(async () => {
-    await prefetchAllTransactions(queryClient, {});
-    const recent = queryClient.getQueryData<AllTransactionsResponse>(allTransactionsQuery.key({}));
-    preloadTransactionDetails(queryClient, (recent?.txns ?? []).map((t) => t.id));
-  });
+  preloadWhenIdle(
+    [
+      async () => {
+        await prefetchAllTransactions(queryClient, {});
+        const recent = queryClient.getQueryData<AllTransactionsResponse>(allTransactionsQuery.key({}));
+        preloadTransactionDetails(queryClient, (recent?.txns ?? []).map((t) => t.id), {
+          group: "recent-details",
+        });
+      },
+    ],
+    { group: "recent-list" },
+  );
 }
 
 /** Warms the cache for the all-transactions view before the user clicks into it. */
