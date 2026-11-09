@@ -58,6 +58,10 @@ Pure TypeScript business logic — no direct DB calls in the core modules; opera
 | `reconciliation.ts` | `checkReconciliation`, `RECONCILIATION_FIX_HINT`                                                                                        |
 | `operations.ts`     | Supabase-backed ledger ops: `createAccount`, `createTransaction`, `upsertTransaction`, `createTransfer`, `evaluateReconciliation`, etc. |
 
+### Ask your data (`/ask`, `lib/ask/`, `app/api/ask/route.ts`)
+
+Natural language -> SQL agent (Claude Haiku 5.5 with a `run_sql` tool) plus a plain-SQL tab. Every query goes through the `ai_readonly_query` RPC, which makes the transaction read-only, runs as the caller (RLS applies), and refuses tables holding secrets (`plaid_items`, `push_subscriptions`, `plan_invitations`). Domain notes for the model live in `lib/ask/schema.ts` (`DOMAIN_NOTES`); update them when schema semantics change. Nothing is stored. Needs `ANTHROPIC_API_KEY`.
+
 ### Database rules (enforced at DB level)
 
 - All money is **`bigint` cents** — never floats

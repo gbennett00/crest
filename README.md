@@ -102,6 +102,7 @@ You'll get a **Public Key** and a **Private Key** 🔒. Save both. You can delet
    | `PLAID_CLIENT_ID` | From Part 4 (skip all `PLAID_` rows if you're not using Plaid) |
    | `PLAID_SECRET` | From Part 4 🔒 |
    | `PLAID_ENV` | `sandbox` or `production` |
+   | `ANTHROPIC_API_KEY` | Optional 🔒. Powers the **Ask your data** page (see below). Skip it and that page only runs plain SQL |
 
 4. Click **Deploy** and wait for the confetti. Vercel shows your site address, such as `https://crest-yourname.vercel.app`. This is your **app URL**.
 5. Add two more variables using that URL. In the project, go to **Settings → Environment Variables**:

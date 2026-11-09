@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { Bell, ChevronDown, Crown, Eye, EyeOff, Laptop, Layers, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
+import { Bell, ChevronDown, MessageSquareText, Crown, Eye, EyeOff, Laptop, Layers, LogOut, Moon, Send, Sun, Upload, Users, UserRound } from "lucide-react";
 import { usePrivacyMode } from "@/lib/privacy-mode";
 import { setActivePlan } from "@/app/(app)/members/actions";
 import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
@@ -198,6 +198,11 @@ export function UserMenu({ isProduction = false }: { isProduction?: boolean }) {
         <DropdownMenuItem asChild className="pl-10">
           <Link href="/members">
             <Users size={ICON_SIZE} /> Members
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuItem asChild className="pl-10">
+          <Link href="/ask">
+            <MessageSquareText size={ICON_SIZE} /> Ask your data
           </Link>
         </DropdownMenuItem>
         <DropdownMenuSeparator />
