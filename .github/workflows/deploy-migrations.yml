@@ -33,7 +33,8 @@ jobs:
 
       - uses: supabase/setup-cli@v1
         with:
-          version: latest
+          # Pinned: `latest` changed `db push` to target a local stack by default.
+          version: 2.122.0
 
       - run: supabase link --project-ref "$SUPABASE_PROJECT_ID"
-      - run: supabase db push
+      - run: supabase db push --linked
