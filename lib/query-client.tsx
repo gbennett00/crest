@@ -1,7 +1,8 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { installOptimisticLayer } from "./queries/optimistic";
 
 // One QueryClient per browser session, created lazily so it survives client
 // re-renders (including the RSC round-trips triggered by Link navigation)
@@ -24,6 +25,10 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
         },
       }),
   );
+
+  // Keeps optimistic transaction writes on screen while their save is in
+  // flight (see lib/queries/optimistic.ts).
+  useEffect(() => installOptimisticLayer(client), [client]);
 
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }

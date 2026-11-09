@@ -28,6 +28,8 @@ import {
 import { CategoryPicker } from "./category-picker";
 import { SuggestedTag } from "./suggested-tag";
 import { startFlow } from "@/lib/perf";
+import { runOptimistic } from "@/lib/queries/optimistic";
+import type { TxnPatch } from "@/lib/queries/txn-patch";
 import { ChevronLeft, Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
@@ -199,6 +201,12 @@ export function TransactionForm({
 
   // Builds the FormData and runs client-side validation. Returns null on error.
   function buildFormData(form: HTMLFormElement): FormData | null {
+    // Mirrors saveTransaction's check, so an edit (which returns to the
+    // previous screen before the server answers) can't fail on it there.
+    if (amountCents <= 0) {
+      setError("Enter an amount.");
+      return null;
+    }
     const formData = new FormData(form);
     formData.set("direction", direction);
     formData.set("cleared", String(cleared));
@@ -274,7 +282,62 @@ export function TransactionForm({
     };
   }
 
+  // Where the edit page lives, to send the user back to it if a save fails.
+  function editHref() {
+    return `/transactions/${txn!.id}${backHref ? `?back=${encodeURIComponent(backHref)}` : ""}`;
+  }
+
+  // Saving an edit returns to the previous screen at once, with every cached
+  // list already showing the change; the server write runs behind it and is
+  // rolled back with a banner if it fails (lib/queries/optimistic.ts).
+  // Transfers keep the round-trip: converting one can adopt or create a
+  // second line, which can't be predicted here.
+  function saveEditOptimistically(formData: FormData) {
+    const allocations = JSON.parse(
+      (formData.get("allocations") as string) || "[]",
+    ) as AllocationData[];
+    const nameById = new Map(categories.map((c) => [c.id, c.name]));
+    const payee = ((formData.get("payee") as string) ?? "").trim();
+    const patch: TxnPatch = {
+      id: txn!.id,
+      payee,
+      memo: ((formData.get("memo") as string) ?? "").trim() || null,
+      txnDate: formData.get("txnDate") as string,
+      amountCents: sign * totalAbsCents,
+      cleared,
+      accountId,
+      accountName: accounts.find((a) => a.id === accountId)?.name,
+      allocations: allocations.map((a) => ({
+        ...a,
+        name: nameById.get(a.categoryId) ?? "Unknown",
+      })),
+      // Same rule as saveTransaction: off-budget lines are always approved,
+      // on-budget lines once they have a category.
+      approved: isOffBudget || allocations.length > 0,
+    };
+
+    runOptimistic(queryClient, {
+      patches: [patch],
+      action: () => saveTransaction(formData),
+      errorOf: (result) => result?.error,
+      onSuccess: (result) => {
+        if ("rulePrompt" in result && result.rulePrompt) offerRulePrompt(result.rulePrompt);
+        router.refresh();
+      },
+      failure: {
+        title: `Couldn’t save ${payee || "this transaction"}.`,
+        retryHref: editHref(),
+      },
+      flow: startFlow("txn-save", { edit: true, pending: !txn!.isApproved, optimistic: true }),
+    });
+    router.push(backHref ?? "/accounts");
+  }
+
   function doSave(formData: FormData) {
+    if (isEdit && !isTransfer) {
+      saveEditOptimistically(formData);
+      return;
+    }
     const timing = timeSave("txn-save");
     startTransition(async () => {
       const result = await saveTransaction(formData);
@@ -320,18 +383,21 @@ export function TransactionForm({
     });
   }
 
+  // Like saving an edit: back at once, rolled back with a banner on failure.
+  // A transfer's other leg disappears on the refetch that follows.
   function doDelete() {
-    startTransition(async () => {
-      const result = await deleteTransactionAction(txn!.id);
-      if (result?.error) {
-        setError(result.error);
-        setShowDeleteConfirm(false);
-      } else {
-        invalidateLedgerCaches();
-        router.push(backHref ?? "/accounts");
-        router.refresh();
-      }
+    setShowDeleteConfirm(false);
+    runOptimistic(queryClient, {
+      patches: [{ id: txn!.id, deleted: true }],
+      action: () => deleteTransactionAction(txn!.id),
+      errorOf: (result) => result?.error,
+      onSuccess: () => router.refresh(),
+      failure: {
+        title: `Couldn’t delete ${txn!.payee || "this transaction"}.`,
+        retryHref: editHref(),
+      },
     });
+    router.push(backHref ?? "/accounts");
   }
 
   // Confirmation shared by the normal edit form and the transfer view.
