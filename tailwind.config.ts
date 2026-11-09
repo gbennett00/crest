@@ -2,6 +2,9 @@ import type { Config } from "tailwindcss";
 
 export default {
   darkMode: ["class"],
+  // Wrap every `hover:` variant in `@media (hover: hover)` so touch screens
+  // don't get a sticky gray highlight on whichever row a scroll started on.
+  future: { hoverOnlyWhenSupported: true },
   content: [
     "./pages/**/*.{js,ts,jsx,tsx,mdx}",
     "./components/**/*.{js,ts,jsx,tsx,mdx}",
