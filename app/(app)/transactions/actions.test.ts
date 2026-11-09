@@ -231,6 +231,77 @@ describe("bulkApproveTransactions", () => {
 // bulkCategorizeTransactions
 // ---------------------------------------------------------------------------
 
+describe("bulkApproveTransactions — replace", () => {
+  const suggested = (id: string, cat: string) =>
+    row({
+      id,
+      amount_cents: -5000,
+      transaction_allocations: [{ category_id: cat, amount_cents: -5000 }],
+    });
+  const split = (id: string) =>
+    row({
+      id,
+      amount_cents: -5000,
+      transaction_allocations: [
+        { category_id: "cat-1", amount_cents: -2000 },
+        { category_id: "cat-2", amount_cents: -3000 },
+      ],
+    });
+
+  it("'unsplit' applies the chosen category over single-category suggestions", async () => {
+    mockRows = [suggested("a", "cat-1"), row({ id: "b" })];
+    const res = await bulkApproveTransactions(["a", "b"], "cat-9", { replace: "unsplit" });
+
+    expect(res).toEqual({ updated: 2, skipped: 0 });
+    for (const call of updateTransaction.mock.calls) {
+      expect(call[1].allocations).toEqual([{ categoryId: "cat-9", amountCents: -5000 }]);
+      expect(call[1].approvedAt).toBeTruthy();
+    }
+  });
+
+  it("'unsplit' keeps a real split", async () => {
+    mockRows = [split("s")];
+    await bulkApproveTransactions(["s"], "cat-9", { replace: "unsplit" });
+    expect(updateTransaction.mock.calls[0][1].allocations).toEqual([
+      { categoryId: "cat-1", amountCents: -2000 },
+      { categoryId: "cat-2", amountCents: -3000 },
+    ]);
+  });
+
+  it("'all' replaces a split too", async () => {
+    mockRows = [split("s")];
+    await bulkApproveTransactions(["s"], "cat-9", { replace: "all" });
+    expect(updateTransaction.mock.calls[0][1].allocations).toEqual([
+      { categoryId: "cat-9", amountCents: -5000 },
+    ]);
+  });
+
+  it("keeps each row's own category when no category is given", async () => {
+    mockRows = [suggested("a", "cat-1"), suggested("b", "cat-2")];
+    const res = await bulkApproveTransactions(["a", "b"], null, { replace: "unsplit" });
+    expect(res).toEqual({ updated: 2, skipped: 0 });
+    expect(updateTransaction.mock.calls.map((c) => c[1].allocations)).toEqual([
+      [{ categoryId: "cat-1", amountCents: -5000 }],
+      [{ categoryId: "cat-2", amountCents: -5000 }],
+    ]);
+  });
+
+  it("treats an empty-string category as none, keeping existing categories", async () => {
+    mockRows = [suggested("a", "cat-1"), row({ id: "b" })];
+    const res = await bulkApproveTransactions(["a", "b"], "", { replace: "all" });
+    expect(res).toEqual({ updated: 1, skipped: 1 });
+    expect(updateTransaction.mock.calls[0][1].allocations).toEqual([
+      { categoryId: "cat-1", amountCents: -5000 },
+    ]);
+  });
+
+  it("still skips an already-approved transfer leg", async () => {
+    mockRows = [row({ id: "t", transfer_account_id: "acct-2", approved_at: "2026-01-01T00:00:00Z" })];
+    const res = await bulkApproveTransactions(["t"], "cat-9", { replace: "all" });
+    expect(res).toEqual({ updated: 0, skipped: 1 });
+  });
+});
+
 describe("bulkCategorizeTransactions", () => {
   it("requires a category", async () => {
     const res = await bulkCategorizeTransactions(["a"], "");

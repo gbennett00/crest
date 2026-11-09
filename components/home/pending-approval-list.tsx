@@ -1,61 +1,50 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { ListChecks, X } from "lucide-react";
-import { Money } from "@/components/money";
-import { Checkbox } from "@/components/ui/checkbox";
+
+import { Button } from "@/components/ui/button";
+import { TransactionRow } from "@/components/ui/transaction-row";
 import { BulkActionsBar } from "@/components/transactions/bulk-actions-bar";
 import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
+import { planBulkApproval } from "@/lib/budget/approval";
+import type { PendingTransaction } from "@/lib/budget";
 import type {
   AccountOption,
   CategoryOption,
 } from "@/components/transactions/transaction-form";
-import { SuggestedTag } from "@/components/transactions/suggested-tag";
-import { cn } from "@/lib/utils";
+import { ApproveSheet } from "./approve-sheet";
+import { HomeCard, CountBadge } from "./home-card";
+import { formatShortDate } from "./format";
 
-export type PendingRow = {
-  id: string;
-  payee: string;
-  amountCents: number;
-  txnDate: string;
-  accountName: string;
-  categoryLabel: string | null;
-  suggested: boolean;
-};
-
-function formatDate(dateStr: string): string {
-  const [y, m, d] = dateStr.split("-").map(Number);
-  return new Date(y, m - 1, d).toLocaleDateString("en-US", {
-    month: "short",
-    day: "numeric",
-  });
-}
-
-// Cap so a large import backlog doesn't fire hundreds of requests on load.
-const PRELOAD_LIMIT = 20;
-
+/**
+ * Home's "New transactions" card. Tapping a row opens the approve drawer
+ * (suggested categories, search, link to the full editor). "Select" turns on
+ * checkboxes for bulk Approve: when every selected row has a category each
+ * keeps its own; otherwise one chosen category goes on all of them,
+ * prefilled when the existing ones agree.
+ */
 export function PendingApprovalList({
   pending,
   categories,
   accounts,
 }: {
-  pending: PendingRow[];
+  pending: PendingTransaction[];
   categories: CategoryOption[];
   accounts: AccountOption[];
 }) {
+  const queryClient = useQueryClient();
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [selectMode, setSelectMode] = useState(false);
-  const queryClient = useQueryClient();
+  const [openId, setOpenId] = useState<string | null>(null);
 
-  // Pending rows are almost always opened to set a category, so warm their
-  // detail cache up front instead of waiting for hover/tap.
-  useEffect(() => {
-    for (const txn of pending.slice(0, PRELOAD_LIMIT)) {
-      prefetchTransactionDetail(queryClient, txn.id);
-    }
-  }, [pending, queryClient]);
+  // Rows can disappear underneath (approved elsewhere, refetch): keep only
+  // ids still on screen.
+  const visibleSelected = useMemo(
+    () => pending.filter((t) => selected.has(t.id)),
+    [pending, selected],
+  );
+  const openTxn = pending.find((t) => t.id === openId) ?? null;
 
   function toggle(id: string) {
     setSelected((prev) => {
@@ -66,147 +55,97 @@ export function PendingApprovalList({
     });
   }
 
-  const allSelected = pending.length > 0 && selected.size === pending.length;
-
-  function toggleAll() {
-    setSelected(allSelected ? new Set() : new Set(pending.map((t) => t.id)));
-  }
+  const allSelected = pending.length > 0 && visibleSelected.length === pending.length;
 
   function exitSelectMode() {
     setSelectMode(false);
     setSelected(new Set());
   }
 
-  const selectedIds = [...selected];
-  const selectedTotalCents = pending.reduce(
-    (sum, t) => (selected.has(t.id) ? sum + t.amountCents : sum),
-    0,
+  const plan = planBulkApproval(
+    visibleSelected.map((t) => ({
+      categoryId: t.categoryId,
+      categorized: t.categoryLabel !== null,
+    })),
   );
-  // Every row here is pending, so no category means approving it needs one.
-  const uncategorizedSelectedCount = pending.reduce(
-    (n, t) => (selected.has(t.id) && t.categoryLabel === null ? n + 1 : n),
-    0,
-  );
+  const selectedTotalCents = visibleSelected.reduce((sum, t) => sum + t.amountCents, 0);
 
   return (
-    <>
-      {/* Select-all control — checkboxes stay hidden until "Select" is tapped,
-          so the list reads clean until the user actually wants to multi-select. */}
-      <div className="flex items-center gap-2.5 px-4 py-2 border-b bg-muted/10">
-        {selectMode ? (
-          <>
-            <Checkbox
-              checked={allSelected}
-              onCheckedChange={toggleAll}
-              aria-label="Select all pending transactions"
-            />
-            <span className="text-xs text-muted-foreground flex-1">
-              {selected.size > 0 ? `${selected.size} selected` : "Select all"}
-            </span>
-            <button
-              type="button"
-              onClick={exitSelectMode}
-              className="inline-flex items-center gap-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+    <HomeCard
+      id="pending"
+      title="New transactions"
+      badge={<CountBadge tone="warn" count={pending.length} />}
+      action={
+        selectMode ? (
+          <div className="flex items-center gap-1">
+            <Button
+              variant="quiet"
+              size="sm"
+              onClick={() =>
+                setSelected(allSelected ? new Set() : new Set(pending.map((t) => t.id)))
+              }
             >
-              <X size={13} /> Cancel
-            </button>
-          </>
+              {allSelected ? "None" : "All"}
+            </Button>
+            <Button variant="quiet" size="sm" onClick={exitSelectMode}>
+              Cancel
+            </Button>
+          </div>
         ) : (
-          <button
-            type="button"
-            onClick={() => setSelectMode(true)}
-            className="ml-auto inline-flex items-center gap-1 text-xs font-medium text-primary hover:underline"
-          >
-            <ListChecks size={13} /> Select
-          </button>
-        )}
-      </div>
+          <Button variant="quiet" size="sm" onClick={() => setSelectMode(true)}>
+            Select
+          </Button>
+        )
+      }
+    >
+      <ul className="divide-y">
+        {pending.map((txn) => (
+          <li key={txn.id}>
+            <TransactionRow
+              payee={txn.payee}
+              meta={`${formatShortDate(txn.txnDate)} · ${txn.accountName}`}
+              amountCents={txn.amountCents}
+              category={txn.categoryLabel}
+              suggested={txn.suggested}
+              pending
+              selecting={selectMode}
+              selected={selected.has(txn.id)}
+              onClick={() => (selectMode ? toggle(txn.id) : setOpenId(txn.id))}
+              onIntent={
+                selectMode ? undefined : () => prefetchTransactionDetail(queryClient, txn.id)
+              }
+            />
+          </li>
+        ))}
+      </ul>
 
-      <div className="divide-y">
-        {pending.map((txn) => {
-          const isChecked = selected.has(txn.id);
-          const editHref = `/transactions/${txn.id}?back=/`;
-          const prefetch = () => prefetchTransactionDetail(queryClient, txn.id);
-
-          const rowContent = (
-            <div className="min-w-0 flex-1">
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="text-sm font-medium truncate">{txn.payee}</p>
-                  <p className="text-xs text-muted-foreground">
-                    {txn.accountName} · {formatDate(txn.txnDate)}
-                  </p>
-                  {txn.categoryLabel && (
-                    <p className="text-xs text-muted-foreground mt-0.5 flex items-center gap-1.5 min-w-0">
-                      <span className="truncate">{txn.categoryLabel}</span>
-                      {txn.suggested && <SuggestedTag />}
-                    </p>
-                  )}
-                </div>
-                <div className="text-right shrink-0">
-                  <p
-                    className={cn(
-                      "text-sm font-medium tabular-nums",
-                      txn.amountCents < 0
-                        ? "text-destructive"
-                        : "text-green-600 dark:text-green-400",
-                    )}
-                  >
-                    <Money cents={txn.amountCents} />
-                  </p>
-                </div>
-              </div>
-            </div>
-          );
-
-          return (
-            <div
-              key={txn.id}
-              className={cn("flex items-stretch", isChecked && "bg-primary/5")}
-            >
-              {selectMode && (
-                <div className="flex items-start pt-3.5 pl-4">
-                  <Checkbox
-                    checked={isChecked}
-                    onCheckedChange={() => toggle(txn.id)}
-                    aria-label={`Select ${txn.payee}`}
-                  />
-                </div>
-              )}
-              {selectMode ? (
-                <button
-                  type="button"
-                  onClick={() => toggle(txn.id)}
-                  className="flex-1 py-3 px-4 text-left"
-                >
-                  {rowContent}
-                </button>
-              ) : (
-                <Link
-                  href={editHref}
-                  onMouseEnter={prefetch}
-                  onFocus={prefetch}
-                  onPointerDown={prefetch}
-                  className="flex-1 py-3 px-4 hover:bg-muted/30 transition-colors"
-                >
-                  {rowContent}
-                </Link>
-              )}
-            </div>
-          );
-        })}
-      </div>
+      {openTxn && (
+        <ApproveSheet
+          key={openTxn.id}
+          txn={openTxn}
+          categories={categories}
+          onClose={() => setOpenId(null)}
+        />
+      )}
 
       <BulkActionsBar
-        selectedIds={selectedIds}
+        selectedIds={visibleSelected.map((t) => t.id)}
         selectedTotalCents={selectedTotalCents}
-        uncategorizedCount={uncategorizedSelectedCount}
+        uncategorizedCount={plan.kind === "as-is" ? 0 : visibleSelected.filter((t) => t.categoryLabel === null).length}
+        approveAppliesToAll
+        approvePrefillCategoryId={
+          // Only prefill a category the picker can show (not a hidden one).
+          plan.kind === "choose" && categories.some((c) => c.id === plan.prefillCategoryId)
+            ? plan.prefillCategoryId
+            : null
+        }
+        approveSplitCount={visibleSelected.filter((t) => t.allocationCount > 1).length}
         categories={categories}
         accounts={accounts}
-        primary={["approve", "categorize"]}
+        primary={["approve"]}
         menu={["move", "delete"]}
         onClearSelection={exitSelectMode}
       />
-    </>
+    </HomeCard>
   );
 }

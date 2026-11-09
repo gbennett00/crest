@@ -11,6 +11,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { ReadyToAssignBanner } from "@/components/budget/ready-to-assign-banner";
 import { CategoryPicker } from "@/components/transactions/category-picker";
 import { CurrencyInput } from "@/components/ui/currency-input";
+import { TransactionRow } from "@/components/ui/transaction-row";
 
 const THEMES = ["light", "dark"] as const;
 
@@ -51,7 +52,8 @@ function Section({ title, children }: { title: string; children: (theme: (typeof
 export function ComponentGallery() {
   const [direction, setDirection] = useState("out");
   const [range, setRange] = useState("month");
-  const [sheet, setSheet] = useState<"short" | "tall" | "step" | "portals" | null>(null);
+  const [sheet, setSheet] = useState<"short" | "tall" | "step" | "portals" | "confirm" | null>(null);
+  const [rowPicked, setRowPicked] = useState(false);
   const [pickedCategory, setPickedCategory] = useState("");
   const [amountCents, setAmountCents] = useState(0);
   const [step, setStep] = useState(0);
@@ -139,6 +141,17 @@ export function ComponentGallery() {
         )}
       </Section>
 
+      <Section title="Transaction row">
+        {() => (
+          <div className="divide-y overflow-hidden rounded-ds-lg border bg-surface">
+            <TransactionRow payee="Maverik" meta="Oct 3 · Venture – 2562" amountCents={-4663} category="⛽ Gas & fuel" suggested pending />
+            <TransactionRow payee="Smith's" meta="Oct 3 · Venture – 2562" amountCents={-8210} category={null} pending />
+            <TransactionRow payee="Employer payroll" meta="Oct 1 · Checking – 1227" amountCents={300000} category="Ready to Assign" />
+            <TransactionRow payee="Harmons" meta="Oct 2 · Venture – 2562" amountCents={-5472} category="🛒 Groceries" selecting selected={rowPicked} onClick={() => setRowPicked((v) => !v)} />
+          </div>
+        )}
+      </Section>
+
       <section className="space-y-3">
         <h2 className="text-headline">Sheet</h2>
         <div className="flex flex-wrap gap-3">
@@ -146,8 +159,19 @@ export function ComponentGallery() {
           <Button variant="secondary" onClick={() => setSheet("tall")}>Drawer (tall)</Button>
           <Button variant="secondary" onClick={() => { setStep(0); setSheet("step"); }}>Step with back</Button>
           <Button variant="secondary" onClick={() => setSheet("portals")}>With category picker</Button>
+          <Button variant="secondary" onClick={() => setSheet("confirm")}>Confirm header</Button>
         </div>
       </section>
+
+      <Sheet
+        open={sheet === "confirm"}
+        onOpenChange={(o) => !o && setSheet(null)}
+        title="Smith's"
+        subtitle="-$82.10 · Oct 3 · Venture – 2562"
+        confirm={{ label: "Approve", onConfirm: () => setSheet(null), disabled: !pickedCategory }}
+      >
+        <CategoryPicker value={pickedCategory} onChange={setPickedCategory} categories={FAKE_CATEGORIES} />
+      </Sheet>
 
       <Sheet
         open={sheet === "short"}
