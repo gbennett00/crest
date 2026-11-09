@@ -14,6 +14,7 @@ import {
   computeRtaBreakdown,
   findReadyToAssignId,
   withDerivedSinkingFundTarget,
+  withSnoozedMonths,
   type CreditTxn,
   type HistoryRow,
   type MonthlyCents,
@@ -68,7 +69,7 @@ export async function loadBudgetView(
     client
       .from("category_groups")
       .select(
-        "id, name, budget_mode, is_pinned, sort_index, categories(id, name, role, is_pinned, is_hidden, sort_index)",
+        "id, name, budget_mode, is_pinned, sort_index, snoozed_month, categories(id, name, role, is_pinned, is_hidden, sort_index, snoozed_month)",
       )
       .order("sort_index")
       .order("sort_index", { referencedTable: "categories" }),
@@ -239,8 +240,11 @@ export async function loadBudgetView(
     });
 
   const built = buildTargets(targetsRes.data);
-  const grpTargets = built.grpTargets;
-  const catTargets = withDerivedSinkingFundTarget(groups, built.catTargets, grpTargets);
+  const { catTargets, grpTargets } = withSnoozedMonths(
+    groups,
+    withDerivedSinkingFundTarget(groups, built.catTargets, built.grpTargets),
+    built.grpTargets,
+  );
 
   const { groups: budgetGroups, priorCashOverspendCents, previousMonthCashOverspendCents } =
     buildBudgetGroups({

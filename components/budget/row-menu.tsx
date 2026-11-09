@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { ArrowLeftRight, History, Pencil, Target } from "lucide-react";
+import { ArrowLeftRight, Bell, BellOff, History, Pencil, Target } from "lucide-react";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -11,24 +11,29 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { useLongPress } from "@/lib/use-long-press";
 
-// Per-row actions menu (rename, target, move money, view moves), opened by long-pressing the row on
+// Per-row actions menu (rename, target, snooze, move money, view moves), opened by long-pressing the row on
 // touch or right-clicking it on desktop. Spread `rowProps` onto the row (with
 // LONG_PRESS_ROW_CLASS) and render `menu` anywhere inside it.
 export function useRowMenu({
   onRename,
   onEditTarget,
+  onToggleSnooze,
   onMoveMoney,
   onViewMoves,
   hasTarget,
+  snoozed = false,
   disabled = false,
 }: {
   onRename: () => void;
   onEditTarget?: () => void;
+  /** Shown only for rows with a snoozable target; `snoozed` picks the label. */
+  onToggleSnooze?: () => void;
   /** Shown only for funding units (see lib/budget/entries). */
   onMoveMoney?: () => void;
   /** Shown only for funding units, like onMoveMoney. */
   onViewMoves?: () => void;
   hasTarget: boolean;
+  snoozed?: boolean;
   disabled?: boolean;
 }) {
   const [open, setOpen] = useState(false);
@@ -96,6 +101,12 @@ export function useRowMenu({
         {onEditTarget && (
           <DropdownMenuItem onSelect={() => (pendingRef.current = onEditTarget)}>
             <Target size={14} /> {hasTarget ? "Edit target" : "Set target"}
+          </DropdownMenuItem>
+        )}
+        {onToggleSnooze && (
+          <DropdownMenuItem onSelect={() => (pendingRef.current = onToggleSnooze)}>
+            {snoozed ? <Bell size={14} /> : <BellOff size={14} />}{" "}
+            {snoozed ? "Unsnooze target" : "Snooze target"}
           </DropdownMenuItem>
         )}
         {onMoveMoney && (

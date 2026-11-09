@@ -22,6 +22,9 @@ export type TargetData = {
   // `set_aside` only: stop assigning once available reaches this ceiling
   // (see targetNeedCents). Null/undefined = uncapped. Always >= amountCents.
   capCents?: number | null;
+  // First-of-month budget month this target is snoozed for (see
+  // isTargetSnoozed). Copied from the owning category/group on read.
+  snoozedMonth?: string | null;
 };
 
 // YNAB-style activity breakdown for a credit-card payment category, for a single

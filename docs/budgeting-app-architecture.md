@@ -333,9 +333,11 @@ Fields:
 * target_date (nullable; required for `by_date`, always null for `sinking`)
 * repeat_interval_months (nullable; `by_date` may recur every N months, `sinking` always has one)
 * cap_cents (nullable; `set_aside` only, must be >= `amount_cents`)
+* snoozed_month (nullable first-of-month `DATE`; stored on the owning category/group, not on `targets`, because the derived Sinking Fund target has no row — copied onto the target on read by `withSnoozedMonths`)
 
 Rules:
 
+* a target **snoozed** for the viewed month (`snoozed_month = month`, see `isTargetSnoozed`) needs $0 from Assign by Targets and its Available pill reads funded instead of underfunded. That is all it affects: the Spending Plan's monthly costs ignore it, nothing carries over, and the next month's need is computed normally (a `by_date` target's catch-up is therefore larger). Only the one month is stored, so it expires on its own with no reset job and no history. Not offered on `sinking` targets (they ask for nothing themselves); the Sinking Fund category can be snoozed to put less into it for a month
 * a `set_aside` target with a `cap_cents` keeps assigning `amount_cents` each month but never past the point where available reaches the cap: need = max(0, min(amount − assigned, cap − available)). The need is still bounded by the monthly amount, so an overspent month gets no extra catch-up. The Spending Plan counts the full `amount_cents` as its monthly cost (the cap only limits how long it's asked for). Example: medical at $150/mo capped at $300
 * a recurring `by_date` target's due date rolls forward to its next occurrence on read (`effectiveTargetDate`), never written back — no background job
 * a `sinking` target means "need `amount_cents` at the start of every cycle." It asks nothing of Ready to Assign itself; instead the shared `sinking_fund` category accrues its share. That category's target is **derived, never stored**: a monthly `set_aside` of Σ ceil(amount ÷ interval) over every sinking target (`withDerivedSinkingFundTarget`), so editing or removing a sinking target updates it automatically. Moving money from the Sinking Fund (or Ready to Assign) into the category is always manual. The Sinking Fund is created lazily (in its own group) the first time a sinking target is saved, and its target can't be edited directly

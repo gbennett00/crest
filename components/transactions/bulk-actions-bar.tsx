@@ -42,6 +42,7 @@ import type {
   CategoryOption,
 } from "@/components/transactions/transaction-form";
 import { CategoryPicker } from "@/components/transactions/category-picker";
+import { afterNextPaint, startFlow } from "@/lib/perf";
 
 export type BulkAction = "approve" | "categorize" | "move" | "delete";
 
@@ -153,15 +154,24 @@ export function BulkActionsBar({
     setError(null);
   }
 
-  function run(action: () => Promise<BulkResult>) {
+  function run(kind: BulkAction, action: () => Promise<BulkResult>) {
     setError(null);
+    // Times tap → server action returned → refetch landed → repainted, i.e.
+    // how long the selected rows linger (docs/instant-feel-plan.md, Phase 0).
+    const flow = startFlow(`bulk-${kind}`, { count: selectedIds.length });
     startTransition(async () => {
       const result = await action();
       if (result.error) {
         setError(result.error);
         return;
       }
-      invalidateAllLedgerQueries(queryClient);
+      flow.step("action");
+      invalidateAllLedgerQueries(queryClient)
+        .then(() => {
+          flow.step("refetch");
+          return afterNextPaint();
+        })
+        .then(() => flow.step("painted"));
       reset();
       onClearSelection();
     });
@@ -185,7 +195,7 @@ export function BulkActionsBar({
 
   function approveWithCategory() {
     if (!category) return;
-    run(() =>
+    run("approve", () =>
       bulkApproveTransactions(selectedIds, category, {
         replace: approveAppliesToAll ? "unsplit" : "none",
       }),
@@ -194,7 +204,7 @@ export function BulkActionsBar({
 
   function openAction(action: BulkAction, toggle: boolean) {
     if (action === "approve" && approveAsIs) {
-      run(() => bulkApproveTransactions(selectedIds, null));
+      run("approve", () => bulkApproveTransactions(selectedIds, null));
       return;
     }
     // Approve's panel is open: the bar's Approve button is the one that commits.
@@ -291,7 +301,7 @@ export function BulkActionsBar({
                     className="shrink-0"
                     disabled={isPending || !category}
                     onClick={() =>
-                      run(() =>
+                      run("categorize", () =>
                         bulkCategorizeTransactions(selectedIds, category),
                       )
                     }
@@ -330,7 +340,7 @@ export function BulkActionsBar({
                           className="shrink-0"
                           disabled={isPending || !account}
                           onClick={() =>
-                            run(() => bulkMoveTransactions(selectedIds, account))
+                            run("move", () => bulkMoveTransactions(selectedIds, account))
                           }
                         >
                           {isPending ? "…" : "Move"}
@@ -458,7 +468,7 @@ export function BulkActionsBar({
               onClick={(e) => {
                 // Keep the dialog open until the action resolves.
                 e.preventDefault();
-                run(() => bulkDeleteTransactions(selectedIds));
+                run("delete", () => bulkDeleteTransactions(selectedIds));
               }}
             >
               {isPending ? "Deleting…" : "Delete"}
