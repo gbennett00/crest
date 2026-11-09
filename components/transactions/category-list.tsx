@@ -1,0 +1,137 @@
+"use client";
+
+import { useMemo } from "react";
+import { Check } from "lucide-react";
+
+import { cn } from "@/lib/utils";
+import { splitLeadingEmoji } from "@/lib/leading-emoji";
+import { groupCategories, splitMatch } from "@/lib/category-search";
+import type { CategoryOption } from "./transaction-form";
+
+/**
+ * The grouped, searchable category list shared by `CategoryPicker` and the
+ * Home approve drawer. Groups come in the order `categories` is given (Plan
+ * order) under sticky `surface-sunken` headers; `query` filters by category
+ * or group name and highlights the match. Optional leading sections:
+ * `suggestedIds` ("Suggested", hidden while searching) and `noneLabel`.
+ * Render it inside a scroll container; it has no scrolling of its own.
+ */
+export function CategoryList({
+  categories,
+  value,
+  onSelect,
+  query = "",
+  suggestedIds,
+  noneLabel,
+}: {
+  categories: CategoryOption[];
+  value: string | null;
+  onSelect: (categoryId: string) => void;
+  query?: string;
+  suggestedIds?: string[];
+  noneLabel?: string;
+}) {
+  const searching = query.trim() !== "";
+  const groups = useMemo(() => groupCategories(categories, query), [categories, query]);
+  const suggested = useMemo(() => {
+    if (searching || !suggestedIds?.length) return [];
+    const byId = new Map(categories.map((c) => [c.id, c]));
+    return suggestedIds.map((id) => byId.get(id)).filter((c): c is CategoryOption => !!c);
+  }, [categories, suggestedIds, searching]);
+
+  return (
+    <div>
+      {noneLabel && !searching && (
+        <Row label={noneLabel} muted selected={!value} onClick={() => onSelect("")} />
+      )}
+
+      {suggested.length > 0 && (
+        <Group title="Suggested">
+          {suggested.map((c) => (
+            <Row
+              key={c.id}
+              label={c.name}
+              selected={c.id === value}
+              onClick={() => onSelect(c.id)}
+            />
+          ))}
+        </Group>
+      )}
+
+      {groups.length === 0 && (
+        <p className="py-10 text-center text-body text-ink-muted">No categories found.</p>
+      )}
+
+      {groups.map(([groupName, cats]) => (
+        <Group key={groupName} title={groupName}>
+          {cats.map((c) => (
+            <Row
+              key={c.id}
+              label={c.name}
+              query={query}
+              selected={c.id === value}
+              onClick={() => onSelect(c.id)}
+            />
+          ))}
+        </Group>
+      ))}
+    </div>
+  );
+}
+
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section>
+      <h3 className="sticky top-0 z-10 border-y bg-surface-sunken px-4 py-1.5 text-overline uppercase text-ink-muted">
+        {title}
+      </h3>
+      <ul>{children}</ul>
+    </section>
+  );
+}
+
+function Row({
+  label,
+  query = "",
+  selected,
+  muted,
+  onClick,
+}: {
+  label: string;
+  query?: string;
+  selected: boolean;
+  muted?: boolean;
+  onClick: () => void;
+}) {
+  const { emoji, label: text } = splitLeadingEmoji(label);
+  const { before, match, after } = splitMatch(text, query);
+  return (
+    <li>
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={selected}
+        className={cn(
+          "flex min-h-[52px] w-full items-center gap-3 border-b px-4 text-left text-body font-medium transition-colors",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-focus",
+          selected ? "bg-brand-subtle" : "hover:bg-surface",
+          muted ? "text-ink-muted" : "text-ink",
+        )}
+      >
+        {emoji && (
+          <span aria-hidden="true" className="w-[26px] shrink-0 text-center text-xl">
+            {emoji}
+          </span>
+        )}
+        <span className="min-w-0 flex-1 truncate">
+          {before}
+          {match && <mark className="bg-transparent font-bold text-brand-text">{match}</mark>}
+          {after}
+        </span>
+        {selected && (
+          <Check size={20} strokeWidth={2.25} className="shrink-0 text-brand-text" aria-hidden />
+        )}
+      </button>
+    </li>
+  );
+}

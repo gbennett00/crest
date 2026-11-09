@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { Check, ChevronsUpDown, Search, X } from "lucide-react";
+import { ChevronsUpDown, Search, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { usePortalTarget } from "@/components/ui/overlay-container";
 import type { CategoryOption } from "./transaction-form";
+import { CategoryList } from "./category-list";
 
 /**
  * Category select styled and driven like a native app picker: tapping the
@@ -65,25 +66,6 @@ export function CategoryPicker({
 
   const selected = categories.find((c) => c.id === value) ?? null;
 
-  const groups = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const filtered = q
-      ? categories.filter(
-          (c) =>
-            c.name.toLowerCase().includes(q) ||
-            c.groupName.toLowerCase().includes(q),
-        )
-      : categories;
-
-    const map = new Map<string, CategoryOption[]>();
-    for (const c of filtered) {
-      const existing = map.get(c.groupName);
-      if (existing) existing.push(c);
-      else map.set(c.groupName, [c]);
-    }
-    return [...map.entries()];
-  }, [categories, query]);
-
   function choose(categoryId: string) {
     onChange(categoryId);
     setOpen(false);
@@ -118,28 +100,29 @@ export function CategoryPicker({
         portalTarget &&
         createPortal(
           <div
-            className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center"
+            className="fixed inset-0 z-50 flex items-end justify-center bg-scrim sm:items-center"
             onMouseDown={(e) => {
               if (e.target === e.currentTarget) setOpen(false);
             }}
             role="dialog"
             aria-modal="true"
           >
-            <div className="flex h-[85dvh] w-full flex-col rounded-t-2xl bg-card text-card-foreground shadow-2xl sm:h-[70vh] sm:max-w-sm sm:rounded-2xl">
-              <div className="flex items-center justify-between px-4 pb-2 pt-3.5 shrink-0">
-                <h2 className="text-sm font-semibold">Choose Category</h2>
+            <div className="flex h-[85dvh] w-full flex-col overflow-hidden rounded-t-ds-xl border border-b-0 bg-surface-raised text-ink shadow-sheet sm:h-[70vh] sm:max-w-sm sm:rounded-ds-xl sm:border-b">
+              <div aria-hidden="true" className="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-pill bg-border-strong" />
+              <div className="flex shrink-0 items-center justify-between gap-2 py-1 pl-5 pr-3">
+                <h2 className="text-title">Choose category</h2>
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
                   aria-label="Close"
-                  className="text-muted-foreground hover:text-foreground"
+                  className="flex h-tap w-tap items-center justify-center text-ink-muted hover:text-ink"
                 >
-                  <X size={18} />
+                  <X size={24} strokeWidth={1.75} />
                 </button>
               </div>
 
-              <div className="mx-4 mb-2 flex items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 shrink-0">
-                <Search size={14} className="text-muted-foreground shrink-0" />
+              <div className="mx-4 mb-3 flex h-12 shrink-0 items-center gap-2.5 rounded-ds-md border border-border-strong bg-surface-sunken px-3.5 focus-within:border-focus">
+                <Search size={20} strokeWidth={1.75} className="shrink-0 text-ink-subtle" />
                 <input
                   ref={searchRef}
                   // Focus on mount, synchronously inside the tap that opened the
@@ -148,62 +131,30 @@ export function CategoryPicker({
                   autoFocus
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search categories…"
-                  // text-base (16px) on mobile stops iOS from zooming in on focus.
-                  className="min-w-0 flex-1 bg-transparent text-base focus:outline-none sm:text-sm placeholder:text-muted-foreground"
+                  placeholder="Search categories"
+                  // 16px stops iOS from zooming in on focus.
+                  className="h-full min-w-0 flex-1 bg-transparent text-body text-ink placeholder:text-ink-subtle focus:outline-none"
                 />
                 {query && (
                   <button
                     type="button"
                     onClick={() => setQuery("")}
                     aria-label="Clear search"
-                    className="text-muted-foreground hover:text-foreground"
+                    className="-mr-2 flex h-9 w-9 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
                   >
-                    <X size={14} />
+                    <X size={18} strokeWidth={1.75} />
                   </button>
                 )}
               </div>
 
-              <div className="flex-1 overflow-y-auto overscroll-contain pb-[env(safe-area-inset-bottom)]">
-                {noneLabel && !query.trim() && (
-                  <button
-                    type="button"
-                    onClick={() => choose("")}
-                    className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm hover:bg-accent"
-                  >
-                    <span className="text-muted-foreground">{noneLabel}</span>
-                    {!value && (
-                      <Check size={15} className="shrink-0 text-primary" />
-                    )}
-                  </button>
-                )}
-
-                {groups.length === 0 && (
-                  <p className="py-10 text-center text-sm text-muted-foreground">
-                    No categories found.
-                  </p>
-                )}
-
-                {groups.map(([groupName, cats]) => (
-                  <div key={groupName}>
-                    <div className="sticky top-0 bg-card/95 px-4 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-muted-foreground backdrop-blur">
-                      {groupName}
-                    </div>
-                    {cats.map((c) => (
-                      <button
-                        key={c.id}
-                        type="button"
-                        onClick={() => choose(c.id)}
-                        className="flex w-full items-center justify-between gap-2 px-4 py-2.5 text-left text-sm hover:bg-accent"
-                      >
-                        <span className="truncate">{c.name}</span>
-                        {c.id === value && (
-                          <Check size={15} className="shrink-0 text-primary" />
-                        )}
-                      </button>
-                    ))}
-                  </div>
-                ))}
+              <div className="flex-1 overflow-y-auto overscroll-contain border-t pb-[env(safe-area-inset-bottom)]">
+                <CategoryList
+                  categories={categories}
+                  value={value}
+                  onSelect={choose}
+                  query={query}
+                  noneLabel={noneLabel}
+                />
               </div>
             </div>
           </div>,

@@ -14,7 +14,7 @@ type SheetProps = {
   /** A caption line under the title. */
   subtitle?: React.ReactNode;
   /**
-   * Confirm-style header: Cancel (X) moves to the left, the title centres and
+   * Confirm-style header: the close X moves to the left, the title centres and
    * a round check button on the right runs `onConfirm`. For short pick-then-
    * confirm sheets with no footer (the approve drawer).
    */
@@ -77,7 +77,7 @@ export function Sheet({
           {confirm ? (
             <div className="flex shrink-0 items-center gap-2 px-3 py-2">
               <DialogPrimitive.Close
-                aria-label="Cancel"
+                aria-label="Close"
                 className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
               >
                 <X size={24} strokeWidth={1.75} />

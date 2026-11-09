@@ -145,6 +145,11 @@ building anything similar.
     drawer: tapping a row opens a short sheet of suggested categories, a search
     field and a link to the full editor. It uses the Sheet's `confirm` header
     (X left, round check right) and `subtitle`.
+  - `transactions/category-list.tsx`: the grouped, searchable category list
+    (sticky `surface-sunken` group headers, emoji column, match highlight,
+    optional Suggested and "none" rows), shared by the approve drawer's
+    browse mode and `CategoryPicker`, whose sheet is restyled on tokens (its
+    trigger is unchanged). Grouping and matching live in `lib/category-search.ts`.
   - `BulkActionsBar` is restyled on tokens for every page. On Home it shows
     only Approve (plus Move/Delete in the menu); when it asks for a category
     the bar's own Approve button commits, so there is one primary button.
