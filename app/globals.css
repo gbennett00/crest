@@ -146,23 +146,6 @@
   body {
     @apply bg-background text-foreground;
   }
-  /* On touch devices, a scroll that pauses for a moment starts a long-press
-     text selection, highlighting rows in every list. This is an app UI, not a
-     document, so turn selection off there; form fields stay selectable so
-     caret placement and paste still work. Desktop (mouse) is unaffected. */
-  @media (pointer: coarse) {
-    body {
-      -webkit-user-select: none;
-      user-select: none;
-      -webkit-touch-callout: none;
-    }
-    input,
-    textarea,
-    [contenteditable="true"] {
-      -webkit-user-select: text;
-      user-select: text;
-    }
-  }
 }
 
 /* On phone-width screens, nudge the small Tailwind text utilities up a notch
