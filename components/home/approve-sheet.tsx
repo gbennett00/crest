@@ -9,6 +9,7 @@ import { Sheet } from "@/components/ui/sheet";
 import { useFormattedCents } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { runOptimistic } from "@/lib/queries/optimistic";
+import { transactionPatch } from "@/lib/queries/txn-patch";
 import { startFlow } from "@/lib/perf";
 import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
 import { bulkApproveTransactions } from "@/app/(app)/transactions/actions";
@@ -78,13 +79,13 @@ export function ApproveSheet({
     if (!selectedId && splitCount === 0) return;
     const picked = selectedId ? byId.get(selectedId) : undefined;
     runOptimistic(queryClient, {
-      patches: [
+      patch: transactionPatch([
         {
           id: txn.id,
           approved: true,
           category: picked && { id: picked.id, name: picked.name, replace: "all" },
         },
-      ],
+      ]),
       action: () =>
         selectedId
           ? bulkApproveTransactions([txn.id], selectedId, { replace: "all" })

@@ -29,7 +29,7 @@ import { CategoryPicker } from "./category-picker";
 import { SuggestedTag } from "./suggested-tag";
 import { startFlow } from "@/lib/perf";
 import { runOptimistic } from "@/lib/queries/optimistic";
-import type { TxnPatch } from "@/lib/queries/txn-patch";
+import { transactionPatch, type TxnPatch } from "@/lib/queries/txn-patch";
 import { ChevronLeft, Plus, X } from "lucide-react";
 
 export type AllocationData = { categoryId: string; amountCents: number };
@@ -317,7 +317,7 @@ export function TransactionForm({
     };
 
     runOptimistic(queryClient, {
-      patches: [patch],
+      patch: transactionPatch([patch]),
       action: () => saveTransaction(formData),
       errorOf: (result) => result?.error,
       onSuccess: (result) => {
@@ -388,7 +388,7 @@ export function TransactionForm({
   function doDelete() {
     setShowDeleteConfirm(false);
     runOptimistic(queryClient, {
-      patches: [{ id: txn!.id, deleted: true }],
+      patch: transactionPatch([{ id: txn!.id, deleted: true }]),
       action: () => deleteTransactionAction(txn!.id),
       errorOf: (result) => result?.error,
       onSuccess: () => router.refresh(),

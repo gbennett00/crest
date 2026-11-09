@@ -112,9 +112,16 @@ cached lists with pure functions from `lib/queries/txn-patch.ts`, runs the serve
 it, and rolls back with `SaveErrorBanner` (app layout) on failure. While a write is in flight its
 patch is re-applied to any fetch that lands, so a mount refetch can't bring the old row back.
 Covered: the edit page's Save and Delete (except transfers), Home's approve drawer, and the bulk
-bar's Approve, Categorize and Delete. Still round-trips: bulk Move, transfers, creating a
-transaction, and budget assignment (next). With 2s of added server latency, rows leave the list
-in ~100-330 ms.
+bar's Approve, Categorize and Delete. With 2s of added server latency, rows leave the list in
+~100-330 ms.
+
+**Status: budget assignment done.** Inline assigned edits, the card payment shortfall button, the
+Assign popup, Move money and Cover overspending go through `runAssignment`
+(`lib/queries/budget.ts`). Each is expressed as absolute assigned amounts
+(`lib/budget/assign-patch.ts`), which move the viewed month's available, group subtotal and Ready
+to Assign by the change, in the budget view and Home; other months follow on the refetch.
+Assignment writes are queued so they reach the server in order. Still round-trips: bulk Move,
+transfers, creating a transaction, and the Spending Plan wizard.
 
 1. **Helper in `lib/queries/`** implementing the standard sequence: cancel in-flight queries under
    `LEDGER_ROOT`, snapshot affected data, patch with `setQueriesData`, restore the snapshot on

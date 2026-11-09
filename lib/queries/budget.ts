@@ -5,7 +5,12 @@ import { keepPreviousData, useQueryClient, type QueryClient } from "@tanstack/re
 import { defineQuery, invalidateAllLedgerQueries, LEDGER_ROOT } from "./define-query";
 import { setTargetSnoozed } from "@/app/(app)/budget/actions";
 import { withTargetSnoozed } from "@/lib/budget/snooze";
+import { withAssignments, type AssignTarget } from "@/lib/budget/assign-patch";
+import { selectOverspent, selectPinned } from "@/lib/budget/selectors";
 import type { BudgetData } from "@/lib/budget/types";
+import type { HomeData } from "@/lib/budget/load-home-view";
+import { createActionQueue } from "./in-order";
+import { runOptimistic, type LedgerPatch } from "./optimistic";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
 export type BudgetViewResponse = {
@@ -79,4 +84,67 @@ export function useSnoozeTarget() {
       invalidateAllLedgerQueries(queryClient);
     });
   };
+}
+
+/**
+ * A patch for runOptimistic that shows `targets` assigned for `month`, in
+ * that month's cached budget view and in Home (whose overspent and pinned
+ * lists are derived from its budget data).
+ */
+export function assignmentPatch(month: string, targets: AssignTarget[]): LedgerPatch {
+  return (key, data) => {
+    if (data === undefined || data === null) return data;
+    if (key[1] === budgetViewQuery.name && key[2] === month) {
+      const res = data as BudgetViewResponse;
+      const patched = withAssignments(res.data, month, targets);
+      return patched === res.data ? data : { ...res, data: patched };
+    }
+    if (key[1] === "home-view") {
+      const home = data as HomeData;
+      const budgetData = withAssignments(home.budgetData, month, targets);
+      if (budgetData === home.budgetData) return data;
+      return {
+        ...home,
+        budgetData,
+        overspent: selectOverspent(budgetData),
+        pinned: selectPinned(budgetData),
+      };
+    }
+    return data;
+  };
+}
+
+// Assignment writes reach the server one at a time, in the order they were made.
+const inOrder = createActionQueue();
+
+/**
+ * Shows an assignment write (absolute `targets` for `month`) at once and runs
+ * `action` behind it; on failure it's rolled back with a banner titled
+ * `title`. `action` may throw, or return `{ error }` / `{ success }`.
+ */
+export function runAssignment(
+  queryClient: QueryClient,
+  {
+    month,
+    targets,
+    action,
+    title,
+  }: {
+    month: string;
+    targets: AssignTarget[];
+    action: () => Promise<{ error?: string; success?: boolean } | void>;
+    title: string;
+  },
+) {
+  runOptimistic(queryClient, {
+    patch: assignmentPatch(month, targets),
+    action: inOrder(action),
+    errorOf: (result) => {
+      const r = result as { error?: string; success?: boolean } | undefined;
+      if (r?.error) return r.error;
+      if (r?.success === false) return "The server didn’t save it.";
+      return null;
+    },
+    failure: { title },
+  });
 }

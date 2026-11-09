@@ -3,6 +3,7 @@ import { QueryClient, QueryObserver } from "@tanstack/react-query";
 import type { HomeData, PendingTransaction } from "@/lib/budget";
 import { installOptimisticLayer, runOptimistic } from "./optimistic";
 import { clearSaveError, getSaveError } from "./save-error-store";
+import { transactionPatch } from "./txn-patch";
 
 const HOME_KEY = ["ledger", "home-view"];
 
@@ -67,7 +68,7 @@ describe("runOptimistic", () => {
     const action = deferred<{ error?: string }>();
 
     runOptimistic(qc, {
-      patches: [{ id: "t1", approved: true }],
+      patch: transactionPatch([{ id: "t1", approved: true }]),
       action: () => action.promise,
       errorOf: (r) => r.error,
     });
@@ -84,7 +85,7 @@ describe("runOptimistic", () => {
     const { qc } = setup(["t1", "t2"]);
 
     runOptimistic(qc, {
-      patches: [{ id: "t1", approved: true }],
+      patch: transactionPatch([{ id: "t1", approved: true }]),
       action: async () => ({ error: "Nope" }),
       errorOf: (r) => r.error,
       failure: { title: "Couldn’t approve." },
@@ -99,7 +100,7 @@ describe("runOptimistic", () => {
     const { qc } = setup(["t1"]);
 
     runOptimistic(qc, {
-      patches: [{ id: "t1", deleted: true }],
+      patch: transactionPatch([{ id: "t1", deleted: true }]),
       action: async () => {
         throw new Error("network");
       },
@@ -115,7 +116,7 @@ describe("runOptimistic", () => {
     const action = deferred<{ error?: string }>();
 
     runOptimistic(qc, {
-      patches: [{ id: "t1", approved: true }],
+      patch: transactionPatch([{ id: "t1", approved: true }]),
       action: () => action.promise,
       errorOf: (r) => r.error,
     });
@@ -133,7 +134,7 @@ describe("runOptimistic", () => {
     const action = deferred<{ error?: string }>();
 
     runOptimistic(qc, {
-      patches: [{ id: "t1", approved: true }, { id: "t2", approved: true }],
+      patch: transactionPatch([{ id: "t1", approved: true }, { id: "t2", approved: true }]),
       action: () => action.promise,
       errorOf: (r) => r.error,
     });
@@ -155,7 +156,7 @@ describe("runOptimistic", () => {
 
     const action = deferred<{ error?: string }>();
     runOptimistic(qc, {
-      patches: [{ id: "t1", approved: true }],
+      patch: transactionPatch([{ id: "t1", approved: true }]),
       action: () => action.promise,
       errorOf: (r) => r.error,
     });
@@ -176,12 +177,12 @@ describe("runOptimistic", () => {
     const newer = deferred<{ error?: string }>();
 
     runOptimistic(qc, {
-      patches: [{ id: "t1", approved: true }],
+      patch: transactionPatch([{ id: "t1", approved: true }]),
       action: () => older.promise,
       errorOf: (r) => r.error,
     });
     runOptimistic(qc, {
-      patches: [{ id: "t2", approved: true }],
+      patch: transactionPatch([{ id: "t2", approved: true }]),
       action: () => newer.promise,
       errorOf: (r) => r.error,
     });
@@ -208,7 +209,7 @@ describe("runOptimistic", () => {
     const action = deferred<{ error?: string }>();
 
     runOptimistic(qc, {
-      patches: [{ id: "t1", deleted: true }],
+      patch: transactionPatch([{ id: "t1", deleted: true }]),
       action: () => action.promise,
       errorOf: (r) => r.error,
     });

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { ArrowUpDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -10,7 +10,8 @@ import { Modal } from "@/components/ui/modal";
 import { useFormattedCents } from "@/components/money";
 import { CategoryPicker } from "@/components/transactions/category-picker";
 import { moveBudgetMoney } from "@/app/(app)/budget/actions";
-import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { runAssignment } from "@/lib/queries/budget";
+import { targetsForMoves } from "@/lib/budget/assign-patch";
 import { buildMoveOptions, resolveMoveMoney, unitKey } from "@/lib/budget/move-money";
 import type { BudgetUnit } from "@/lib/ledger";
 import { cn } from "@/lib/utils";
@@ -33,7 +34,6 @@ export function MoveMoneyPopup({
 }) {
   const formatCents = useFormattedCents();
   const queryClient = useQueryClient();
-  const [isPending, startTransition] = useTransition();
   const options = useMemo(() => buildMoveOptions(data), [data]);
 
   const [fromKey, setFromKey] = useState<string | null>(unitKey(unit));
@@ -58,15 +58,14 @@ export function MoveMoneyPopup({
       return;
     }
     setError(null);
-    startTransition(async () => {
-      const result = await moveBudgetMoney(resolved.move);
-      if (result?.success) {
-        invalidateAllLedgerQueries(queryClient);
-        onClose();
-      } else {
-        setError(result?.error ?? "Failed to move money.");
-      }
+    const move = resolved.move;
+    runAssignment(queryClient, {
+      month: data.month,
+      targets: targetsForMoves(data, [move]),
+      action: () => moveBudgetMoney(move),
+      title: "Couldn’t move money.",
     });
+    onClose();
   }
 
   return (
@@ -146,9 +145,9 @@ export function MoveMoneyPopup({
           <Button
             className="flex-1"
             onClick={handleSave}
-            disabled={isPending || "error" in resolved}
+            disabled={"error" in resolved}
           >
-            {isPending ? "Moving…" : `Move ${formatCents(amountCents)}`}
+            {`Move ${formatCents(amountCents)}`}
           </Button>
         </div>
       </div>

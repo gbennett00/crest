@@ -1,8 +1,8 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useMemo, useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
-import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { runAssignment } from "@/lib/queries/budget";
 import { X, Target } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
@@ -36,7 +36,6 @@ export function AssignPopup({
 }) {
   const formatCents = useFormattedCents();
   const queryClient = useQueryClient();
-  const [, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
   const entries = useMemo(() => buildEntries(data), [data]);
@@ -98,15 +97,16 @@ export function AssignPopup({
       amountCents: drafts[e.key] ?? e.originalAssigned,
     }));
 
-    startTransition(async () => {
-      const result = await bulkAssign(allAssignments, data.month);
-      if (result?.success) {
-        invalidateAllLedgerQueries(queryClient);
-        onClose();
-      } else {
-        setError("Failed to save assignments.");
-      }
+    runAssignment(queryClient, {
+      month: data.month,
+      targets: allAssignments.map(({ type, id, amountCents }) => ({
+        unit: { type, id },
+        assignedCents: amountCents,
+      })),
+      action: () => bulkAssign(allAssignments, data.month),
+      title: "Couldn’t save the assignments.",
     });
+    onClose();
 
     void assignments; // suppress lint warning
   }
