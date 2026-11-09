@@ -35,6 +35,7 @@ import {
   bulkCategorizeTransactions,
   bulkDeleteTransactions,
   bulkMoveTransactions,
+  type ApproveReplace,
   type BulkResult,
 } from "@/app/(app)/transactions/actions";
 import type {
@@ -43,6 +44,8 @@ import type {
 } from "@/components/transactions/transaction-form";
 import { CategoryPicker } from "@/components/transactions/category-picker";
 import { afterNextPaint, startFlow } from "@/lib/perf";
+import { runOptimistic } from "@/lib/queries/optimistic";
+import type { TxnPatch } from "@/lib/queries/txn-patch";
 
 export type BulkAction = "approve" | "categorize" | "move" | "delete";
 
@@ -170,6 +173,36 @@ export function BulkActionsBar({
     setCategoryTouched(false);
   }
 
+  // Approve, categorize and delete update every list at once and clear the
+  // selection; the server write follows and is rolled back with a banner if
+  // it fails (lib/queries/optimistic.ts). Rows the server skips (reconciled,
+  // transfer legs) come back on the refetch that follows.
+  function runOptimistically(
+    kind: BulkAction,
+    patch: (id: string) => TxnPatch,
+    action: () => Promise<BulkResult>,
+  ) {
+    const ids = selectedIds;
+    runOptimistic(queryClient, {
+      patches: ids.map(patch),
+      action,
+      errorOf: (result) => result.error,
+      failure: {
+        title: `Couldn’t ${kind} ${ids.length === 1 ? "the transaction" : `${ids.length} transactions`}.`,
+      },
+      flow: startFlow(`bulk-${kind}`, { count: ids.length, optimistic: true }),
+    });
+    reset();
+    onClearSelection();
+  }
+
+  function categoryPatch(id: string, replace: ApproveReplace) {
+    const name = categories.find((c) => c.id === id)?.name ?? "Unknown";
+    return { id, name, replace };
+  }
+
+  // Move keeps the round-trip: the rows would also have to appear in the
+  // destination account's register, which isn't cached in a patchable form.
   function run(kind: BulkAction, action: () => Promise<BulkResult>) {
     setError(null);
     // Times tap → server action returned → refetch landed → repainted, i.e.
@@ -211,16 +244,21 @@ export function BulkActionsBar({
 
   function approveWithCategory() {
     if (!category) return;
-    run("approve", () =>
-      bulkApproveTransactions(selectedIds, category, {
-        replace: approveAppliesToAll ? "unsplit" : "none",
-      }),
+    const replace: ApproveReplace = approveAppliesToAll ? "unsplit" : "none";
+    runOptimistically(
+      "approve",
+      (id) => ({ id, approved: true, category: categoryPatch(category, replace) }),
+      () => bulkApproveTransactions(selectedIds, category, { replace }),
     );
   }
 
   function openAction(action: BulkAction, toggle: boolean) {
     if (action === "approve" && approveAsIs) {
-      run("approve", () => bulkApproveTransactions(selectedIds, null));
+      runOptimistically(
+        "approve",
+        (id) => ({ id, approved: true }),
+        () => bulkApproveTransactions(selectedIds, null),
+      );
       return;
     }
     // Approve's panel is open: the bar's Approve button is the one that commits.
@@ -320,8 +358,10 @@ export function BulkActionsBar({
                     className="shrink-0"
                     disabled={isPending || !category}
                     onClick={() =>
-                      run("categorize", () =>
-                        bulkCategorizeTransactions(selectedIds, category),
+                      runOptimistically(
+                        "categorize",
+                        (id) => ({ id, category: categoryPatch(category, "all") }),
+                        () => bulkCategorizeTransactions(selectedIds, category),
                       )
                     }
                   >
@@ -484,13 +524,15 @@ export function BulkActionsBar({
             <AlertDialogAction
               disabled={isPending}
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              onClick={(e) => {
-                // Keep the dialog open until the action resolves.
-                e.preventDefault();
-                run("delete", () => bulkDeleteTransactions(selectedIds));
-              }}
+              onClick={() =>
+                runOptimistically(
+                  "delete",
+                  (id) => ({ id, deleted: true }),
+                  () => bulkDeleteTransactions(selectedIds),
+                )
+              }
             >
-              {isPending ? "Deleting…" : "Delete"}
+              Delete
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

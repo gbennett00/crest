@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Search, X } from "lucide-react";
@@ -8,7 +8,8 @@ import { ChevronRight, Search, X } from "lucide-react";
 import { Sheet } from "@/components/ui/sheet";
 import { useFormattedCents } from "@/components/money";
 import { cn } from "@/lib/utils";
-import { invalidateAllLedgerQueries } from "@/lib/queries/define-query";
+import { runOptimistic } from "@/lib/queries/optimistic";
+import { startFlow } from "@/lib/perf";
 import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
 import { bulkApproveTransactions } from "@/app/(app)/transactions/actions";
 import type { PendingTransaction } from "@/lib/budget";
@@ -45,8 +46,6 @@ export function ApproveSheet({
   const [query, setQuery] = useState("");
   const [browsing, setBrowsing] = useState(false);
   const searchRef = useRef<HTMLInputElement>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
 
   // Already split across categories: approving with nothing picked keeps the
   // split; picking a category replaces it.
@@ -73,20 +72,29 @@ export function ApproveSheet({
     leaveBrowse();
   }
 
+  // The row leaves the list as the drawer closes; the server write follows
+  // and is rolled back with a banner if it fails (lib/queries/optimistic.ts).
   function approve() {
     if (!selectedId && splitCount === 0) return;
-    setError(null);
-    startTransition(async () => {
-      const result = selectedId
-        ? await bulkApproveTransactions([txn.id], selectedId, { replace: "all" })
-        : await bulkApproveTransactions([txn.id], null);
-      if (result.error || result.updated === 0) {
-        setError(result.error ?? "Couldn’t approve this transaction.");
-        return;
-      }
-      invalidateAllLedgerQueries(queryClient);
-      onClose();
+    const picked = selectedId ? byId.get(selectedId) : undefined;
+    runOptimistic(queryClient, {
+      patches: [
+        {
+          id: txn.id,
+          approved: true,
+          category: picked && { id: picked.id, name: picked.name, replace: "all" },
+        },
+      ],
+      action: () =>
+        selectedId
+          ? bulkApproveTransactions([txn.id], selectedId, { replace: "all" })
+          : bulkApproveTransactions([txn.id], null),
+      errorOf: (result) =>
+        result.error ?? (result.updated === 0 ? "The server skipped it." : null),
+      failure: { title: `Couldn’t approve ${txn.payee}.` },
+      flow: startFlow("approve-sheet", { optimistic: true }),
     });
+    onClose();
   }
 
   const editHref = `/transactions/${txn.id}?back=/`;
@@ -95,7 +103,7 @@ export function ApproveSheet({
     <Sheet
       open
       onOpenChange={(open) => {
-        if (!open && !isPending) onClose();
+        if (!open) onClose();
       }}
       title={txn.payee}
       subtitle={
@@ -109,9 +117,9 @@ export function ApproveSheet({
         </>
       }
       confirm={{
-        label: isPending ? "Approving" : "Approve",
+        label: "Approve",
         onConfirm: approve,
-        disabled: (!selectedId && splitCount === 0) || isPending,
+        disabled: !selectedId && splitCount === 0,
       }}
       onEscape={
         browsing
@@ -188,7 +196,6 @@ export function ApproveSheet({
         )}
       </div>
 
-      {error && <p className="mt-3 shrink-0 text-caption text-neg-text">{error}</p>}
 
       {browsing ? (
         <div className="-mx-5 min-h-0 flex-1 overflow-y-auto overscroll-contain border-t pb-[max(1rem,env(safe-area-inset-bottom))]">

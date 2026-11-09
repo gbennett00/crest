@@ -3,6 +3,7 @@ import { UserMenu } from "@/components/user-menu";
 import { BottomNav, Sidebar } from "@/components/nav";
 import { Logo } from "@/components/logo";
 import { RulePromptBanner } from "@/components/rules/rule-prompt-banner";
+import { SaveErrorBanner } from "@/components/save-error-banner";
 import { QueryProvider } from "@/lib/query-client";
 
 export default function AppLayout({ children }: { children: React.ReactNode }) {
@@ -37,6 +38,7 @@ export default function AppLayout({ children }: { children: React.ReactNode }) {
         <Suspense fallback={null}>
           <RulePromptBanner />
         </Suspense>
+        <SaveErrorBanner />
       </div>
     </QueryProvider>
   );

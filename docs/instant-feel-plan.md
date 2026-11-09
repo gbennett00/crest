@@ -107,6 +107,15 @@ for the split between steps, not the absolute times.
 
 ## 3. Phase 1: Optimistic mutations (client)
 
+**Status: transaction writes done.** `lib/queries/optimistic.ts` (`runOptimistic`) patches the
+cached lists with pure functions from `lib/queries/txn-patch.ts`, runs the server action behind
+it, and rolls back with `SaveErrorBanner` (app layout) on failure. While a write is in flight its
+patch is re-applied to any fetch that lands, so a mount refetch can't bring the old row back.
+Covered: the edit page's Save and Delete (except transfers), Home's approve drawer, and the bulk
+bar's Approve, Categorize and Delete. Still round-trips: bulk Move, transfers, creating a
+transaction, and budget assignment (next). With 2s of added server latency, rows leave the list
+in ~100-330 ms.
+
 1. **Helper in `lib/queries/`** implementing the standard sequence: cancel in-flight queries under
    `LEDGER_ROOT`, snapshot affected data, patch with `setQueriesData`, restore the snapshot on
    error, invalidate in the background on settle (never awaited by the UI).
