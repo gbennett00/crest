@@ -61,6 +61,16 @@ describe("categoryPillState", () => {
     expect(categoryPillState(cat({ availableCents: 10_700, target: fillUpTo(10_700) }), MONTH)).toBe("pos");
   });
 
+  it("is not warn when the target was fully funded and then partly spent", () => {
+    // Leftover + assigned = $107 target; $60 spent this month leaves $47.
+    expect(
+      categoryPillState(
+        cat({ assignedCents: 7_000, activityCents: -6_000, availableCents: 4_700, target: fillUpTo(10_700) }),
+        MONTH,
+      ),
+    ).toBe("pos");
+  });
+
   it("is warn when zero but the target still asks for money", () => {
     expect(categoryPillState(cat({ target: fillUpTo(10_700) }), MONTH)).toBe("warn");
   });

@@ -16,6 +16,8 @@ export type BudgetEntry = {
   groupName: string;
   originalAssigned: number;
   currentAvailable: number;
+  /** The viewed month's activity (signed; negative = spending). */
+  activity: number;
   target: TargetData | null;
 };
 
@@ -31,6 +33,7 @@ export function buildBudgetEntries(data: BudgetData): BudgetEntry[] {
         groupName: "Group budget",
         originalAssigned: group.groupAssignedCents,
         currentAvailable: group.groupAvailableCents,
+        activity: group.groupActivityCents,
         target: group.target,
       });
     } else {
@@ -44,6 +47,7 @@ export function buildBudgetEntries(data: BudgetData): BudgetEntry[] {
           groupName: group.name,
           originalAssigned: cat.assignedCents,
           currentAvailable: cat.availableCents,
+          activity: cat.activityCents,
           target: cat.target,
         });
       }

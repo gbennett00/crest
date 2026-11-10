@@ -759,6 +759,22 @@ describe("targetNeedCents", () => {
     expect(targetNeedCents(fillUpTo(700_00), MONTH, 0, 700_00)).toBe(0);
   });
 
+  it("fill_up_to counts this month's spending as funded", () => {
+    // $100 left over + $600 assigned = $700 target, then $250 spent this month
+    // → $450 available, but the target was fully funded.
+    expect(targetNeedCents(fillUpTo(700_00), MONTH, 600_00, 450_00, -250_00)).toBe(0);
+  });
+
+  it("fill_up_to still asks for the gap when funding fell short before spending", () => {
+    // $100 left over + $500 assigned = $600 funded, $250 spent → $100 more needed.
+    expect(targetNeedCents(fillUpTo(700_00), MONTH, 500_00, 350_00, -250_00)).toBe(100_00);
+  });
+
+  it("fill_up_to doesn't let an inflow reduce the funded balance", () => {
+    // A $50 refund this month already sits in available.
+    expect(targetNeedCents(fillUpTo(700_00), MONTH, 0, 700_00, 50_00)).toBe(0);
+  });
+
   it("set_aside needs the gap between this month's assignment and the target, ignoring available", () => {
     expect(targetNeedCents(setAside(200_00), MONTH, 50_00, 900_00)).toBe(150_00);
   });
@@ -817,6 +833,12 @@ describe("targetNeedCents", () => {
     // Budgeting November, $350 already available → $350 left over the 3
     // remaining months (Nov, Dec, Jan).
     expect(targetNeedCents(target, "2025-11-01", 0, 350_00)).toBe(116_67);
+  });
+
+  it("by_date counts this month's spending as funded", () => {
+    // Same as above, but $50 of November's $350 was spent this month.
+    const target = byDate(700_00, "2026-01-01");
+    expect(targetNeedCents(target, "2025-11-01", 0, 300_00, -50_00)).toBe(116_67);
   });
 
   it("by_date matches YNAB's schedule for a mid-goal check-in", () => {
