@@ -34,6 +34,8 @@ export type PendingTransaction = {
   categoryId: string | null;
   /** How many category splits it carries (0 uncategorized, 2+ split). */
   allocationCount: number;
+  /** Its current allocations (signed cents), to seed the split editor. */
+  allocations: { categoryId: string; amountCents: number }[];
   /**
    * Quick picks for the approve drawer, best first: its current category,
    * then the payee's most used categories over the last 90 days (max 4).
@@ -75,7 +77,7 @@ export async function loadHomeData(
     category_source: string | null;
     accounts: { name: string } | null;
     transaction_allocations:
-      | { category_id: string; categories: { name: string } | null }[]
+      | { category_id: string; amount_cents: number; categories: { name: string } | null }[]
       | null;
   };
 
@@ -84,7 +86,7 @@ export async function loadHomeData(
       client
         .from("transactions")
         .select(
-          "id, payee, payee_key, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(category_id, categories(name))",
+          "id, payee, payee_key, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(category_id, amount_cents, categories(name))",
         )
         .is("approved_at", null)
         .order("txn_date", { ascending: false })
@@ -137,6 +139,7 @@ export async function loadHomeData(
       suggested: t.category_source !== null && allocs.length > 0,
       categoryId,
       allocationCount: allocs.length,
+      allocations: allocs.map((a) => ({ categoryId: a.category_id, amountCents: a.amount_cents })),
       suggestedCategoryIds: suggestionsFor(
         // A suggestion into a category that is now hidden isn't offered.
         categoryId && validCategoryIds.has(categoryId) ? categoryId : null,

@@ -8,7 +8,12 @@ import {
   pressMoneyKey,
   type AssignmentKey,
 } from "@/lib/currency-input";
-import { MONEY_KEYPAD_ATTR, MoneyKeypad, useCoarsePointer } from "@/components/ui/money-keypad";
+import {
+  MONEY_KEYPAD_ATTR,
+  MoneyKeypad,
+  useCoarsePointer,
+  type KeypadQuickAction,
+} from "@/components/ui/money-keypad";
 
 export interface CurrencyInputProps
   extends Omit<
@@ -24,6 +29,12 @@ export interface CurrencyInputProps
    * fields (transaction amounts) omit this since a negative value never makes
    * sense there. */
   allowNegative?: boolean;
+  /** Chips shown above the on-screen keypad's keys (touch devices). */
+  keypadQuickActions?: KeypadQuickAction[];
+  /** Label of the keypad's primary key; defaults to "Done". */
+  keypadDoneLabel?: string;
+  /** Replaces the keypad primary key's default (blur), e.g. to focus the next field. */
+  onKeypadDone?: () => void;
 }
 
 /**
@@ -50,6 +61,9 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
       cents,
       onCentsChange,
       allowNegative = false,
+      keypadQuickActions,
+      keypadDoneLabel,
+      onKeypadDone,
       className,
       onFocus,
       onBlur,
@@ -193,9 +207,11 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
         {keypadOpen && (
           <MoneyKeypad
             onKey={handleKeypadKey}
-            onDone={() => innerRef.current?.blur()}
+            onDone={onKeypadDone ?? (() => innerRef.current?.blur())}
             anchorRef={innerRef}
             operators={allowNegative ? "sign" : "none"}
+            quickActions={keypadQuickActions}
+            doneLabel={keypadDoneLabel}
           />
         )}
       </>

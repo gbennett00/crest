@@ -145,6 +145,12 @@ building anything similar.
     drawer: tapping a row opens a short sheet of suggested categories, a search
     field and a link to the full editor. It uses the Sheet's `confirm` header
     (X left, round check right) and `subtitle`.
+  - Split steps (`home/split-steps.tsx`): category picker (CategoryList in
+    multi-select mode, `selectedIds`, leading checkboxes) and the amounts
+    list. `Sheet` gains `centered` (a step header: back or close left, title
+    centred, no confirm) and `onBack` now works with `confirm`.
+    `CurrencyInput` passes `keypadQuickActions`, `keypadDoneLabel` and
+    `onKeypadDone` through to `MoneyKeypad` (which takes `doneLabel`).
   - `transactions/category-list.tsx`: the grouped, searchable category list
     (sticky `surface-sunken` group headers, emoji column, match highlight,
     optional Suggested and "none" rows), shared by the approve drawer's

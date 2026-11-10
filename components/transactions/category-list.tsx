@@ -23,6 +23,7 @@ export function CategoryList({
   query = "",
   suggestedIds,
   noneLabel,
+  selectedIds,
 }: {
   categories: CategoryOption[];
   value: string | null;
@@ -30,7 +31,11 @@ export function CategoryList({
   query?: string;
   suggestedIds?: string[];
   noneLabel?: string;
+  /** Multi-select: rows show a checkbox, checked for these ids (`value` is ignored). */
+  selectedIds?: ReadonlySet<string>;
 }) {
+  const isSelected = (id: string) => (selectedIds ? selectedIds.has(id) : id === value);
+  const checkbox = !!selectedIds;
   const searching = query.trim() !== "";
   const groups = useMemo(() => groupCategories(categories, query), [categories, query]);
   const suggested = useMemo(() => {
@@ -51,7 +56,8 @@ export function CategoryList({
             <CategoryRow
               key={c.id}
               label={c.name}
-              selected={c.id === value}
+              selected={isSelected(c.id)}
+              checkbox={checkbox}
               onClick={() => onSelect(c.id)}
             />
           ))}
@@ -69,7 +75,8 @@ export function CategoryList({
               key={c.id}
               label={c.name}
               query={query}
-              selected={c.id === value}
+              selected={isSelected(c.id)}
+              checkbox={checkbox}
               onClick={() => onSelect(c.id)}
             />
           ))}
@@ -102,6 +109,7 @@ export function CategoryRow({
   selected,
   muted,
   variant = "list",
+  checkbox,
   onClick,
 }: {
   label: string;
@@ -109,6 +117,8 @@ export function CategoryRow({
   selected: boolean;
   muted?: boolean;
   variant?: "list" | "card";
+  /** Multi-select: a leading checkbox instead of the trailing check. */
+  checkbox?: boolean;
   onClick: () => void;
 }) {
   const { emoji, label: text } = splitLeadingEmoji(label);
@@ -131,6 +141,17 @@ export function CategoryRow({
           muted ? "text-ink-muted" : "text-ink",
         )}
       >
+        {checkbox && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "flex h-6 w-6 shrink-0 items-center justify-center rounded-ds-sm border-2",
+              selected ? "border-brand bg-brand text-brand-ink" : "border-border-strong",
+            )}
+          >
+            {selected && <Check size={16} strokeWidth={3} />}
+          </span>
+        )}
         {emoji && (
           <span aria-hidden="true" className="w-[26px] shrink-0 text-center text-xl">
             {emoji}
@@ -141,7 +162,7 @@ export function CategoryRow({
           {match && <mark className="bg-transparent font-bold text-brand-text">{match}</mark>}
           {after}
         </span>
-        {selected && (
+        {selected && !checkbox && (
           <Check size={20} strokeWidth={2.25} className="shrink-0 text-brand-text" aria-hidden />
         )}
       </button>

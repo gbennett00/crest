@@ -21,6 +21,11 @@ type SheetProps = {
    */
   confirm?: { label: string; onConfirm: () => void; disabled?: boolean };
   /**
+   * Centred-title header without a confirm button (a step inside a confirm
+   * flow): back or close on the left, the title centred, nothing on the right.
+   */
+  centered?: boolean;
+  /**
    * Called on Escape before the sheet closes; call `e.preventDefault()` to
    * keep it open (e.g. to leave an in-sheet mode instead).
    */
@@ -49,6 +54,7 @@ export function Sheet({
   title,
   subtitle,
   confirm,
+  centered,
   onEscape,
   onBack,
   children,
@@ -89,27 +95,42 @@ export function Sheet({
             aria-hidden="true"
             className="mx-auto mt-2 mb-1 h-1 w-9 shrink-0 rounded-pill bg-border-strong"
           />
-          {confirm ? (
+          {confirm || centered ? (
             <div className="flex shrink-0 items-center gap-2 px-3 py-2">
-              <DialogPrimitive.Close
-                aria-label="Close"
-                className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
-              >
-                <X size={24} strokeWidth={1.75} />
-              </DialogPrimitive.Close>
+              {onBack ? (
+                <button
+                  type="button"
+                  onClick={onBack}
+                  aria-label="Back"
+                  className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
+                >
+                  <ChevronLeft size={24} strokeWidth={1.75} />
+                </button>
+              ) : (
+                <DialogPrimitive.Close
+                  aria-label="Close"
+                  className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
+                >
+                  <X size={24} strokeWidth={1.75} />
+                </DialogPrimitive.Close>
+              )}
               <div className="min-w-0 flex-1 text-center">
                 <DialogPrimitive.Title className="truncate text-headline">{title}</DialogPrimitive.Title>
                 {subtitle && <p className="truncate text-caption text-ink-muted">{subtitle}</p>}
               </div>
-              <button
-                type="button"
-                aria-label={confirm.label}
-                disabled={confirm.disabled}
-                onClick={confirm.onConfirm}
-                className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill bg-brand text-brand-ink transition-opacity hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-40"
-              >
-                <Check size={24} strokeWidth={2.25} />
-              </button>
+              {confirm ? (
+                <button
+                  type="button"
+                  aria-label={confirm.label}
+                  disabled={confirm.disabled}
+                  onClick={confirm.onConfirm}
+                  className="flex h-tap w-tap shrink-0 items-center justify-center rounded-pill bg-brand text-brand-ink transition-opacity hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus focus-visible:ring-offset-2 disabled:opacity-40"
+                >
+                  <Check size={24} strokeWidth={2.25} />
+                </button>
+              ) : (
+                <span aria-hidden="true" className="w-tap shrink-0" />
+              )}
             </div>
           ) : (
             <div className="flex shrink-0 items-center justify-between gap-2 py-2 pl-5 pr-4">

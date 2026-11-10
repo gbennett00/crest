@@ -18,6 +18,7 @@ function pending(id: string): PendingTransaction {
     suggested: false,
     categoryId: "dining",
     allocationCount: 1,
+    allocations: [{ categoryId: "dining", amountCents: -450 }],
     suggestedCategoryIds: [],
   };
 }

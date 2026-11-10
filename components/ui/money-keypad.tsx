@@ -66,6 +66,7 @@ export function MoneyKeypad({
   anchorRef,
   operators = "full",
   quickActions,
+  doneLabel = "Done",
 }: {
   onKey: (key: AssignmentKey) => void;
   onDone: () => void;
@@ -77,6 +78,8 @@ export function MoneyKeypad({
    * digits only (the operator keys are left blank). */
   operators?: "full" | "sign" | "none";
   quickActions?: KeypadQuickAction[];
+  /** Label of the primary key (e.g. "Next" when it moves to another field). */
+  doneLabel?: string;
 }) {
   const hasActions = !!quickActions?.length;
   React.useEffect(() => {
@@ -154,7 +157,7 @@ export function MoneyKeypad({
           onClick={onDone}
           className="mx-1 h-14 select-none touch-manipulation"
         >
-          Done
+          {doneLabel}
         </Button>
       </div>
     </div>,
