@@ -15,7 +15,7 @@ export function categoryPillState(cat: BudgetCategory, month: string): PillState
 
   const cardShortfall = paymentShortfallCents(cat.availableCents, cat.cardRegisterBalanceCents);
   const targetNeed = cat.target
-    ? targetNeedCents(cat.target, month, cat.assignedCents, cat.availableCents)
+    ? targetNeedCents(cat.target, month, cat.assignedCents, cat.availableCents, cat.activityCents)
     : 0;
   if (cardShortfall > 0 || targetNeed > 0) return "warn";
 

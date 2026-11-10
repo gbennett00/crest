@@ -604,15 +604,24 @@ export function isTargetSnoozed(target: TargetData, month: string): boolean {
 
 /**
  * Cents still needed this month to stay on track for `target`, given a
- * (possibly draft) assigned amount and available balance for the viewed
- * month. Used by "Assign by Targets" to distribute Ready to Assign.
+ * (possibly draft) assigned amount, available balance and activity for the
+ * viewed month. Used by "Assign by Targets" to distribute Ready to Assign and
+ * by the Plan table's underfunded (amber) state.
  *
- *  - `fill_up_to`: top up available to the target amount.
+ * Balance-based targets (`fill_up_to`, `by_date`) measure progress against
+ * what the category was *funded* with this month — rolled-forward available
+ * plus this month's assignment — not against what's left after spending.
+ * Money assigned and then spent as planned still counts toward the target;
+ * otherwise a fully funded category would turn underfunded as soon as it was
+ * used. Only outflows are added back: an inflow (e.g. a refund) already sits
+ * in available and isn't double-counted.
+ *
+ *  - `fill_up_to`: top up the funded balance to the target amount.
  *  - `set_aside`: assign the target amount every month, regardless of
  *    rolled-forward available. With a `capCents`, never assign past the point
  *    where available reaches the cap (a month's need is still bounded by the
  *    monthly amount — no extra catch-up after an overspent month).
- *  - `by_date`: like `fill_up_to` (fill the shortfall in available, not just
+ *  - `by_date`: like `fill_up_to` (fill the shortfall in the funded balance, not just
  *    this month's assignment), but spread evenly across the months
  *    remaining until the target date rather than demanded in one month. A
  *    recurring target's due date is rolled forward to its next occurrence
@@ -627,10 +636,13 @@ export function targetNeedCents(
   month: string,
   assignedCents: number,
   availableCents: number,
+  activityCents = 0,
 ): number {
   if (isTargetSnoozed(target, month)) return 0;
+  // Available before this month's spending (see above).
+  const fundedCents = availableCents - Math.min(0, activityCents);
   if (target.type === "fill_up_to") {
-    return Math.max(0, target.amountCents - availableCents);
+    return Math.max(0, target.amountCents - fundedCents);
   }
   if (target.type === "set_aside") {
     const need = Math.max(0, target.amountCents - assignedCents);
@@ -640,7 +652,7 @@ export function targetNeedCents(
     return Math.max(0, Math.min(need, target.capCents - availableCents));
   }
   if (target.type === "by_date") {
-    const shortfall = Math.max(0, target.amountCents - availableCents);
+    const shortfall = Math.max(0, target.amountCents - fundedCents);
     if (shortfall <= 0 || !target.targetDate) return 0;
     const dueDate = effectiveTargetDate(target.targetDate, target.repeatIntervalMonths, month);
     const monthsLeft = monthsUntilTarget(month, dueDate);

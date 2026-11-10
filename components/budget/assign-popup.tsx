@@ -69,7 +69,13 @@ export function AssignPopup({
       const current = newDrafts[entry.key] ?? entry.originalAssigned;
       const delta = current - entry.originalAssigned;
       const draftAvailable = entry.currentAvailable + delta;
-      const need = targetNeedCents(entry.target, data.month, current, draftAvailable);
+      const need = targetNeedCents(
+        entry.target,
+        data.month,
+        current,
+        draftAvailable,
+        entry.activity,
+      );
       if (need <= 0) continue;
       const assign = Math.min(need, remaining);
       newDrafts[entry.key] = current + assign;
