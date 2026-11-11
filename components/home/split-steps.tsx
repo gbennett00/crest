@@ -1,12 +1,12 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { ArrowDownToLine, Check, Search, X } from "lucide-react";
+import { ArrowDownToLine, Check, X } from "lucide-react";
 
 import { CurrencyInput } from "@/components/ui/currency-input";
 import { useCoarsePointer } from "@/components/ui/money-keypad";
 import { useFormattedCents } from "@/components/money";
-import { CategoryList } from "@/components/transactions/category-list";
+import { CategoryList, CategorySearchField } from "@/components/transactions/category-list";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
 import { cn } from "@/lib/utils";
 import { splitLeadingEmoji } from "@/lib/leading-emoji";
@@ -36,26 +36,7 @@ export function SplitCategoryPicker({
 
   return (
     <>
-      <div className="flex h-12 shrink-0 items-center gap-2.5 rounded-ds-md border border-border-strong bg-surface-sunken px-3.5 focus-within:border-focus">
-        <Search size={20} strokeWidth={1.75} className="shrink-0 text-ink-subtle" aria-hidden />
-        <input
-          value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search all categories"
-          aria-label="Search all categories"
-          className="h-full min-w-0 flex-1 bg-transparent text-body text-ink placeholder:text-ink-subtle focus:outline-none"
-        />
-        {query && (
-          <button
-            type="button"
-            onClick={() => setQuery("")}
-            aria-label="Clear search"
-            className="-mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
-          >
-            <X size={18} strokeWidth={1.75} />
-          </button>
-        )}
-      </div>
+      <CategorySearchField value={query} onChange={setQuery} className="shrink-0" />
 
       {chosenIds.length > 0 && (
         <ul className="-mx-5 mt-2.5 flex shrink-0 gap-2 overflow-x-auto px-5 pb-1" aria-label="Chosen categories">
@@ -97,7 +78,7 @@ export function SplitCategoryPicker({
  * On touch devices each amount opens the Crest keypad: its "Use remaining"
  * chip sets that line so nothing is left over, and its primary key reads
  * Next until the last line. With a physical keyboard, Enter moves on and a
- * "Use remaining" button sits next to the focused amount.
+ * "Use remaining" button sits next to each amount it would change.
  */
 export function SplitAmounts({
   lines,
@@ -115,7 +96,6 @@ export function SplitAmounts({
   const formatCents = useFormattedCents();
   const coarse = useCoarsePointer();
   const inputs = useRef<(HTMLInputElement | null)[]>([]);
-  const [focused, setFocused] = useState<number | null>(null);
   const remaining = splitRemaining(totalAbsCents, lines);
   const assigned = totalAbsCents - remaining;
 
@@ -172,7 +152,9 @@ export function SplitAmounts({
         {lines.map((line, index) => {
           const name = byId.get(line.categoryId)?.name ?? "Unknown";
           const { emoji, label } = splitLeadingEmoji(name);
-          const canFill = remaining !== 0 && amountUsingRemaining(totalAbsCents, lines, index) !== line.amountCents;
+          // What "Use remaining" would set this line to; offered only when it changes it.
+          const filled = amountUsingRemaining(totalAbsCents, lines, index);
+          const canFill = filled !== line.amountCents;
           const isLast = index === lines.length - 1;
           return (
             <li
@@ -190,12 +172,15 @@ export function SplitAmounts({
               >
                 {label}
               </label>
-              {!coarse && focused === index && canFill && (
+              {/* Always rendered while it would change the line (not only while
+                  the amount is focused), so it can be reached with Tab. */}
+              {!coarse && canFill && (
                 <button
                   type="button"
                   // Keep focus in the amount while clicking.
                   onMouseDown={(e) => e.preventDefault()}
                   onClick={() => fillRemaining(index)}
+                  aria-label={`Use remaining for ${label}: ${formatCents(filled)}`}
                   className="shrink-0 rounded-ds-sm px-2 py-1 text-caption font-semibold text-brand-text hover:bg-surface-sunken"
                 >
                   Use remaining
@@ -215,8 +200,6 @@ export function SplitAmounts({
                   }}
                   cents={line.amountCents}
                   onCentsChange={(cents) => onChange(index, cents)}
-                  onFocus={() => setFocused(index)}
-                  onBlur={() => setFocused((f) => (f === index ? null : f))}
                   onKeyDown={(e) => {
                     if (e.key === "Enter") {
                       e.preventDefault();
@@ -230,7 +213,9 @@ export function SplitAmounts({
                     canFill
                       ? [
                           {
-                            label: `Use remaining · ${formatCents(Math.abs(remaining))}`,
+                            // The amount the line will take, which is
+                            // what's left only when the line is still empty.
+                            label: `Use remaining · ${formatCents(filled)}`,
                             icon: <ArrowDownToLine className="text-brand-text" />,
                             onSelect: () => fillRemaining(index),
                           },

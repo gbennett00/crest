@@ -371,13 +371,21 @@ describe("approveSplitTransaction", () => {
     expect(updateTransaction).not.toHaveBeenCalled();
   });
 
-  it("refuses an already-approved transfer leg", async () => {
-    mockCurrentAccountRow = { ...pending, transfer_account_id: "acct-2", approved_at: "2026-01-01" };
+  it("refuses a transaction that was approved meanwhile", async () => {
+    mockCurrentAccountRow = { ...pending, approved_at: "2026-01-01T00:00:00Z" };
     const res = await approveSplitTransaction("t", [
       { categoryId: "a", amountCents: 5000 },
       { categoryId: "b", amountCents: 3210 },
     ]);
-    expect(res.error).toMatch(/Transfers/);
+    expect(res.error).toMatch(/already approved/);
+    expect(updateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("returns an error, not a throw, for malformed lines", async () => {
+    mockCurrentAccountRow = pending;
+    // A server action can be called with anything.
+    expect((await approveSplitTransaction("t", null as never)).error).toBeTruthy();
+    expect((await approveSplitTransaction("t", [null] as never)).error).toBeTruthy();
     expect(updateTransaction).not.toHaveBeenCalled();
   });
 });

@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Search, Split, X } from "lucide-react";
+import { ChevronRight, Split } from "lucide-react";
 
 import { Sheet } from "@/components/ui/sheet";
 import { useFormattedCents } from "@/components/money";
@@ -26,7 +26,11 @@ import {
 import { Button } from "@/components/ui/button";
 import type { PendingTransaction } from "@/lib/budget";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
-import { CategoryList, CategoryRow } from "@/components/transactions/category-list";
+import {
+  CategoryList,
+  CategoryRow,
+  CategorySearchField,
+} from "@/components/transactions/category-list";
 import { formatShortDate } from "./format";
 import { SplitAmounts, SplitCategoryPicker } from "./split-steps";
 
@@ -97,18 +101,41 @@ export function ApproveSheet({
     leaveBrowse();
   }
 
+  // Split state lives for as long as the drawer is open, so backing out to
+  // the main drawer and tapping Split again resumes where the user left off.
   function startSplit() {
-    const existing = linesFromAllocations(txn.allocations);
-    // Already split, into categories that can all still be shown: go
-    // straight to the amounts, filled in.
-    if (existing.length > 1 && existing.every((l) => byId.has(l.categoryId))) {
-      setLines(existing);
-      setChosenIds(existing.map((l) => l.categoryId));
-      setStep("split-amounts");
+    const withSelected = (ids: string[]) =>
+      selectedId && !ids.includes(selectedId) ? [...ids, selectedId] : ids;
+
+    if (chosenIds.length > 0) {
+      // Resume an earlier attempt, adding a category picked in the meantime.
+      setChosenIds(withSelected(chosenIds));
+      setStep("split-pick");
       return;
     }
-    setChosenIds(selectedId ? [selectedId] : []);
-    setLines([]);
+
+    // Seed from an existing split, keeping only categories that can still be
+    // shown (a since-hidden one is dropped and its amount left to re-assign).
+    const existing = linesFromAllocations(txn.allocations).filter((l) => byId.has(l.categoryId));
+    if (existing.length > 1) {
+      setLines(existing);
+      const ids = existing.map((l) => l.categoryId);
+      const chosen = withSelected(ids);
+      setChosenIds(chosen);
+      // Straight to the amounts, unless a category picked in the drawer (or
+      // a dropped one) means the categories need another look first.
+      setStep(chosen.length === ids.length && existing.length === txn.allocations.length
+        ? "split-amounts"
+        : "split-pick");
+      return;
+    }
+
+    // A split with only one category left visible keeps that line's amount;
+    // a plain single-category row starts every amount empty, so the second
+    // line's "Use remaining" has something to fill.
+    const keep = txn.allocations.length > 1 ? existing : [];
+    setLines(keep);
+    setChosenIds(withSelected(keep.map((l) => l.categoryId)));
     setStep("split-pick");
   }
 
@@ -313,34 +340,16 @@ export function ApproveSheet({
       {/* Kept in the same tree position in both modes so focus (and the
           phone keyboard) survives the switch into browsing. */}
       <div className={cn("flex shrink-0 items-center gap-1", browsing ? "mb-3" : "mt-4")}>
-        <div className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-ds-md border border-border-strong bg-surface-sunken px-3.5 focus-within:border-focus">
-          <Search size={20} strokeWidth={1.75} className="shrink-0 text-ink-subtle" aria-hidden />
-          <input
-            ref={searchRef}
-            value={query}
-            onFocus={() => setBrowsing(true)}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setBrowsing(true);
-            }}
-            placeholder="Search all categories"
-            aria-label="Search all categories"
-            className="h-full min-w-0 flex-1 bg-transparent text-body text-ink placeholder:text-ink-subtle focus:outline-none"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                searchRef.current?.focus();
-              }}
-              aria-label="Clear search"
-              className="-mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
-            >
-              <X size={18} strokeWidth={1.75} />
-            </button>
-          )}
-        </div>
+        <CategorySearchField
+          value={query}
+          inputRef={searchRef}
+          onFocus={() => setBrowsing(true)}
+          onChange={(value) => {
+            setQuery(value);
+            setBrowsing(true);
+          }}
+          className="flex-1"
+        />
         {browsing && (
           <button
             type="button"

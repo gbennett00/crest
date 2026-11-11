@@ -282,15 +282,17 @@ export async function approveTransferLeg(txnId: string, categoryId: string) {
  * Approves one pending transaction split across categories, from the Home
  * approve drawer. `lines` are magnitudes (cents, > 0) in the order chosen; the
  * transaction's own sign is applied here. Needs at least two distinct
- * categories that add up to the transaction amount. An already-approved
- * transfer leg can't be split (it carries no category on purpose).
+ * categories that add up to the transaction amount. A transaction that is
+ * no longer pending is refused, so a stale drawer can't overwrite categories
+ * it was approved with elsewhere.
  */
 export async function approveSplitTransaction(
   txnId: string,
   lines: SplitLine[],
 ): Promise<{ error?: string }> {
   if (!txnId) return { error: "Transaction is required" };
-  if (lines.some((l) => !l.categoryId)) return { error: "Every split needs a category." };
+  if (!Array.isArray(lines)) return { error: "A split needs at least two categories." };
+  if (lines.some((l) => !l?.categoryId)) return { error: "Every split needs a category." };
   if (new Set(lines.map((l) => l.categoryId)).size !== lines.length) {
     return { error: "Each category can only be used once in a split." };
   }
@@ -302,9 +304,9 @@ export async function approveSplitTransaction(
     .eq("id", txnId)
     .maybeSingle();
   if (fetchError || !txn) return { error: "Transaction not found" };
-  if (txn.transfer_account_id && txn.approved_at) {
-    return { error: "Transfers can’t be split." };
-  }
+  // Approved meanwhile (another device, the edit page): don't overwrite the
+  // categories it was approved with.
+  if (txn.approved_at) return { error: "This transaction was already approved." };
 
   const amountCents = txn.amount_cents as number;
   const problem = splitProblem(Math.abs(amountCents), lines);
