@@ -93,6 +93,16 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
     const [focused, setFocused] = React.useState(false);
     const keypadOpen = coarse && focused;
 
+    // Closing the keypad unmounts DOM. Doing that synchronously in blur, while
+    // focus is mid-way to another field, leaves document.body focused for a
+    // moment, and a modal's focus trap (Radix) answers that by focusing the
+    // dialog, cancelling the tap on the other field. So the close waits a
+    // tick, until focus has landed.
+    const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    React.useEffect(() => () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    }, []);
+
     // A read-only input doesn't reliably blur on iOS when the page is tapped,
     // so close the keypad on any tap outside the field and the pad.
     React.useEffect(() => {
@@ -173,6 +183,7 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
           onKeyDown={handleKeyDown}
           onFocus={(e) => {
             pinToEnd();
+            if (closeTimer.current) clearTimeout(closeTimer.current);
             setFocused(true);
             onFocus?.(e);
           }}
@@ -184,7 +195,8 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
               innerRef.current?.focus({ preventScroll: true });
               return;
             }
-            setFocused(false);
+            if (closeTimer.current) clearTimeout(closeTimer.current);
+            closeTimer.current = setTimeout(() => setFocused(false), 0);
             onBlur?.(e);
           }}
           onClick={(e) => {
