@@ -7,7 +7,10 @@ import { ListChecks, Lock, X } from "lucide-react";
 import { Money } from "@/components/money";
 import { Checkbox } from "@/components/ui/checkbox";
 import { BulkActionsBar } from "@/components/transactions/bulk-actions-bar";
-import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
+import {
+  prefetchTransactionDetail,
+  usePreloadTransactionDetails,
+} from "@/lib/queries/transaction-detail";
 import type {
   AccountOption,
   CategoryOption,
@@ -58,6 +61,7 @@ export function RegisterTransactionList({
   // Every row is selectable — reconciled lines included. They just can't be
   // moved or deleted (the bar guards that); categorize/approve still apply.
   const allIds = transactions.map((t) => t.id);
+  usePreloadTransactionDetails(allIds);
   const allSelected = allIds.length > 0 && selected.size === allIds.length;
 
   function toggle(id: string) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
 import { ChevronRight, Search, X } from "lucide-react";
@@ -103,6 +103,11 @@ export function ApproveSheet({
   }
 
   const editHref = `/transactions/${txn.id}?back=/`;
+
+  // The full edit page is one tap away from here; start loading it now.
+  useEffect(() => {
+    void prefetchTransactionDetail(queryClient, txn.id);
+  }, [queryClient, txn.id]);
 
   return (
     <Sheet

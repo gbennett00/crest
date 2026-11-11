@@ -1,5 +1,6 @@
 "use client";
 
+import type { QueryClient } from "@tanstack/react-query";
 import { defineQuery } from "./define-query";
 import type { RulesResponse } from "@/app/api/rules/route";
 
@@ -15,4 +16,8 @@ const rulesQuery = defineQuery("category-rules", fetchRules);
 
 export function useRules() {
   return rulesQuery.useResource([]);
+}
+
+export function prefetchRules(queryClient: QueryClient) {
+  return rulesQuery.prefetch(queryClient);
 }

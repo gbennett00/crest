@@ -25,6 +25,7 @@ import {
   useSnoozeTarget,
 } from "@/lib/queries/budget";
 import { useScreenTiming } from "@/lib/use-perf";
+import { preloadMonthTransactions } from "@/lib/queries/transactions";
 import {
   prefetchAllTransactions,
   monthToDateRange,
@@ -114,6 +115,12 @@ export function BudgetScreen({ initialMonth }: { initialMonth?: string }) {
 
   const { data: response, error, refetch, isFetching } = useBudgetView(month);
   useScreenTiming("budget", { hasData: hasMounted && !!response, isFetching });
+
+  // Tapping a category opens its transactions for this month; one list of the
+  // whole month covers every category (see categoryListFromMonth).
+  useEffect(() => {
+    preloadMonthTransactions(queryClient, month, true);
+  }, [queryClient, month]);
 
   // Warm the query cache for the neighbouring months so stepping to the
   // previous/next month (and coming back) renders from cache instead of a

@@ -1,7 +1,9 @@
 "use client";
 
-import type { QueryClient } from "@tanstack/react-query";
+import type { QueryClient, UseQueryOptions } from "@tanstack/react-query";
 import { defineQuery } from "./define-query";
+import { preloadWhenIdle } from "./preload";
+import { preloadTransactionDetails } from "./transaction-detail";
 import type { AllTransactionsResponse } from "@/app/api/transactions/route";
 
 export type TransactionsFilters = {
@@ -33,8 +35,69 @@ async function fetchAllTransactions(
 
 const allTransactionsQuery = defineQuery("all-transactions", fetchAllTransactions);
 
-export function useAllTransactions(filters: TransactionsFilters) {
-  return allTransactionsQuery.useResource([filters]);
+export function useAllTransactions(
+  filters: TransactionsFilters,
+  options?: Omit<UseQueryOptions<AllTransactionsResponse>, "queryKey" | "queryFn">,
+) {
+  return allTransactionsQuery.useResource([filters], options);
+}
+
+/**
+ * One category's transactions for a month, drawn from a wider cached list, to
+ * show while the category's own query loads: the whole month's list, or else
+ * the unfiltered recent list. Only from a list that isn't truncated: the
+ * server filters a category within the same row window, so the two then
+ * match exactly.
+ */
+export function categoryListFromMonth(
+  queryClient: QueryClient,
+  categoryId: string,
+  range: { dateFrom: string; dateTo: string },
+): AllTransactionsResponse | undefined {
+  const complete = (filters: TransactionsFilters) => {
+    const list = queryClient.getQueryData<AllTransactionsResponse>(allTransactionsQuery.key(filters));
+    return list && !list.hasMore ? list : undefined;
+  };
+  const source =
+    complete({ dateFrom: range.dateFrom, dateTo: range.dateTo }) ?? complete({});
+  if (!source) return undefined;
+  return {
+    ...source,
+    txns: source.txns.filter(
+      (t) =>
+        t.txnDate >= range.dateFrom &&
+        t.txnDate <= range.dateTo &&
+        t.categoryIds?.includes(categoryId),
+    ),
+  };
+}
+
+/**
+ * Queues a month's full transaction list for the idle preloader (see
+ * categoryListFromMonth). `first` for the month on screen; a newer month
+ * replaces one still waiting.
+ */
+export function preloadMonthTransactions(queryClient: QueryClient, month: string, first = false) {
+  preloadWhenIdle([() => prefetchAllTransactions(queryClient, monthToDateRange(month))], {
+    group: "month-transactions",
+    first,
+  });
+}
+
+/** Queues the edit pages of the Activity tab's first rows for the idle preloader. */
+export function preloadRecentTransactionDetails(queryClient: QueryClient) {
+  preloadWhenIdle(
+    [
+      async () => {
+        await prefetchAllTransactions(queryClient, {});
+        const recent = queryClient.getQueryData<AllTransactionsResponse>(allTransactionsQuery.key({}));
+        preloadTransactionDetails(queryClient, (recent?.txns ?? []).map((t) => t.id), {
+          group: "recent-details",
+        });
+      },
+    ],
+    { group: "recent-list" },
+  );
 }
 
 /** Warms the cache for the all-transactions view before the user clicks into it. */

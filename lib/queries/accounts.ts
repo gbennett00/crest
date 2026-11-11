@@ -2,6 +2,7 @@
 
 import type { QueryClient } from "@tanstack/react-query";
 import { defineQuery } from "./define-query";
+import { preloadWhenIdle } from "./preload";
 import type { AccountListRow } from "@/app/api/accounts/route";
 import type { AccountRegisterResponse } from "@/app/api/accounts/[id]/register/route";
 
@@ -51,6 +52,27 @@ export function useAccountRegister(
   monthFilter: string | undefined,
 ) {
   return accountRegisterQuery.useResource([accountId, categoryFilter, monthFilter]);
+}
+
+/** Queues every open account's register for the idle preloader (lib/queries/preload.ts). */
+export function preloadAccountRegisters(queryClient: QueryClient) {
+  preloadWhenIdle(
+    [
+      async () => {
+        await prefetchAccountsList(queryClient);
+        const accounts = queryClient.getQueryData<{ accounts: AccountListRow[] }>(
+          accountsListQuery.key(),
+        )?.accounts;
+        preloadWhenIdle(
+          (accounts ?? [])
+            .filter((a) => a.isActive)
+            .map((a) => () => prefetchAccountRegister(queryClient, a.id)),
+          { group: "account-registers" },
+        );
+      },
+    ],
+    { group: "accounts-list" },
+  );
 }
 
 /** Warms the cache for an account's register before the user clicks into it. */

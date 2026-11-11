@@ -6,7 +6,12 @@ import Link from "next/link";
 import { ChevronLeft } from "lucide-react";
 import { StickyHeader } from "@/components/ui/sticky-header";
 import { AllTransactionsList } from "@/components/transactions/all-transactions-list";
-import { useAllTransactions, monthToDateRange } from "@/lib/queries/transactions";
+import { useQueryClient } from "@tanstack/react-query";
+import {
+  categoryListFromMonth,
+  monthToDateRange,
+  useAllTransactions,
+} from "@/lib/queries/transactions";
 import { useHasMounted } from "@/lib/use-has-mounted";
 
 const MONTH_NAMES = [
@@ -35,11 +40,15 @@ function CategoryTransactionsContent() {
   const hasMounted = useHasMounted();
 
   const range = month ? monthToDateRange(month) : null;
-  const { data: response, isPending } = useAllTransactions({
-    categoryId: id,
-    dateFrom: range?.dateFrom,
-    dateTo: range?.dateTo,
-  });
+  const queryClient = useQueryClient();
+  const { data: response, isPending } = useAllTransactions(
+    { categoryId: id, dateFrom: range?.dateFrom, dateTo: range?.dateTo },
+    {
+      // The budget screen preloads the whole month; draw this category from
+      // it until its own query lands, so the first tap shows no skeleton.
+      placeholderData: () => (range ? categoryListFromMonth(queryClient, id, range) : undefined),
+    },
+  );
 
   const categoryName = hasMounted
     ? (response?.categoryOptions.find((c) => c.id === id)?.name ?? "Category")

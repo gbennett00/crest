@@ -10,9 +10,16 @@ import { AddTransaction } from "@/components/add-transaction";
 import { currentBudgetMonth } from "@/lib/ledger";
 import { prefetchHomeView } from "@/lib/queries/home";
 import { prefetchBudgetView } from "@/lib/queries/budget";
-import { prefetchAccountsList } from "@/lib/queries/accounts";
-import { prefetchAllTransactions } from "@/lib/queries/transactions";
-import { prefetchReportsDashboard } from "@/lib/queries/reports";
+import { prefetchAccountsList, preloadAccountRegisters } from "@/lib/queries/accounts";
+import {
+  prefetchAllTransactions,
+  preloadMonthTransactions,
+  preloadRecentTransactionDetails,
+} from "@/lib/queries/transactions";
+import { prefetchReportsDashboard, prefetchSpendingReport } from "@/lib/queries/reports";
+import { prefetchRules } from "@/lib/queries/rules";
+import { preloadWhenIdle } from "@/lib/queries/preload";
+import { DEFAULT_PERIOD_KEY } from "@/lib/reports/period";
 
 const NAV_LINKS = [
   { href: "/", label: "Home", Icon: Home, exact: true },
@@ -21,6 +28,10 @@ const NAV_LINKS = [
   { href: "/accounts", label: "Accounts", Icon: Landmark, exact: false },
   { href: "/reports", label: "Reports", Icon: PieChart, exact: false },
 ] as const;
+
+// Reached from a tab or the user menu rather than the nav itself. (Members'
+// data needs no preload: the user menu loads it on every mount.)
+const SECONDARY_ROUTES = ["/reports/spending", "/rules", "/members"] as const;
 
 // Warm both Next's Router Cache (the route's JS/shell) and the client query
 // cache (the route's actual data — see lib/queries/*) for the top-level tabs
@@ -38,6 +49,24 @@ function useEagerPrefetch() {
     prefetchAccountsList(queryClient);
     prefetchAllTransactions(queryClient, {});
     prefetchReportsDashboard(queryClient);
+
+    // Then, one at a time while the browser is idle, the screens a tab leads
+    // to (lib/queries/preload.ts), most used first: this month's transactions
+    // (every category drill-down on the Plan tab), every account's register,
+    // the Activity tab's first edit pages, and the less used pages. Both navs
+    // mount this hook (one is hidden by CSS); each group replaces its own
+    // pending tasks, so the second call doesn't double the queue.
+    preloadMonthTransactions(queryClient, currentBudgetMonth());
+    preloadAccountRegisters(queryClient);
+    preloadRecentTransactionDetails(queryClient);
+    preloadWhenIdle(
+      [
+        ...SECONDARY_ROUTES.map((href) => () => router.prefetch(href)),
+        () => prefetchSpendingReport(queryClient, DEFAULT_PERIOD_KEY, [], null),
+        () => prefetchRules(queryClient),
+      ],
+      { group: "secondary-screens" },
+    );
   }, [router, queryClient]);
 }
 
