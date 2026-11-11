@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { getActivePlanId } from "@/lib/plan/active-plan";
 import { buildRulePrompt, type RulePrompt } from "@/lib/category-rules";
+import { splitProblem, toAllocations, type SplitLine } from "@/lib/budget/split";
 import { createServerTimer } from "@/lib/server-timing";
 import {
   createTransaction,
@@ -271,6 +272,58 @@ export async function approveTransferLeg(txnId: string, categoryId: string) {
     });
     revalidateAll();
     return { success: true };
+  } catch (e) {
+    if (e instanceof LedgerError) return { error: e.message };
+    return { error: "Failed to approve transaction" };
+  }
+}
+
+/**
+ * Approves one pending transaction split across categories, from the Home
+ * approve drawer. `lines` are magnitudes (cents, > 0) in the order chosen; the
+ * transaction's own sign is applied here. Needs at least two distinct
+ * categories that add up to the transaction amount. A transaction that is
+ * no longer pending is refused, so a stale drawer can't overwrite categories
+ * it was approved with elsewhere.
+ */
+export async function approveSplitTransaction(
+  txnId: string,
+  lines: SplitLine[],
+): Promise<{ error?: string }> {
+  if (!txnId) return { error: "Transaction is required" };
+  if (!Array.isArray(lines)) return { error: "A split needs at least two categories." };
+  if (lines.some((l) => !l?.categoryId)) return { error: "Every split needs a category." };
+  if (new Set(lines.map((l) => l.categoryId)).size !== lines.length) {
+    return { error: "Each category can only be used once in a split." };
+  }
+
+  const supabase = await createClient();
+  const { data: txn, error: fetchError } = await supabase
+    .from("transactions")
+    .select("amount_cents, approved_at, transfer_account_id")
+    .eq("id", txnId)
+    .maybeSingle();
+  if (fetchError || !txn) return { error: "Transaction not found" };
+  // Approved meanwhile (another device, the edit page): don't overwrite the
+  // categories it was approved with.
+  if (txn.approved_at) return { error: "This transaction was already approved." };
+
+  const amountCents = txn.amount_cents as number;
+  const problem = splitProblem(Math.abs(amountCents), lines);
+  if (problem === "too_few") return { error: "A split needs at least two categories." };
+  if (problem === "zero_amount") return { error: "Every split needs an amount." };
+  if (problem === "short" || problem === "over") {
+    return { error: "The splits must add up to the transaction amount." };
+  }
+
+  try {
+    await updateTransaction(supabase, {
+      id: txnId,
+      approvedAt: new Date().toISOString(),
+      allocations: toAllocations(lines, amountCents),
+    });
+    revalidateAll();
+    return {};
   } catch (e) {
     if (e instanceof LedgerError) return { error: e.message };
     return { error: "Failed to approve transaction" };

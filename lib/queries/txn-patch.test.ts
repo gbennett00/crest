@@ -21,6 +21,7 @@ function pending(overrides: Partial<PendingTransaction> = {}): PendingTransactio
     suggested: true,
     categoryId: "dining",
     allocationCount: 1,
+    allocations: [{ categoryId: "dining", amountCents: -450 }],
     suggestedCategoryIds: ["dining"],
     ...overrides,
   };
@@ -179,7 +180,26 @@ describe("category replace rules (mirroring bulkApproveTransactions)", () => {
       categoryId: "food",
       categoryLabel: "Food",
       allocationCount: 1,
+      allocations: [{ categoryId: "food", amountCents: -450 }],
     });
+  });
+
+  it("keeps a pending row's allocations in step with an edit-form split", () => {
+    const data = home([pending()]);
+    const out = pendingOf(
+      patchLedgerData(HOME_KEY, data, {
+        id: "t1",
+        allocations: [
+          { categoryId: "a", name: "A", amountCents: -200 },
+          { categoryId: "b", name: "B", amountCents: -250 },
+        ],
+      }),
+    )[0];
+    expect(out).toMatchObject({ categoryId: null, categoryLabel: "Split (2)", allocationCount: 2 });
+    expect(out.allocations).toEqual([
+      { categoryId: "a", amountCents: -200 },
+      { categoryId: "b", amountCents: -250 },
+    ]);
   });
 });
 

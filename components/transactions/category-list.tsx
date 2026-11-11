@@ -1,7 +1,7 @@
 "use client";
 
-import { useMemo } from "react";
-import { Check } from "lucide-react";
+import { useImperativeHandle, useMemo, useRef } from "react";
+import { Check, Search, X } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 import { splitLeadingEmoji } from "@/lib/leading-emoji";
@@ -23,6 +23,7 @@ export function CategoryList({
   query = "",
   suggestedIds,
   noneLabel,
+  selectedIds,
 }: {
   categories: CategoryOption[];
   value: string | null;
@@ -30,7 +31,11 @@ export function CategoryList({
   query?: string;
   suggestedIds?: string[];
   noneLabel?: string;
+  /** Multi-select: rows show a checkbox, checked for these ids (`value` is ignored). */
+  selectedIds?: ReadonlySet<string>;
 }) {
+  const isSelected = (id: string) => (selectedIds ? selectedIds.has(id) : id === value);
+  const checkbox = !!selectedIds;
   const searching = query.trim() !== "";
   const groups = useMemo(() => groupCategories(categories, query), [categories, query]);
   const suggested = useMemo(() => {
@@ -51,7 +56,8 @@ export function CategoryList({
             <CategoryRow
               key={c.id}
               label={c.name}
-              selected={c.id === value}
+              selected={isSelected(c.id)}
+              checkbox={checkbox}
               onClick={() => onSelect(c.id)}
             />
           ))}
@@ -69,7 +75,8 @@ export function CategoryList({
               key={c.id}
               label={c.name}
               query={query}
-              selected={c.id === value}
+              selected={isSelected(c.id)}
+              checkbox={checkbox}
               onClick={() => onSelect(c.id)}
             />
           ))}
@@ -102,6 +109,7 @@ export function CategoryRow({
   selected,
   muted,
   variant = "list",
+  checkbox,
   onClick,
 }: {
   label: string;
@@ -109,6 +117,8 @@ export function CategoryRow({
   selected: boolean;
   muted?: boolean;
   variant?: "list" | "card";
+  /** Multi-select: a leading checkbox instead of the trailing check. */
+  checkbox?: boolean;
   onClick: () => void;
 }) {
   const { emoji, label: text } = splitLeadingEmoji(label);
@@ -131,6 +141,17 @@ export function CategoryRow({
           muted ? "text-ink-muted" : "text-ink",
         )}
       >
+        {checkbox && (
+          <span
+            aria-hidden="true"
+            className={cn(
+              "flex h-6 w-6 shrink-0 items-center justify-center rounded-ds-sm border-2",
+              selected ? "border-brand bg-brand text-brand-ink" : "border-border-strong",
+            )}
+          >
+            {selected && <Check size={16} strokeWidth={3} />}
+          </span>
+        )}
         {emoji && (
           <span aria-hidden="true" className="w-[26px] shrink-0 text-center text-xl">
             {emoji}
@@ -141,10 +162,64 @@ export function CategoryRow({
           {match && <mark className="bg-transparent font-bold text-brand-text">{match}</mark>}
           {after}
         </span>
-        {selected && (
+        {selected && !checkbox && (
           <Check size={20} strokeWidth={2.25} className="shrink-0 text-brand-text" aria-hidden />
         )}
       </button>
     </li>
+  );
+}
+
+/**
+ * The search field above a category list: 48px, sunken, search icon, and a
+ * clear button that keeps focus in the field. `inputRef` exposes the input
+ * (e.g. to blur it when leaving a browse mode).
+ */
+export function CategorySearchField({
+  value,
+  onChange,
+  onFocus,
+  inputRef,
+  className,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  onFocus?: () => void;
+  inputRef?: React.Ref<HTMLInputElement>;
+  className?: string;
+}) {
+  const ref = useRef<HTMLInputElement>(null);
+  useImperativeHandle(inputRef, () => ref.current as HTMLInputElement, []);
+  return (
+    <div
+      className={cn(
+        "flex h-12 min-w-0 items-center gap-2.5 rounded-ds-md border border-border-strong bg-surface-sunken px-3.5 focus-within:border-focus",
+        className,
+      )}
+    >
+      <Search size={20} strokeWidth={1.75} className="shrink-0 text-ink-subtle" aria-hidden />
+      <input
+        ref={ref}
+        value={value}
+        onFocus={onFocus}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder="Search all categories"
+        aria-label="Search all categories"
+        className="h-full min-w-0 flex-1 bg-transparent text-body text-ink placeholder:text-ink-subtle focus:outline-none"
+      />
+      {value && (
+        <button
+          type="button"
+          onClick={() => {
+            onChange("");
+            ref.current?.focus();
+          }}
+          aria-label="Clear search"
+          className="-mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
+        >
+          <X size={18} strokeWidth={1.75} />
+        </button>
+      )}
+    </div>
   );
 }

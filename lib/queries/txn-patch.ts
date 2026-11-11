@@ -149,9 +149,24 @@ function patchPending(pending: PendingTransaction[], patch: TxnPatch): PendingTr
       categoryId: cats.categoryId,
       categoryLabel: cats.label,
       suggested: false,
+      allocations: patchedAllocations(patch, txn),
     }),
   };
   return next;
+}
+
+/** The pending row's allocations once `patch` has changed its categories. */
+function patchedAllocations(
+  patch: TxnPatch,
+  txn: PendingTransaction,
+): PendingTransaction["allocations"] {
+  if (patch.allocations) {
+    return patch.allocations.map(({ categoryId, amountCents }) => ({ categoryId, amountCents }));
+  }
+  if (patch.category) {
+    return [{ categoryId: patch.category.id, amountCents: patch.amountCents ?? txn.amountCents }];
+  }
+  return txn.allocations;
 }
 
 function patchDetail(

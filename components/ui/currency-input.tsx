@@ -8,7 +8,12 @@ import {
   pressMoneyKey,
   type AssignmentKey,
 } from "@/lib/currency-input";
-import { MONEY_KEYPAD_ATTR, MoneyKeypad, useCoarsePointer } from "@/components/ui/money-keypad";
+import {
+  MONEY_KEYPAD_ATTR,
+  MoneyKeypad,
+  useCoarsePointer,
+  type KeypadQuickAction,
+} from "@/components/ui/money-keypad";
 
 export interface CurrencyInputProps
   extends Omit<
@@ -24,6 +29,12 @@ export interface CurrencyInputProps
    * fields (transaction amounts) omit this since a negative value never makes
    * sense there. */
   allowNegative?: boolean;
+  /** Chips shown above the on-screen keypad's keys (touch devices). */
+  keypadQuickActions?: KeypadQuickAction[];
+  /** Label of the keypad's primary key; defaults to "Done". */
+  keypadDoneLabel?: string;
+  /** Replaces the keypad primary key's default (blur), e.g. to focus the next field. */
+  onKeypadDone?: () => void;
 }
 
 /**
@@ -50,6 +61,9 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
       cents,
       onCentsChange,
       allowNegative = false,
+      keypadQuickActions,
+      keypadDoneLabel,
+      onKeypadDone,
       className,
       onFocus,
       onBlur,
@@ -78,6 +92,16 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
     const coarse = useCoarsePointer();
     const [focused, setFocused] = React.useState(false);
     const keypadOpen = coarse && focused;
+
+    // Closing the keypad unmounts DOM. Doing that synchronously in blur, while
+    // focus is mid-way to another field, leaves document.body focused for a
+    // moment, and a modal's focus trap (Radix) answers that by focusing the
+    // dialog, cancelling the tap on the other field. So the close waits a
+    // tick, until focus has landed.
+    const closeTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+    React.useEffect(() => () => {
+      if (closeTimer.current) clearTimeout(closeTimer.current);
+    }, []);
 
     // A read-only input doesn't reliably blur on iOS when the page is tapped,
     // so close the keypad on any tap outside the field and the pad.
@@ -159,6 +183,7 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
           onKeyDown={handleKeyDown}
           onFocus={(e) => {
             pinToEnd();
+            if (closeTimer.current) clearTimeout(closeTimer.current);
             setFocused(true);
             onFocus?.(e);
           }}
@@ -170,7 +195,8 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
               innerRef.current?.focus({ preventScroll: true });
               return;
             }
-            setFocused(false);
+            if (closeTimer.current) clearTimeout(closeTimer.current);
+            closeTimer.current = setTimeout(() => setFocused(false), 0);
             onBlur?.(e);
           }}
           onClick={(e) => {
@@ -193,9 +219,11 @@ export const CurrencyInput = React.forwardRef<HTMLInputElement, CurrencyInputPro
         {keypadOpen && (
           <MoneyKeypad
             onKey={handleKeypadKey}
-            onDone={() => innerRef.current?.blur()}
+            onDone={onKeypadDone ?? (() => innerRef.current?.blur())}
             anchorRef={innerRef}
             operators={allowNegative ? "sign" : "none"}
+            quickActions={keypadQuickActions}
+            doneLabel={keypadDoneLabel}
           />
         )}
       </>

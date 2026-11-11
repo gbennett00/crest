@@ -3,7 +3,7 @@
 import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useQueryClient } from "@tanstack/react-query";
-import { ChevronRight, Search, X } from "lucide-react";
+import { ChevronRight, Split } from "lucide-react";
 
 import { Sheet } from "@/components/ui/sheet";
 import { useFormattedCents } from "@/components/money";
@@ -12,11 +12,27 @@ import { runOptimistic } from "@/lib/queries/optimistic";
 import { transactionPatch } from "@/lib/queries/txn-patch";
 import { startFlow } from "@/lib/perf";
 import { prefetchTransactionDetail } from "@/lib/queries/transaction-detail";
-import { bulkApproveTransactions } from "@/app/(app)/transactions/actions";
+import {
+  approveSplitTransaction,
+  bulkApproveTransactions,
+} from "@/app/(app)/transactions/actions";
+import {
+  linesForCategories,
+  linesFromAllocations,
+  splitProblem,
+  toAllocations,
+  type SplitLine,
+} from "@/lib/budget/split";
+import { Button } from "@/components/ui/button";
 import type { PendingTransaction } from "@/lib/budget";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
-import { CategoryList, CategoryRow } from "@/components/transactions/category-list";
+import {
+  CategoryList,
+  CategoryRow,
+  CategorySearchField,
+} from "@/components/transactions/category-list";
 import { formatShortDate } from "./format";
+import { SplitAmounts, SplitCategoryPicker } from "./split-steps";
 
 /**
  * The approve drawer: tapping a pending row on Home opens this short sheet
@@ -24,8 +40,12 @@ import { formatShortDate } from "./format";
  * in the header approves with it and X cancels. Focusing the search field
  * grows the drawer in place into every category (suggested first, then each
  * group in Plan order), browsable without typing; typing filters it. Picking
- * one, or Cancel, returns to the short drawer with the pick selected. The
- * full edit page is one link away for splits, memo or amount changes.
+ * one, or Cancel, returns to the short drawer with the pick selected.
+ *
+ * Split (YNAB-style) is two steps in place: choose the categories (the
+ * selected one pre-ticked), then enter an amount for each; the check approves
+ * once they add up. A row that is already split opens straight on its
+ * amounts. The full edit page is one link away for memo or amount changes.
  */
 export function ApproveSheet({
   txn,
@@ -46,6 +66,10 @@ export function ApproveSheet({
   );
   const [query, setQuery] = useState("");
   const [browsing, setBrowsing] = useState(false);
+  const [step, setStep] = useState<"main" | "split-pick" | "split-amounts">("main");
+  const [chosenIds, setChosenIds] = useState<string[]>([]);
+  const [lines, setLines] = useState<SplitLine[]>([]);
+  const totalAbsCents = Math.abs(txn.amountCents);
   const searchRef = useRef<HTMLInputElement>(null);
 
   // Already split across categories: approving with nothing picked keeps the
@@ -77,6 +101,76 @@ export function ApproveSheet({
     leaveBrowse();
   }
 
+  // Split state lives for as long as the drawer is open, so backing out to
+  // the main drawer and tapping Split again resumes where the user left off.
+  function startSplit() {
+    const withSelected = (ids: string[]) =>
+      selectedId && !ids.includes(selectedId) ? [...ids, selectedId] : ids;
+
+    if (chosenIds.length > 0) {
+      // Resume an earlier attempt, adding a category picked in the meantime.
+      setChosenIds(withSelected(chosenIds));
+      setStep("split-pick");
+      return;
+    }
+
+    // Seed from an existing split, keeping only categories that can still be
+    // shown (a since-hidden one is dropped and its amount left to re-assign).
+    const existing = linesFromAllocations(txn.allocations).filter((l) => byId.has(l.categoryId));
+    if (existing.length > 1) {
+      setLines(existing);
+      const ids = existing.map((l) => l.categoryId);
+      const chosen = withSelected(ids);
+      setChosenIds(chosen);
+      // Straight to the amounts, unless a category picked in the drawer (or
+      // a dropped one) means the categories need another look first.
+      setStep(chosen.length === ids.length && existing.length === txn.allocations.length
+        ? "split-amounts"
+        : "split-pick");
+      return;
+    }
+
+    // A split with only one category left visible keeps that line's amount;
+    // a plain single-category row starts every amount empty, so the second
+    // line's "Use remaining" has something to fill.
+    const keep = txn.allocations.length > 1 ? existing : [];
+    setLines(keep);
+    setChosenIds(withSelected(keep.map((l) => l.categoryId)));
+    setStep("split-pick");
+  }
+
+  function toggleChosen(categoryId: string) {
+    setChosenIds((ids) =>
+      ids.includes(categoryId) ? ids.filter((id) => id !== categoryId) : [...ids, categoryId],
+    );
+  }
+
+  function toAmounts() {
+    setLines((prev) => linesForCategories(chosenIds, prev));
+    setStep("split-amounts");
+  }
+
+  function approveSplit() {
+    if (splitProblem(totalAbsCents, lines)) return;
+    runOptimistic(queryClient, {
+      patch: transactionPatch([
+        {
+          id: txn.id,
+          approved: true,
+          allocations: toAllocations(lines, txn.amountCents).map((a) => ({
+            ...a,
+            name: byId.get(a.categoryId)?.name ?? "Unknown",
+          })),
+        },
+      ]),
+      action: () => approveSplitTransaction(txn.id, lines),
+      errorOf: (result) => result.error ?? null,
+      failure: { title: `Couldn’t approve ${txn.payee}.` },
+      flow: startFlow("approve-sheet-split", { optimistic: true, lines: lines.length }),
+    });
+    onClose();
+  }
+
   // The row leaves the list as the drawer closes; the server write follows
   // and is rolled back with a banner if it fails (lib/queries/optimistic.ts).
   function approve() {
@@ -104,6 +198,88 @@ export function ApproveSheet({
 
   const editHref = `/transactions/${txn.id}?back=/`;
 
+  const amountSubtitle = (
+    <>
+      <span className={cn("num font-semibold", txn.amountCents < 0 ? "text-neg-text" : "text-pos-text")}>
+        {txn.amountCents > 0 ? "+" : ""}
+        {formatCents(txn.amountCents)}
+      </span>
+      {" · "}
+      {formatShortDate(txn.txnDate)} · {txn.accountName}
+    </>
+  );
+
+  if (step === "split-pick") {
+    return (
+      <Sheet
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        title={`Split ${txn.payee}`}
+        subtitle="Choose the categories to split between"
+        centered
+        onBack={() => setStep("main")}
+        onEscape={(e) => {
+          e.preventDefault();
+          setStep("main");
+        }}
+        tall
+        className="flex flex-col overflow-hidden pb-0 pt-1"
+        footer={
+          <Button className="flex-1" disabled={chosenIds.length < 2} onClick={toAmounts}>
+            {chosenIds.length < 2
+              ? "Choose at least 2"
+              : `Next · ${chosenIds.length} categories`}
+          </Button>
+        }
+      >
+        <SplitCategoryPicker
+          categories={categories}
+          byId={byId}
+          chosenIds={chosenIds}
+          onToggle={toggleChosen}
+          suggestedIds={txn.suggestedCategoryIds}
+        />
+      </Sheet>
+    );
+  }
+
+  if (step === "split-amounts") {
+    return (
+      <Sheet
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose();
+        }}
+        title={`Split ${txn.payee}`}
+        subtitle={amountSubtitle}
+        confirm={{
+          label: "Approve split",
+          onConfirm: approveSplit,
+          disabled: splitProblem(totalAbsCents, lines) !== null,
+        }}
+        onBack={() => setStep("split-pick")}
+        onEscape={(e) => {
+          e.preventDefault();
+          setStep("split-pick");
+        }}
+        tall
+        className="pt-1"
+      >
+        <SplitAmounts
+          lines={lines}
+          totalAbsCents={totalAbsCents}
+          byId={byId}
+          onChange={(index, amountCents) =>
+            setLines((prev) => prev.map((l, i) => (i === index ? { ...l, amountCents } : l)))
+          }
+          onChangeCategories={() => setStep("split-pick")}
+        />
+      </Sheet>
+    );
+  }
+
   return (
     <Sheet
       open
@@ -111,16 +287,7 @@ export function ApproveSheet({
         if (!open) onClose();
       }}
       title={txn.payee}
-      subtitle={
-        <>
-          <span className={cn("num font-semibold", txn.amountCents < 0 ? "text-neg-text" : "text-pos-text")}>
-            {txn.amountCents > 0 ? "+" : ""}
-            {formatCents(txn.amountCents)}
-          </span>
-          {" · "}
-          {formatShortDate(txn.txnDate)} · {txn.accountName}
-        </>
-      }
+      subtitle={amountSubtitle}
       confirm={{
         label: "Approve",
         onConfirm: approve,
@@ -139,8 +306,8 @@ export function ApproveSheet({
     >
       {!browsing && splitCount > 0 && (
         <p className="mt-2 rounded-ds-md bg-brand-subtle px-3.5 py-2.5 text-caption text-ink">
-          Split across {splitCount} categories. Approve keeps the split, or pick a category to
-          replace it.
+          Split across {splitCount} categories. Approve keeps the split, tap Split to change
+          it, or pick a category to replace it.
         </p>
       )}
 
@@ -173,34 +340,16 @@ export function ApproveSheet({
       {/* Kept in the same tree position in both modes so focus (and the
           phone keyboard) survives the switch into browsing. */}
       <div className={cn("flex shrink-0 items-center gap-1", browsing ? "mb-3" : "mt-4")}>
-        <div className="flex h-12 min-w-0 flex-1 items-center gap-2.5 rounded-ds-md border border-border-strong bg-surface-sunken px-3.5 focus-within:border-focus">
-          <Search size={20} strokeWidth={1.75} className="shrink-0 text-ink-subtle" aria-hidden />
-          <input
-            ref={searchRef}
-            value={query}
-            onFocus={() => setBrowsing(true)}
-            onChange={(e) => {
-              setQuery(e.target.value);
-              setBrowsing(true);
-            }}
-            placeholder="Search all categories"
-            aria-label="Search all categories"
-            className="h-full min-w-0 flex-1 bg-transparent text-body text-ink placeholder:text-ink-subtle focus:outline-none"
-          />
-          {query && (
-            <button
-              type="button"
-              onClick={() => {
-                setQuery("");
-                searchRef.current?.focus();
-              }}
-              aria-label="Clear search"
-              className="-mr-2 flex h-9 w-9 shrink-0 items-center justify-center rounded-pill text-ink-muted hover:text-ink"
-            >
-              <X size={18} strokeWidth={1.75} />
-            </button>
-          )}
-        </div>
+        <CategorySearchField
+          value={query}
+          inputRef={searchRef}
+          onFocus={() => setBrowsing(true)}
+          onChange={(value) => {
+            setQuery(value);
+            setBrowsing(true);
+          }}
+          className="flex-1"
+        />
         {browsing && (
           <button
             type="button"
@@ -225,14 +374,22 @@ export function ApproveSheet({
         </div>
       ) : (
         <>
-          <div className="mt-2 flex justify-center">
+          <div className="mt-2 flex justify-center gap-2">
+            <button
+              type="button"
+              onClick={startSplit}
+              className="inline-flex h-tap items-center gap-1.5 rounded-ds-md px-3 text-body-strong text-brand-text hover:bg-surface"
+            >
+              <Split size={18} strokeWidth={1.75} aria-hidden />
+              Split
+            </button>
             <Link
               href={editHref}
               onMouseEnter={() => prefetchTransactionDetail(queryClient, txn.id)}
               onPointerDown={() => prefetchTransactionDetail(queryClient, txn.id)}
               className="inline-flex h-tap items-center gap-1 rounded-ds-md px-3 text-body-strong text-brand-text hover:bg-surface"
             >
-              Open full edit page
+              Full edit page
               <ChevronRight size={18} strokeWidth={1.75} aria-hidden />
             </Link>
           </div>

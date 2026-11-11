@@ -31,6 +31,29 @@ export function useCoarsePointer(): boolean {
 const KEYPAD_INSET = "20rem";
 const KEYPAD_INSET_WITH_ACTIONS = "25rem";
 
+// Keypads open right now. Moving focus between two money fields briefly
+// mounts the next field's keypad before the previous one closes (see
+// CurrencyInput), so the scroll padding is reference-counted per container
+// and the incoming keypad skips its slide-in when one is already showing.
+let openKeypads = 0;
+const paddedContainers = new Map<HTMLElement, { count: number; previous: string }>();
+
+function reservePadding(target: HTMLElement, padding: string) {
+  const entry = paddedContainers.get(target);
+  if (entry) entry.count++;
+  else paddedContainers.set(target, { count: 1, previous: target.style.paddingBottom });
+  target.style.paddingBottom = padding;
+  return () => {
+    const current = paddedContainers.get(target);
+    if (!current) return;
+    current.count--;
+    if (current.count === 0) {
+      target.style.paddingBottom = current.previous;
+      paddedContainers.delete(target);
+    }
+  };
+}
+
 /** The nearest ancestor that scrolls vertically (a modal overlay, say), else the body. */
 function scrollParentOf(el: Element | null): HTMLElement {
   for (let node = el?.parentElement; node; node = node.parentElement) {
@@ -66,6 +89,7 @@ export function MoneyKeypad({
   anchorRef,
   operators = "full",
   quickActions,
+  doneLabel = "Done",
 }: {
   onKey: (key: AssignmentKey) => void;
   onDone: () => void;
@@ -77,16 +101,24 @@ export function MoneyKeypad({
    * digits only (the operator keys are left blank). */
   operators?: "full" | "sign" | "none";
   quickActions?: KeypadQuickAction[];
+  /** Label of the primary key (e.g. "Next" when it moves to another field). */
+  doneLabel?: string;
 }) {
   const hasActions = !!quickActions?.length;
   React.useEffect(() => {
     const target = scrollParentOf(anchorRef?.current ?? null);
-    const previous = target.style.paddingBottom;
-    target.style.paddingBottom = hasActions ? KEYPAD_INSET_WITH_ACTIONS : KEYPAD_INSET;
-    return () => {
-      target.style.paddingBottom = previous;
-    };
+    return reservePadding(target, hasActions ? KEYPAD_INSET_WITH_ACTIONS : KEYPAD_INSET);
   }, [anchorRef, hasActions]);
+
+  // Slide in only when no keypad was already showing (switching fields keeps
+  // the pad still).
+  const [animate] = React.useState(() => openKeypads === 0);
+  React.useEffect(() => {
+    openKeypads++;
+    return () => {
+      openKeypads--;
+    };
+  }, []);
 
   function key(label: React.ReactNode, value: AssignmentKey, className?: string) {
     return (
@@ -112,7 +144,10 @@ export function MoneyKeypad({
   return createPortal(
     <div
       {...{ [MONEY_KEYPAD_ATTR]: "" }}
-      className="animate-in slide-in-from-bottom duration-200 motion-reduce:animate-none fixed inset-x-0 bottom-0 z-[60] rounded-t-ds-xl border-t bg-surface-raised px-3 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-ink shadow-sheet"
+      className={cn(
+        animate && "animate-in slide-in-from-bottom duration-200 motion-reduce:animate-none",
+        "fixed inset-x-0 bottom-0 z-[60] rounded-t-ds-xl border-t bg-surface-raised px-3 pt-3 pb-[max(1.25rem,env(safe-area-inset-bottom))] text-ink shadow-sheet",
+      )}
     >
       {hasActions && (
         <div className="mb-2 flex gap-2">
@@ -154,7 +189,7 @@ export function MoneyKeypad({
           onClick={onDone}
           className="mx-1 h-14 select-none touch-manipulation"
         >
-          Done
+          {doneLabel}
         </Button>
       </div>
     </div>,

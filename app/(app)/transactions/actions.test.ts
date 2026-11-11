@@ -16,7 +16,8 @@ vi.mock("next/cache", () => ({ revalidatePath: vi.fn() }));
 // swapped per test (mockAccountRow defaults to an on-budget account, today's
 // behavior).
 let mockRows: unknown[] = [];
-let mockCurrentAccountRow: { account_id: string } | null = null;
+// Also serves approveSplitTransaction's transaction lookup (same query shape).
+let mockCurrentAccountRow: Record<string, unknown> | null = null;
 let mockAccountRow: { on_budget: boolean } | null = { on_budget: true };
 vi.mock("@/lib/supabase/server", () => ({
   createClient: vi.fn(async () => ({
@@ -79,6 +80,7 @@ vi.mock("@/lib/ledger", async (importActual) => {
 
 import { LedgerError } from "@/lib/ledger";
 import {
+  approveSplitTransaction,
   bulkApproveTransactions,
   bulkCategorizeTransactions,
   bulkDeleteTransactions,
@@ -299,6 +301,92 @@ describe("bulkApproveTransactions — replace", () => {
     mockRows = [row({ id: "t", transfer_account_id: "acct-2", approved_at: "2026-01-01T00:00:00Z" })];
     const res = await bulkApproveTransactions(["t"], "cat-9", { replace: "all" });
     expect(res).toEqual({ updated: 0, skipped: 1 });
+  });
+});
+
+describe("approveSplitTransaction", () => {
+  const pending = { amount_cents: -8210, approved_at: null, transfer_account_id: null };
+
+  it("approves with signed allocations in the order given", async () => {
+    mockCurrentAccountRow = pending;
+    const res = await approveSplitTransaction("t", [
+      { categoryId: "groc", amountCents: 5000 },
+      { categoryId: "home", amountCents: 3210 },
+    ]);
+    expect(res).toEqual({});
+    const arg = updateTransaction.mock.calls[0][1];
+    expect(arg).toMatchObject({
+      id: "t",
+      allocations: [
+        { categoryId: "groc", amountCents: -5000 },
+        { categoryId: "home", amountCents: -3210 },
+      ],
+    });
+    expect(arg.approvedAt).toBeTruthy();
+  });
+
+  it("keeps an inflow positive", async () => {
+    mockCurrentAccountRow = { ...pending, amount_cents: 1000 };
+    await approveSplitTransaction("t", [
+      { categoryId: "a", amountCents: 600 },
+      { categoryId: "b", amountCents: 400 },
+    ]);
+    expect(updateTransaction.mock.calls[0][1].allocations).toEqual([
+      { categoryId: "a", amountCents: 600 },
+      { categoryId: "b", amountCents: 400 },
+    ]);
+  });
+
+  it("rejects a split that doesn't add up, without writing", async () => {
+    mockCurrentAccountRow = pending;
+    const res = await approveSplitTransaction("t", [
+      { categoryId: "a", amountCents: 5000 },
+      { categoryId: "b", amountCents: 3000 },
+    ]);
+    expect(res.error).toMatch(/add up/);
+    expect(updateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects fewer than two lines, a zero line, a missing or repeated category", async () => {
+    mockCurrentAccountRow = pending;
+    expect((await approveSplitTransaction("t", [{ categoryId: "a", amountCents: 8210 }])).error).toMatch(/two/);
+    expect(
+      (await approveSplitTransaction("t", [
+        { categoryId: "a", amountCents: 8210 },
+        { categoryId: "b", amountCents: 0 },
+      ])).error,
+    ).toMatch(/amount/);
+    expect(
+      (await approveSplitTransaction("t", [
+        { categoryId: "", amountCents: 5000 },
+        { categoryId: "b", amountCents: 3210 },
+      ])).error,
+    ).toMatch(/category/);
+    expect(
+      (await approveSplitTransaction("t", [
+        { categoryId: "a", amountCents: 5000 },
+        { categoryId: "a", amountCents: 3210 },
+      ])).error,
+    ).toMatch(/once/);
+    expect(updateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("refuses a transaction that was approved meanwhile", async () => {
+    mockCurrentAccountRow = { ...pending, approved_at: "2026-01-01T00:00:00Z" };
+    const res = await approveSplitTransaction("t", [
+      { categoryId: "a", amountCents: 5000 },
+      { categoryId: "b", amountCents: 3210 },
+    ]);
+    expect(res.error).toMatch(/already approved/);
+    expect(updateTransaction).not.toHaveBeenCalled();
+  });
+
+  it("returns an error, not a throw, for malformed lines", async () => {
+    mockCurrentAccountRow = pending;
+    // A server action can be called with anything.
+    expect((await approveSplitTransaction("t", null as never)).error).toBeTruthy();
+    expect((await approveSplitTransaction("t", [null] as never)).error).toBeTruthy();
+    expect(updateTransaction).not.toHaveBeenCalled();
   });
 });
 
