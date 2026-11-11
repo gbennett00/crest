@@ -6,11 +6,14 @@
 // tap navigates ~100 ms after pointerdown, too soon for a fetch to land; only
 // preloading ahead of time helps there.
 //
-// Tasks run one at a time, each when the browser is idle, so they never
-// compete with what the user is doing or with each other for the database.
-// Nothing runs while the app is in the background or when the device asks to
-// save data. Each task is usually a prefetchQuery call, which skips data
-// that's already cached and fresh.
+// Tasks run one at a time, each once the browser is idle and no other data
+// request is in flight, so they never compete with what the user is doing (a
+// screen's own load included) or with each other for the database. Nothing
+// runs while the app is in the background or when the device asks to save
+// data. Each task is usually a prefetchQuery call, which skips data that's
+// already cached and fresh.
+
+import type { QueryClient } from "@tanstack/react-query";
 
 type Task = () => unknown;
 
@@ -32,6 +35,22 @@ type Entry = { task: Task; group?: string };
 
 const queue: Entry[] = [];
 let running = false;
+let client: QueryClient | null = null;
+
+// The longest a task waits for other requests to finish, so a stuck request
+// or a steady stream of refetches can't hold the queue up forever.
+const QUIET_TIMEOUT_MS = 10_000;
+
+/**
+ * Lets the preloader see the app's requests, to wait for them (see
+ * QueryProvider). Returns the disconnect.
+ */
+export function connectPreloader(queryClient: QueryClient) {
+  client = queryClient;
+  return () => {
+    if (client === queryClient) client = null;
+  };
+}
 
 function saveDataRequested(): boolean {
   const connection = (navigator as Navigator & { connection?: { saveData?: boolean } }).connection;
@@ -45,6 +64,23 @@ function whenIdle(): Promise<void> {
     } else {
       setTimeout(resolve, 200);
     }
+  });
+}
+
+/** Resolves once no query is fetching (or after QUIET_TIMEOUT_MS). */
+function whenQuiet(): Promise<void> {
+  const qc = client;
+  if (!qc || qc.isFetching() === 0) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      unsubscribe();
+      clearTimeout(timer);
+      resolve();
+    };
+    const unsubscribe = qc.getQueryCache().subscribe(() => {
+      if (qc.isFetching() === 0) done();
+    });
+    const timer = setTimeout(done, QUIET_TIMEOUT_MS);
   });
 }
 
@@ -65,7 +101,9 @@ async function drain() {
   try {
     while (queue.length > 0) {
       await whenIdle();
-      // After the idle wait, not before: its timeout can fire in a hidden tab.
+      await whenQuiet();
+      // Last, right before running: the idle wait's timeout can fire in a
+      // hidden tab.
       await whenVisible();
       const entry = queue.shift();
       if (!entry) continue;

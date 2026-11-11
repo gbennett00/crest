@@ -133,4 +133,24 @@ describe("preloadWhenIdle", () => {
     await settle();
     expect(task).toHaveBeenCalledOnce();
   });
+
+  it("waits for the app's own requests to finish before starting a task", async () => {
+    vi.resetModules();
+    const { preloadWhenIdle, connectPreloader } = await import("./preload");
+    const { QueryClient } = await import("@tanstack/react-query");
+    const qc = new QueryClient();
+    const disconnect = connectPreloader(qc);
+    const screenLoad = deferred();
+    void qc.fetchQuery({ queryKey: ["ledger", "home-view"], queryFn: () => screenLoad.promise.then(() => "home") });
+
+    const task = vi.fn();
+    preloadWhenIdle([task]);
+    await settle();
+    expect(task).not.toHaveBeenCalled();
+
+    screenLoad.resolve();
+    await settle();
+    expect(task).toHaveBeenCalledOnce();
+    disconnect();
+  });
 });

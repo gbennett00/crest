@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { installOptimisticLayer } from "./queries/optimistic";
+import { connectPreloader } from "./queries/preload";
 
 // One QueryClient per browser session, created lazily so it survives client
 // re-renders (including the RSC round-trips triggered by Link navigation)
@@ -29,6 +30,9 @@ export function QueryProvider({ children }: { children: React.ReactNode }) {
   // Keeps optimistic transaction writes on screen while their save is in
   // flight (see lib/queries/optimistic.ts).
   useEffect(() => installOptimisticLayer(client), [client]);
+  // Lets background preloads wait for the app's own requests to finish
+  // (see lib/queries/preload.ts).
+  useEffect(() => connectPreloader(client), [client]);
 
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
 }
