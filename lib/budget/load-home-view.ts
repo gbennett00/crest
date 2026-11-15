@@ -8,7 +8,7 @@ import type {
 } from "@/components/transactions/transaction-form";
 import type { BudgetData, BudgetViewItem } from "./types";
 import { loadBudgetView } from "./load-budget-view";
-import { loadCategoryOptions } from "./category-options";
+import { INFLOWS_GROUP_NAME, loadCategoryOptions } from "./category-options";
 import { selectOverspent, selectPinned } from "./selectors";
 import { throwOnQueryErrors } from "./query-errors";
 import {
@@ -38,7 +38,8 @@ export type PendingTransaction = {
   allocations: { categoryId: string; amountCents: number }[];
   /**
    * Quick picks for the approve drawer, best first: its current category,
-   * then the payee's most used categories over the last 90 days (max 4).
+   * then the payee's most used categories over the last 90 days, then Ready
+   * to Assign for inflows if there is room (max 4).
    */
   suggestedCategoryIds: string[];
 };
@@ -120,6 +121,8 @@ export async function loadHomeData(
   const rawPending = (pendingRes.data ?? []) as unknown as RawPending[];
   const validCategoryIds = new Set(categories.map((c) => c.id));
   const ranked = rankPayeeCategories(history, validCategoryIds);
+  const readyToAssignId =
+    categories.find((c) => c.groupName === INFLOWS_GROUP_NAME)?.id ?? null;
 
   const pending: PendingTransaction[] = rawPending.map((t) => {
     const allocs = t.transaction_allocations ?? [];
@@ -144,6 +147,8 @@ export async function loadHomeData(
         // A suggestion into a category that is now hidden isn't offered.
         categoryId && validCategoryIds.has(categoryId) ? categoryId : null,
         t.payee_key ? ranked.get(t.payee_key) : undefined,
+        // Inflows also offer Ready to Assign, after the payee's history.
+        t.amount_cents > 0 ? readyToAssignId : null,
       ),
     };
   });

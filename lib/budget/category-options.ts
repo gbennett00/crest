@@ -2,6 +2,9 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import type { CategoryOption } from "@/components/transactions/transaction-form";
 import { throwOnQueryErrors } from "./query-errors";
 
+/** Group name of the synthetic group holding Ready to Assign in pickers. */
+export const INFLOWS_GROUP_NAME = "— Inflows —";
+
 type RawOptionCategory = {
   id: string;
   name: string;
@@ -47,7 +50,7 @@ export async function loadCategoryOptions(
     for (const c of group.categories ?? []) {
       if (c.is_hidden) continue;
       if (c.role === "ready_to_assign") {
-        inflows.push({ id: c.id, name: "Ready to Assign", groupName: "— Inflows —" });
+        inflows.push({ id: c.id, name: "Ready to Assign", groupName: INFLOWS_GROUP_NAME });
         continue;
       }
       options.push({ id: c.id, name: c.name, groupName: group.name });
