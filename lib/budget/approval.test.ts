@@ -87,6 +87,14 @@ describe("suggestionsFor", () => {
     expect(suggestionsFor(null, ["a", "b", "c", "d"], "rta")).toEqual(["a", "b", "c", "d"]);
   });
 
+  it("doesn't duplicate the fallback when the row already carries it", () => {
+    expect(suggestionsFor("rta", ["a", "b"], "rta")).toEqual(["rta", "a", "b"]);
+  });
+
+  it("drops the fallback when the current category plus history fill every slot", () => {
+    expect(suggestionsFor("c", ["a", "b", "d"], "rta")).toEqual(["c", "a", "b", "d"]);
+  });
+
   it("keeps the fallback at its earned position instead of duplicating it", () => {
     expect(suggestionsFor(null, ["rta", "a"], "rta")).toEqual(["rta", "a"]);
   });

@@ -82,7 +82,10 @@ export function suggestionsFor(
     if (out.length < limit && !out.includes(id)) out.push(id);
   };
   if (currentCategoryId) add(currentCategoryId);
-  for (const id of ranked ?? []) add(id);
+  for (const id of ranked ?? []) {
+    if (out.length >= limit) break;
+    add(id);
+  }
   if (fallbackCategoryId) add(fallbackCategoryId);
   return out;
 }
