@@ -654,6 +654,16 @@ Do not tightly couple the ledger model to Plaid-specific behavior.
 
 Plaid should act as an import/sync layer, not the core transaction system.
 
+### Connection health
+
+Each Plaid Item is **ok**, **delayed** or **needs repair**. The state is derived in `lib/plaid/connection-health.ts` and never stored:
+
+* **needs repair**: the Item has an error only the user can fix (`ITEM_LOGIN_REQUIRED` and similar), a `PENDING_DISCONNECT`/`PENDING_EXPIRATION` warning, consent expiring within 7 days, or access was revoked. The fix is **Link update mode** on the existing Item, which keeps the same `item_id`, accounts and sync cursor. Disconnecting and relinking is only the fallback when Plaid refuses update mode.
+* **delayed**: no user-fixable error, but Plaid reports a temporary institution error, or `status.transactions.last_successful_update` is 48h+ old (or 24h+ with a failure since). This resolves on its own, so the UI shows information only and sends no push.
+* A **quiet account** is ok. `last_successful_update` moves on every successful bank check whether or not new data came in, so "no new transactions" alone is never a problem.
+
+`plaid_items` caches the `/item/get` fields behind this (`last_successful_update`, `last_failed_update`, `consent_expiration_time`, `status_checked_at`). They are refreshed after every sync and by a daily Vercel Cron (`/api/plaid/health-check`, guarded by `CRON_SECRET`). The cron is needed because a stalled connection sends no webhooks.
+
 ---
 
 ## AUTO-CATEGORIZATION

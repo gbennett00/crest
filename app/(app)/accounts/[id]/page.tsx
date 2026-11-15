@@ -4,6 +4,7 @@ import { Suspense } from "react";
 import { useParams, useSearchParams } from "next/navigation";
 import { AccountDetailHeader } from "@/components/accounts/account-detail-header";
 import { AccountBalanceSummary } from "@/components/accounts/account-balance-summary";
+import { ConnectionStatusBanner } from "@/components/accounts/connection-status-banner";
 import { RegisterTransactionList } from "@/components/accounts/register-transaction-list";
 import { useAccountRegister } from "@/lib/queries/accounts";
 import { useHasMounted } from "@/lib/use-has-mounted";
@@ -64,6 +65,13 @@ function RegisterContent() {
         canClose={response.canClose}
         closeBlockReason={response.closeBlockReason}
       />
+
+      {account.connection && account.connection.state !== "ok" && (
+        <ConnectionStatusBanner
+          key={`${account.connection.plaidItemId}:${account.connection.reason}`}
+          connection={account.connection}
+        />
+      )}
 
       {/* Balance summary */}
       <AccountBalanceSummary

@@ -17,8 +17,14 @@ import {
   attachExistingAccountToPlaid,
   getPlaidAccountsForItem,
   getUnlinkedAccounts,
-  syncItem,
 } from "@/lib/plaid/sync";
+import { isRevokedErrorCode } from "@/lib/plaid/connection-health";
+import {
+  markItemRepaired,
+  plaidErrorCode,
+  recordItemError,
+  syncItemAndRefreshStatus,
+} from "@/lib/plaid/item-status";
 
 export async function createManualAccount(formData: FormData) {
   const name = (formData.get("name") as string)?.trim();
@@ -303,7 +309,7 @@ export async function completeAccountLinking(
       .single();
     if (error || !itemRow) return { error: "Item not found" };
 
-    const result = await syncItem(supabase, itemRow as never);
+    const result = await syncItemAndRefreshStatus(supabase, itemRow as never);
     revalidatePath("/accounts");
     return { success: true, ...result };
   } catch (e) {
@@ -323,7 +329,7 @@ export async function syncLinkedItem(plaidItemId: string) {
 
     if (error || !itemRow) return { error: "Item not found" };
 
-    const result = await syncItem(supabase, itemRow as never);
+    const result = await syncItemAndRefreshStatus(supabase, itemRow as never);
     revalidatePath("/accounts");
     return { success: true, ...result };
   } catch (e) {
@@ -344,9 +350,16 @@ export async function unlinkItem(plaidItemId: string) {
     if (error || !itemRow) return { error: "Item not found" };
 
     const plaid = createPlaidClient();
-    await plaid.itemRemove({
-      access_token: (itemRow as { access_token: string }).access_token,
-    });
+    try {
+      await plaid.itemRemove({
+        access_token: (itemRow as { access_token: string }).access_token,
+      });
+    } catch (e) {
+      // Already gone on Plaid's side (revoked by the user, or removed): nothing
+      // left to remove there, so carry on detaching it here.
+      const code = plaidErrorCode(e);
+      if (!code || !isRevokedErrorCode(code)) throw e;
+    }
 
     await supabase
       .from("accounts")
@@ -362,6 +375,98 @@ export async function unlinkItem(plaidItemId: string) {
     return { success: true };
   } catch (e) {
     const message = e instanceof Error ? e.message : "Failed to unlink";
+    return { error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Connection repair (Link update mode)
+// ---------------------------------------------------------------------------
+
+/**
+ * Link token for update mode on an existing Item: re-authenticates or renews
+ * consent without creating a new Item, so the same item_id, accounts and sync
+ * cursor carry on (no duplicate imports). No `products` — update mode reuses
+ * the Item's.
+ *
+ * If Plaid refuses (the Item no longer exists, e.g. the user revoked access
+ * at their bank), it is marked revoked and `relink: true` tells the caller the
+ * only fix is to disconnect and link the bank again.
+ */
+export async function createRepairLinkToken(plaidItemId: string) {
+  const supabase = await createClient();
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) return { error: "Not authenticated" };
+
+    const { data: itemRow, error } = await supabase
+      .from("plaid_items")
+      .select("access_token")
+      .eq("plaid_item_id", plaidItemId)
+      .single();
+    if (error || !itemRow) return { error: "Bank connection not found" };
+
+    const plaid = createPlaidClient();
+    try {
+      const response = await plaid.linkTokenCreate({
+        client_name: "Crest",
+        language: "en",
+        country_codes: [CountryCode.Us],
+        user: { client_user_id: user.id },
+        access_token: (itemRow as { access_token: string }).access_token,
+        webhook: process.env.PLAID_WEBHOOK_URL || undefined,
+      });
+      return { linkToken: response.data.link_token };
+    } catch (e) {
+      const code = plaidErrorCode(e);
+      if (code && isRevokedErrorCode(code)) {
+        await recordItemError(supabase, plaidItemId, e);
+        revalidatePath("/accounts");
+        return {
+          error: "This connection can't be repaired. Disconnect it, then link the bank again.",
+          relink: true,
+        };
+      }
+      throw e;
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to start repair";
+    return { error: message };
+  }
+}
+
+/**
+ * Called after update-mode Link succeeds. The access token is unchanged (no
+ * public token exchange needed). Clears the error, then syncs: anything that
+ * piled up while the connection was down comes in now, and the sync's status
+ * refresh records Plaid's view of the repaired Item.
+ */
+export async function completeRepair(plaidItemId: string) {
+  const supabase = await createClient();
+  try {
+    await markItemRepaired(supabase, plaidItemId);
+
+    const { data: itemRow, error } = await supabase
+      .from("plaid_items")
+      .select("*")
+      .eq("plaid_item_id", plaidItemId)
+      .single();
+    if (error || !itemRow) return { error: "Bank connection not found" };
+
+    try {
+      const result = await syncItemAndRefreshStatus(supabase, itemRow as never);
+      revalidatePath("/accounts");
+      return { success: true, ...result };
+    } catch {
+      // Repaired, but Plaid may still be fetching (PRODUCT_NOT_READY right after
+      // re-auth is common). The webhook will deliver the data when it's ready.
+      revalidatePath("/accounts");
+      return { success: true, addedCount: 0 };
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Failed to finish repair";
     return { error: message };
   }
 }

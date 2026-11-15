@@ -6,6 +6,7 @@ import { Money } from "@/components/money";
 import { cn } from "@/lib/utils";
 import { prefetchAccountRegister } from "@/lib/queries/accounts";
 import { ChevronRight, Link2 } from "lucide-react";
+import type { ItemConnection } from "@/lib/plaid/connection-health";
 
 export type AccountData = {
   id: string;
@@ -14,6 +15,7 @@ export type AccountData = {
   workingBalanceCents: number;
   isLinked: boolean;
   isActive: boolean;
+  connection?: ItemConnection | null;
 };
 
 const TYPE_LABELS: Record<string, string> = {
@@ -44,6 +46,9 @@ export function AccountCard({ account }: { account: AccountData }) {
           {account.isLinked && (
             <Link2 size={12} className="text-muted-foreground shrink-0" />
           )}
+          {account.isActive && account.connection && account.connection.state !== "ok" && (
+            <ConnectionBadge state={account.connection.state} />
+          )}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
           {TYPE_LABELS[account.type]}
@@ -61,5 +66,19 @@ export function AccountCard({ account }: { account: AccountData }) {
         <ChevronRight size={14} className="text-muted-foreground" />
       </div>
     </Link>
+  );
+}
+
+function ConnectionBadge({ state }: { state: "delayed" | "needs_repair" }) {
+  const repair = state === "needs_repair";
+  return (
+    <span
+      className={cn(
+        "shrink-0 rounded-pill px-2 py-0.5 text-[12px] leading-4 font-medium",
+        repair ? "bg-neg-bg text-neg-ink" : "bg-warn-bg text-warn-ink",
+      )}
+    >
+      {repair ? "Needs repair" : "Delayed"}
+    </span>
   );
 }

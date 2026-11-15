@@ -2,6 +2,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { loadAccountBalance, loadAccountClosureState } from "@/lib/ledger";
 import { loadCategoryOptions } from "@/lib/budget";
+import {
+  ITEM_HEALTH_COLUMNS,
+  itemConnectionFromRow,
+  type ItemConnection,
+  type ItemHealthRow,
+} from "@/lib/plaid/item-status";
 import type { RegisterTxn } from "@/components/accounts/register-transaction-list";
 import type { AccountOption, CategoryOption } from "@/components/transactions/transaction-form";
 
@@ -13,6 +19,7 @@ export type AccountRegisterResponse = {
     isLinked: boolean;
     bankBalanceCents: number | null;
     isActive: boolean;
+    connection: ItemConnection | null;
   } | null;
   registerClearedBalanceCents: number;
   unclearedCents: number;
@@ -39,7 +46,7 @@ export async function GET(
   const [accountRes, txnsRes, balance, categoryOptions, accountsRes] = await Promise.all([
     supabase
       .from("accounts")
-      .select("id, name, type, is_linked, balance_cents, is_active")
+      .select("id, name, type, is_linked, balance_cents, is_active, plaid_item_id")
       .eq("id", id)
       .single(),
     supabase
@@ -64,7 +71,10 @@ export async function GET(
   }
 
   const account = accountRes.data;
-  const closure = await loadAccountClosureState(supabase, id);
+  const [closure, connection] = await Promise.all([
+    loadAccountClosureState(supabase, id),
+    loadAccountConnection(supabase, account.plaid_item_id as string | null),
+  ]);
   const closeBlockReason = !closure.allCleared
     ? "All transactions must be cleared"
     : closure.workingBalanceCents !== 0
@@ -129,6 +139,7 @@ export async function GET(
       isLinked: account.is_linked as boolean,
       bankBalanceCents: account.balance_cents as number | null,
       isActive: account.is_active as boolean,
+      connection,
     },
     registerClearedBalanceCents: balance.clearedCents,
     unclearedCents: balance.unclearedCents,
@@ -142,4 +153,17 @@ export async function GET(
   };
 
   return NextResponse.json(response);
+}
+
+async function loadAccountConnection(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  plaidItemId: string | null,
+): Promise<ItemConnection | null> {
+  if (!plaidItemId) return null;
+  const { data } = await supabase
+    .from("plaid_items")
+    .select(ITEM_HEALTH_COLUMNS)
+    .eq("plaid_item_id", plaidItemId)
+    .maybeSingle();
+  return data ? itemConnectionFromRow(data as ItemHealthRow) : null;
 }
