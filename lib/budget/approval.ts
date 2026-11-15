@@ -65,20 +65,29 @@ export function rankPayeeCategories(
 /**
  * The quick picks for one pending transaction: the category it already
  * carries (a rule or history suggestion) first, then the payee's ranked
- * categories, without duplicates, capped at `limit`.
+ * categories, then `fallbackCategoryId` (e.g. Ready to Assign for an inflow)
+ * if there is still room, without duplicates, capped at `limit`.
+ *
+ * The fallback only fills a spare slot, so a payee whose inflows usually go
+ * to spending categories (Venmo paybacks) keeps all its history picks.
  */
 export function suggestionsFor(
   currentCategoryId: string | null,
   ranked: readonly string[] | undefined,
+  fallbackCategoryId: string | null = null,
   limit: number = SUGGESTION_LIMIT,
 ): string[] {
   const out: string[] = [];
-  if (currentCategoryId) out.push(currentCategoryId);
+  const add = (id: string) => {
+    if (out.length < limit && !out.includes(id)) out.push(id);
+  };
+  if (currentCategoryId) add(currentCategoryId);
   for (const id of ranked ?? []) {
     if (out.length >= limit) break;
-    if (!out.includes(id)) out.push(id);
+    add(id);
   }
-  return out.slice(0, limit);
+  if (fallbackCategoryId) add(fallbackCategoryId);
+  return out;
 }
 
 /** What bulk Approve needs to know about each selected pending row. */

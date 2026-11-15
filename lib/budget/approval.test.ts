@@ -74,6 +74,30 @@ describe("suggestionsFor", () => {
   it("returns nothing for a new payee with no category", () => {
     expect(suggestionsFor(null, undefined)).toEqual([]);
   });
+
+  it("appends the fallback after the payee history when there is room", () => {
+    expect(suggestionsFor("c", ["a", "b"], "rta")).toEqual(["c", "a", "b", "rta"]);
+  });
+
+  it("offers the fallback alone for a new payee", () => {
+    expect(suggestionsFor(null, undefined, "rta")).toEqual(["rta"]);
+  });
+
+  it("drops the fallback when the history already fills every slot", () => {
+    expect(suggestionsFor(null, ["a", "b", "c", "d"], "rta")).toEqual(["a", "b", "c", "d"]);
+  });
+
+  it("doesn't duplicate the fallback when the row already carries it", () => {
+    expect(suggestionsFor("rta", ["a", "b"], "rta")).toEqual(["rta", "a", "b"]);
+  });
+
+  it("drops the fallback when the current category plus history fill every slot", () => {
+    expect(suggestionsFor("c", ["a", "b", "d"], "rta")).toEqual(["c", "a", "b", "d"]);
+  });
+
+  it("keeps the fallback at its earned position instead of duplicating it", () => {
+    expect(suggestionsFor(null, ["rta", "a"], "rta")).toEqual(["rta", "a"]);
+  });
 });
 
 describe("planBulkApproval", () => {

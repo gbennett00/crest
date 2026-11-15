@@ -38,7 +38,8 @@ export type PendingTransaction = {
   allocations: { categoryId: string; amountCents: number }[];
   /**
    * Quick picks for the approve drawer, best first: its current category,
-   * then the payee's most used categories over the last 90 days (max 4).
+   * then the payee's most used categories over the last 90 days, then Ready
+   * to Assign for inflows if there is room (max 4).
    */
   suggestedCategoryIds: string[];
 };
@@ -74,6 +75,7 @@ export async function loadHomeData(
     payee_key: string | null;
     amount_cents: number;
     txn_date: string;
+    transfer_account_id: string | null;
     category_source: string | null;
     accounts: { name: string } | null;
     transaction_allocations:
@@ -86,7 +88,7 @@ export async function loadHomeData(
       client
         .from("transactions")
         .select(
-          "id, payee, payee_key, amount_cents, txn_date, account_id, category_source, accounts!account_id(name), transaction_allocations(category_id, amount_cents, categories(name))",
+          "id, payee, payee_key, amount_cents, txn_date, account_id, transfer_account_id, category_source, accounts!account_id(name), transaction_allocations(category_id, amount_cents, categories(name))",
         )
         .is("approved_at", null)
         .order("txn_date", { ascending: false })
@@ -120,6 +122,13 @@ export async function loadHomeData(
   const rawPending = (pendingRes.data ?? []) as unknown as RawPending[];
   const validCategoryIds = new Set(categories.map((c) => c.id));
   const ranked = rankPayeeCategories(history, validCategoryIds);
+  const rtaCategoryId =
+    budgetData.groups
+      .flatMap((g) => g.categories)
+      .find((c) => c.role === "ready_to_assign")?.id ?? null;
+  // Offered only while it is pickable (the picker leaves out hidden categories).
+  const readyToAssignId =
+    rtaCategoryId && validCategoryIds.has(rtaCategoryId) ? rtaCategoryId : null;
 
   const pending: PendingTransaction[] = rawPending.map((t) => {
     const allocs = t.transaction_allocations ?? [];
@@ -144,6 +153,9 @@ export async function loadHomeData(
         // A suggestion into a category that is now hidden isn't offered.
         categoryId && validCategoryIds.has(categoryId) ? categoryId : null,
         t.payee_key ? ranked.get(t.payee_key) : undefined,
+        // Inflows also offer Ready to Assign, after the payee's history. The
+        // inflow leg of a transfer is just money moving, never income.
+        t.amount_cents > 0 && !t.transfer_account_id ? readyToAssignId : null,
       ),
     };
   });
