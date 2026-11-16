@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { prefetchAccountRegister } from "@/lib/queries/accounts";
 import { ChevronRight, Link2 } from "lucide-react";
 import type { ItemConnection } from "@/lib/plaid/connection-health";
+import { connectionCopy } from "@/lib/plaid/connection-copy";
 
 export type AccountData = {
   id: string;
@@ -46,8 +47,8 @@ export function AccountCard({ account }: { account: AccountData }) {
           {account.isLinked && (
             <Link2 size={12} className="text-muted-foreground shrink-0" />
           )}
-          {account.isActive && account.connection && account.connection.state !== "ok" && (
-            <ConnectionBadge state={account.connection.state} />
+          {account.isActive && account.connection && (
+            <ConnectionBadge connection={account.connection} />
           )}
         </div>
         <p className="text-xs text-muted-foreground mt-0.5">
@@ -69,16 +70,17 @@ export function AccountCard({ account }: { account: AccountData }) {
   );
 }
 
-function ConnectionBadge({ state }: { state: "delayed" | "needs_repair" }) {
-  const repair = state === "needs_repair";
+function ConnectionBadge({ connection }: { connection: ItemConnection }) {
+  const copy = connectionCopy(connection);
+  if (!copy) return null;
   return (
     <span
       className={cn(
         "shrink-0 rounded-pill px-2 py-0.5 text-[12px] leading-4 font-medium",
-        repair ? "bg-neg-bg text-neg-ink" : "bg-warn-bg text-warn-ink",
+        connection.state === "needs_repair" ? "bg-neg-bg text-neg-ink" : "bg-warn-bg text-warn-ink",
       )}
     >
-      {repair ? "Needs repair" : "Delayed"}
+      {copy.label}
     </span>
   );
 }

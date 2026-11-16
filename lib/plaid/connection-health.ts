@@ -6,9 +6,11 @@
  *
  *   - `error_code`: the Item's error (from /item/get `item.error`, the
  *     ITEM: ERROR webhook, or a failed sync call).
- *   - `status`: our own summary, driven by ITEM webhooks — `pending_disconnect`
- *     (PENDING_DISCONNECT / PENDING_EXPIRATION: access ends in ~7 days) and
- *     `revoked` (USER_PERMISSION_REVOKED, or the access token stopped existing).
+ *   - `status`: our own summary — `error`, or `revoked` (USER_PERMISSION_REVOKED,
+ *     or the access token stopped existing).
+ *   - `disconnect_warned_at`: when a PENDING_DISCONNECT / PENDING_EXPIRATION
+ *     webhook said access ends in ~7 days. Kept apart from `status` so error
+ *     updates can't overwrite or lose this one-time warning.
  *   - `last_successful_update`: the last time Plaid successfully checked the
  *     bank for transactions, *whether or not it found any*. This is what tells
  *     "quiet account" (recent) apart from "stalled connection" (old).
@@ -20,7 +22,7 @@
  * normal and never reported.
  */
 
-export type PlaidItemStatus = "good" | "error" | "pending_disconnect" | "revoked";
+export type PlaidItemStatus = "good" | "error" | "revoked";
 
 export type ConnectionHealthState = "ok" | "delayed" | "needs_repair";
 
@@ -56,6 +58,7 @@ export type ConnectionHealthInput = {
   lastSuccessfulUpdate: string | null;
   lastFailedUpdate: string | null;
   consentExpirationTime: string | null;
+  disconnectWarnedAt: string | null;
   statusCheckedAt: string | null;
   /** When the Item was linked; a brand-new Item has no successful update yet. */
   createdAt: string;
@@ -69,6 +72,12 @@ export const FAILING_AFTER_MS = 24 * HOUR_MS;
 export const STALE_AFTER_MS = 48 * HOUR_MS;
 /** Plaid sends PENDING_DISCONNECT seven days before consent expires; match it. */
 export const EXPIRING_WITHIN_MS = 7 * 24 * HOUR_MS;
+/**
+ * How long a PENDING_DISCONNECT warning counts. Past the 7-day notice the Item
+ * has either been renewed (somewhere we didn't see) or has stopped working,
+ * which shows up as an Item error instead; either way the warning is spent.
+ */
+export const DISCONNECT_WARNING_TTL_MS = 14 * 24 * HOUR_MS;
 
 /**
  * Error codes the user fixes by re-authenticating in Link update mode.
@@ -144,30 +153,37 @@ export function deriveConnectionHealth(
   }
 
   const code = input.errorCode;
-  if (code) {
+  const transient = code !== null && TRANSIENT_ERROR_CODES.has(code);
+  if (code && !transient) {
     if (REVOKED_ERROR_CODES.has(code)) return { state: "needs_repair", reason: "revoked" };
     if (BANK_ACTION_ERROR_CODES.has(code)) {
       return { state: "needs_repair", reason: "bank_action_required" };
     }
     if (LOGIN_ERROR_CODES.has(code)) return { state: "needs_repair", reason: "login_required" };
-    if (TRANSIENT_ERROR_CODES.has(code)) return { state: "delayed", reason: "institution_issue" };
-    // Unknown code on the Item. Plaid's ITEM: ERROR webhook docs say an Item
-    // error "can be resolved by having the user go through Link's update mode".
+    // Unknown Item error. Plaid's ITEM: ERROR webhook docs say an Item error
+    // "can be resolved by having the user go through Link's update mode".
+    // (Only ITEM_ERROR / INSTITUTION_ERROR codes are stored; see itemErrorCode.)
     return { state: "needs_repair", reason: "login_required" };
   }
 
   // An error status with no code means a webhook said "error" without saying
   // which one. Update mode is still the documented fix.
-  if (input.status === "error") return { state: "needs_repair", reason: "login_required" };
+  if (!code && input.status === "error") {
+    return { state: "needs_repair", reason: "login_required" };
+  }
 
-  // 2. Still working, but about to stop.
-  if (input.status === "pending_disconnect") {
+  // 2. Still working, but about to stop. Outranks a temporary outage: one
+  // needs the user, the other clears itself.
+  const warned = ms(input.disconnectWarnedAt);
+  if (warned !== null && nowMs - warned < DISCONNECT_WARNING_TTL_MS) {
     return { state: "needs_repair", reason: "expiring" };
   }
   const expires = ms(input.consentExpirationTime);
   if (expires !== null && expires - nowMs <= EXPIRING_WITHIN_MS) {
     return { state: "needs_repair", reason: "expiring" };
   }
+
+  if (transient) return { state: "delayed", reason: "institution_issue" };
 
   // 3. Healthy Item, but is Plaid actually reaching the bank?
   // Never checked: nothing to judge staleness on, so don't cry wolf.

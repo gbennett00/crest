@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from "next/server";
 
-import { deriveConnectionHealth } from "@/lib/plaid/connection-health";
-import {
-  healthInputFromRow,
-  ITEM_HEALTH_COLUMNS,
-  refreshItemStatus,
-  type ItemHealthRow,
-} from "@/lib/plaid/item-status";
-import { sendPushToPlan } from "@/lib/push";
+import { refreshItemStatus } from "@/lib/plaid/item-status";
 import { createServiceClient } from "@/lib/supabase/service";
+
+// Vercel caps a function's run time; give the batch as long as the plan allows.
+export const maxDuration = 60;
+
+/** /item/get calls in flight at once: fast enough for many Items, gentle on Plaid. */
+const CONCURRENCY = 8;
 
 /**
  * Daily connection-health check (Vercel Cron, see vercel.json).
@@ -17,7 +16,8 @@ import { createServiceClient } from "@/lib/supabase/service";
  * that quietly stops reaching the bank sends nothing at all: no new data means
  * no SYNC_UPDATES_AVAILABLE. Calling /item/get for every Item refreshes
  * last_successful_update / last_failed_update so "delayed" can be detected, and
- * catches errors whose webhook was missed.
+ * catches errors whose webhook was missed. The "needs repair" push is sent by
+ * applyItemPatch, only on the transition into that state.
  *
  * Vercel sends `Authorization: Bearer $CRON_SECRET`; requests without it are refused.
  */
@@ -30,44 +30,28 @@ export async function GET(request: NextRequest) {
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("plaid_items")
-    .select(`${ITEM_HEALTH_COLUMNS}, access_token, plan_id`)
+    .select("plaid_item_id, access_token")
     .neq("status", "revoked");
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
 
-  const rows = (data ?? []) as (ItemHealthRow & { access_token: string; plan_id: string })[];
+  const items = (data ?? []) as { plaid_item_id: string; access_token: string }[];
   let checked = 0;
   let failed = 0;
-  let newlyNeedsRepair = 0;
 
-  for (const row of rows) {
-    const before = deriveConnectionHealth(healthInputFromRow(row));
-    let after: ReturnType<typeof deriveConnectionHealth>;
-    try {
-      const patch = await refreshItemStatus(supabase, row);
-      after = deriveConnectionHealth(healthInputFromRow({ ...row, ...patch } as ItemHealthRow));
-      checked++;
-    } catch (e) {
-      failed++;
-      console.error(`[plaid health-check] item ${row.plaid_item_id} failed`, e);
-      continue;
-    }
-
-    // Webhooks already push for the errors they report, and they update the row
-    // first, so this only fires for problems the check itself discovered.
-    // "Delayed" never pushes: it resolves on its own.
-    if (after.state === "needs_repair" && before.state !== "needs_repair") {
-      newlyNeedsRepair++;
+  let next = 0;
+  async function worker() {
+    while (next < items.length) {
+      const item = items[next++];
       try {
-        await sendPushToPlan(supabase, row.plan_id, {
-          title: "Bank connection needs repair",
-          body: `${row.institution_name ?? "A bank connection"} needs you to reconnect it`,
-          url: "/accounts",
-        });
+        await refreshItemStatus(supabase, item, { notify: true });
+        checked++;
       } catch (e) {
-        console.error(`[plaid health-check] push failed for item ${row.plaid_item_id}`, e);
+        failed++;
+        console.error(`[plaid health-check] item ${item.plaid_item_id} failed`, e);
       }
     }
   }
+  await Promise.all(Array.from({ length: Math.min(CONCURRENCY, items.length) }, worker));
 
-  return NextResponse.json({ checked, failed, newlyNeedsRepair });
+  return NextResponse.json({ checked, failed });
 }

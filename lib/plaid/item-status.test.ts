@@ -2,10 +2,13 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("./client", () => ({ createPlaidClient: vi.fn() }));
 vi.mock("./sync", () => ({ syncItem: vi.fn() }));
+vi.mock("@/lib/push", () => ({ sendPushToPlan: vi.fn() }));
 
 import {
   itemConnectionFromRow,
+  itemErrorCode,
   plaidErrorCode,
+  shouldNotifyNeedsRepair,
   statusPatchFromError,
   statusPatchFromItemGet,
   type ItemHealthRow,
@@ -19,24 +22,31 @@ function itemGet(opts: {
   lastSuccess?: string | null;
   lastFailed?: string | null;
   consentExpires?: string | null;
+  noStatus?: boolean;
 }) {
   return {
     item: {
       error: opts.errorCode ? { error_code: opts.errorCode } : null,
       consent_expiration_time: opts.consentExpires ?? null,
     },
-    status: {
-      transactions: {
-        last_successful_update: opts.lastSuccess ?? null,
-        last_failed_update: opts.lastFailed ?? null,
-      },
-    },
-  } as unknown as Parameters<typeof statusPatchFromItemGet>[1];
+    status: opts.noStatus
+      ? null
+      : {
+          transactions: {
+            last_successful_update: opts.lastSuccess ?? null,
+            last_failed_update: opts.lastFailed ?? null,
+          },
+        },
+  } as unknown as Parameters<typeof statusPatchFromItemGet>[0];
 }
+
+const plaidError = (error_type: string, error_code: string) => ({
+  response: { data: { error_type, error_code } },
+});
 
 describe("plaidErrorCode", () => {
   it("reads error_code from an axios-style Plaid error", () => {
-    expect(plaidErrorCode({ response: { data: { error_code: "ITEM_LOGIN_REQUIRED" } } })).toBe(
+    expect(plaidErrorCode(plaidError("ITEM_ERROR", "ITEM_LOGIN_REQUIRED"))).toBe(
       "ITEM_LOGIN_REQUIRED",
     );
   });
@@ -48,10 +58,33 @@ describe("plaidErrorCode", () => {
   });
 });
 
+describe("itemErrorCode", () => {
+  it("keeps Item and institution errors", () => {
+    expect(itemErrorCode(plaidError("ITEM_ERROR", "ITEM_LOGIN_REQUIRED"))).toBe(
+      "ITEM_LOGIN_REQUIRED",
+    );
+    expect(itemErrorCode(plaidError("INSTITUTION_ERROR", "INSTITUTION_DOWN"))).toBe(
+      "INSTITUTION_DOWN",
+    );
+  });
+
+  it("keeps a dead access token even though Plaid calls it invalid input", () => {
+    expect(itemErrorCode(plaidError("INVALID_INPUT", "INVALID_ACCESS_TOKEN"))).toBe(
+      "INVALID_ACCESS_TOKEN",
+    );
+  });
+
+  it("ignores failures that say nothing about the connection", () => {
+    expect(itemErrorCode(plaidError("INVALID_REQUEST", "INVALID_FIELD"))).toBeNull();
+    expect(itemErrorCode(plaidError("API_ERROR", "INTERNAL_SERVER_ERROR"))).toBeNull();
+    expect(itemErrorCode(plaidError("RATE_LIMIT_EXCEEDED", "RATE_LIMIT"))).toBeNull();
+    expect(itemErrorCode(new Error("network"))).toBeNull();
+  });
+});
+
 describe("statusPatchFromItemGet", () => {
   it("records timestamps and clears a stale error when the Item is healthy", () => {
     const patch = statusPatchFromItemGet(
-      "error",
       itemGet({ lastSuccess: "2026-11-15T09:00:00Z", lastFailed: "2026-11-01T00:00:00Z" }),
       NOW,
     );
@@ -66,32 +99,32 @@ describe("statusPatchFromItemGet", () => {
   });
 
   it("records the Item's error", () => {
-    const patch = statusPatchFromItemGet("good", itemGet({ errorCode: "ITEM_LOGIN_REQUIRED" }), NOW);
+    const patch = statusPatchFromItemGet(itemGet({ errorCode: "ITEM_LOGIN_REQUIRED" }), NOW);
     expect(patch.status).toBe("error");
     expect(patch.error_code).toBe("ITEM_LOGIN_REQUIRED");
   });
 
-  it("keeps a pending_disconnect warning until a repair clears it", () => {
-    const patch = statusPatchFromItemGet(
-      "pending_disconnect",
-      itemGet({ consentExpires: "2026-11-20T00:00:00Z" }),
-      NOW,
-    );
-    expect(patch.status).toBe("pending_disconnect");
-    expect(patch.consent_expiration_time).toBe("2026-11-20T00:00:00Z");
-  });
-
   it("a successful /item/get un-revokes an Item", () => {
-    expect(statusPatchFromItemGet("revoked", itemGet({}), NOW).status).toBe("good");
+    expect(statusPatchFromItemGet(itemGet({}), NOW).status).toBe("good");
   });
 
-  it("copes with a missing status object", () => {
-    const res = { item: { error: null, consent_expiration_time: null } } as unknown as Parameters<
-      typeof statusPatchFromItemGet
-    >[1];
-    const patch = statusPatchFromItemGet("good", res, NOW);
-    expect(patch.last_successful_update).toBeNull();
-    expect(patch.last_failed_update).toBeNull();
+  it("keeps the stored timestamps when Plaid omits them", () => {
+    for (const res of [itemGet({ noStatus: true }), itemGet({})]) {
+      const patch = statusPatchFromItemGet(res, NOW);
+      expect(patch).not.toHaveProperty("last_successful_update");
+      expect(patch).not.toHaveProperty("last_failed_update");
+    }
+  });
+
+  it("clears a disconnect warning once consent runs well past the window", () => {
+    const renewed = statusPatchFromItemGet(itemGet({ consentExpires: "2027-11-15T00:00:00Z" }), NOW);
+    expect(renewed.disconnect_warned_at).toBeNull();
+  });
+
+  it("leaves the warning alone when consent is still close or unknown", () => {
+    const soon = statusPatchFromItemGet(itemGet({ consentExpires: "2026-11-20T00:00:00Z" }), NOW);
+    expect(soon).not.toHaveProperty("disconnect_warned_at");
+    expect(statusPatchFromItemGet(itemGet({}), NOW)).not.toHaveProperty("disconnect_warned_at");
   });
 });
 
@@ -111,20 +144,57 @@ describe("statusPatchFromError", () => {
   });
 });
 
-describe("itemConnectionFromRow", () => {
-  const row: ItemHealthRow = {
-    plaid_item_id: "item-1",
-    institution_name: "Chase",
-    status: "good",
-    error_code: null,
-    last_successful_update: "2026-11-12T00:00:00Z",
-    last_failed_update: "2026-11-15T06:00:00Z",
-    consent_expiration_time: null,
-    status_checked_at: "2026-11-15T11:00:00Z",
-    created_at: "2026-08-01T00:00:00Z",
-  };
+const healthyRow: ItemHealthRow = {
+  plaid_item_id: "item-1",
+  institution_name: "Chase",
+  status: "good",
+  error_code: null,
+  last_successful_update: "2026-11-15T09:00:00Z",
+  last_failed_update: null,
+  consent_expiration_time: null,
+  disconnect_warned_at: null,
+  status_checked_at: "2026-11-15T11:00:00Z",
+  created_at: "2026-08-01T00:00:00Z",
+};
 
+describe("shouldNotifyNeedsRepair", () => {
+  const loginRequired = { ...healthyRow, status: "error", error_code: "ITEM_LOGIN_REQUIRED" };
+
+  it("notifies on the transition into needs repair", () => {
+    expect(shouldNotifyNeedsRepair(healthyRow, loginRequired, NOW)).toBe(true);
+  });
+
+  it("doesn't repeat for an Item that already needed repair", () => {
+    expect(shouldNotifyNeedsRepair(loginRequired, loginRequired, NOW)).toBe(false);
+    // Expiry already reported by the daily check, then the webhook arrives.
+    const expiring = { ...healthyRow, consent_expiration_time: "2026-11-18T00:00:00Z" };
+    expect(
+      shouldNotifyNeedsRepair(
+        expiring,
+        { ...expiring, disconnect_warned_at: NOW.toISOString() },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+
+  it("never notifies for a delay", () => {
+    expect(
+      shouldNotifyNeedsRepair(
+        healthyRow,
+        { ...healthyRow, status: "error", error_code: "INSTITUTION_DOWN" },
+        NOW,
+      ),
+    ).toBe(false);
+  });
+});
+
+describe("itemConnectionFromRow", () => {
   it("derives health from the cached columns", () => {
+    const row = {
+      ...healthyRow,
+      last_successful_update: "2026-11-12T00:00:00Z",
+      last_failed_update: "2026-11-15T06:00:00Z",
+    };
     expect(itemConnectionFromRow(row, NOW)).toEqual({
       state: "delayed",
       reason: "stale",

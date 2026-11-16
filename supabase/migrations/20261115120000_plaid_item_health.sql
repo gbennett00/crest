@@ -20,16 +20,23 @@ ALTER TABLE plaid_items
   ADD COLUMN last_successful_update  timestamptz,
   ADD COLUMN last_failed_update      timestamptz,
   ADD COLUMN consent_expiration_time timestamptz,
+  -- When a PENDING_DISCONNECT / PENDING_EXPIRATION webhook warned that access
+  -- ends in ~7 days. Plaid sends it once, so it lives apart from `status`:
+  -- error updates and LOGIN_REPAIRED must not erase it. Cleared by a repair, or
+  -- when /item/get shows consent renewed well into the future.
+  ADD COLUMN disconnect_warned_at    timestamptz,
   -- When /item/get was last called for this Item. NULL = never checked, so the
   -- staleness rule has nothing to go on yet.
   ADD COLUMN status_checked_at       timestamptz;
 
--- The old webhook handler stored PENDING_EXPIRATION as 'login_required'. It is
--- a warning that access is about to end (the Item still works), not a login
--- error, so give it its own value alongside PENDING_DISCONNECT.
-UPDATE plaid_items SET status = 'pending_disconnect' WHERE status = 'login_required';
-UPDATE plaid_items SET status = 'error' WHERE status NOT IN ('good', 'error', 'pending_disconnect', 'revoked');
+-- The old webhook handler stored PENDING_EXPIRATION as status 'login_required'.
+-- That was a warning (the Item still worked), not a login error: move it to
+-- disconnect_warned_at and put the Item back to 'good'.
+UPDATE plaid_items
+  SET disconnect_warned_at = updated_at, status = 'good'
+  WHERE status = 'login_required';
+UPDATE plaid_items SET status = 'error' WHERE status NOT IN ('good', 'error', 'revoked');
 
 ALTER TABLE plaid_items
   ADD CONSTRAINT plaid_items_status_check
-  CHECK (status IN ('good', 'error', 'pending_disconnect', 'revoked'));
+  CHECK (status IN ('good', 'error', 'revoked'));

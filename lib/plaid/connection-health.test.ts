@@ -13,6 +13,7 @@ function input(overrides: Partial<ConnectionHealthInput> = {}): ConnectionHealth
     lastSuccessfulUpdate: hoursAgo(3),
     lastFailedUpdate: null,
     consentExpirationTime: null,
+    disconnectWarnedAt: null,
     statusCheckedAt: hoursAgo(1),
     createdAt: hoursAgo(24 * 90),
     ...overrides,
@@ -71,10 +72,24 @@ describe("deriveConnectionHealth", () => {
     });
 
     it("PENDING_DISCONNECT / PENDING_EXPIRATION webhook", () => {
-      expect(health({ status: "pending_disconnect" })).toEqual({
+      expect(health({ disconnectWarnedAt: hoursAgo(24) })).toEqual({
         state: "needs_repair",
         reason: "expiring",
       });
+    });
+
+    it("an expiry warning outranks a temporary institution outage", () => {
+      expect(
+        health({
+          status: "error",
+          errorCode: "INSTITUTION_DOWN",
+          disconnectWarnedAt: hoursAgo(24 * 3),
+        }).reason,
+      ).toBe("expiring");
+    });
+
+    it("a disconnect warning lapses after 14 days", () => {
+      expect(health({ disconnectWarnedAt: hoursAgo(24 * 15) }).state).toBe("ok");
     });
 
     it("consent expiring within 7 days, even without the webhook", () => {
